@@ -1,3 +1,0 @@
-include README.md
-include restapi/shapefile/*.*
-include restapi/test/*.py
