@@ -7,7 +7,7 @@
 #
 # Created:     10/29/2014
 # Copyright:   (c) calebma 2014
-# Licence:     BMI
+# Licence:     GNU
 #-------------------------------------------------------------------------------
 from rest_utils import *
 
