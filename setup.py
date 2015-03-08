@@ -9,6 +9,7 @@ setup(name='restapi',
       license='GPL',
       packages=['restapi'],
       install_requires=['requests'],
+      include_package_data=True,
       dependency_links=[
           'https://pypi.python.org/pypi/requests#downloads'
           ],
