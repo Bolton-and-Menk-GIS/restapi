@@ -172,61 +172,64 @@ class MapServiceLayer(BaseMapServiceLayer):
             get_all -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
         """
-        isShp = False
-        # dump to in_memory if output is shape to handle field truncation
-        if out_fc.endswith('.shp'):
-            isShp = True
-            shp_name = out_fc
-            out_fc = r'in_memory\temp_xxx'
+        if self.geometryType:
+            isShp = False
+            # dump to in_memory if output is shape to handle field truncation
+            if out_fc.endswith('.shp'):
+                isShp = True
+                shp_name = out_fc
+                out_fc = r'in_memory\temp_xxx'
 
-        arcpy.env.overwriteOutput = True
-        if not flds:
-            flds = '*'
-        if flds:
-            if flds == '*':
-                fields = self.fields
+            arcpy.env.overwriteOutput = True
+            if not flds:
+                flds = '*'
+            if flds:
+                if flds == '*':
+                    fields = self.fields
+                else:
+                    if isinstance(flds, list):
+                        pass
+                    elif isinstance(flds, basestring):
+                        flds = flds.split(',')
+                    fields = [f for f in self.fields if f.name in flds]
+
+            # make new feature class
+            if not sr:
+                sr = self.spatialReference
             else:
-                if isinstance(flds, list):
-                    pass
-                elif isinstance(flds, basestring):
-                    flds = flds.split(',')
-                fields = [f for f in self.fields if f.name in flds]
+                params['outSR'] = sr
+            g_type = G_DICT[self.geometryType]
+            path, fc_name = os.path.split(out_fc)
+            arcpy.CreateFeatureclass_management(path, fc_name, g_type,
+                                                spatial_reference=sr)
 
-        # make new feature class
-        if not sr:
-            sr = self.spatialReference
+            # add all fields
+            cur_fields = ['SHAPE@']
+            for fld in fields:
+                if fld.type not in (OID, SHAPE):
+                    if not any(['shape_' in fld.name.lower(),
+                                'shape.' in fld.name.lower(),
+                                '(shape)' in fld.name.lower()]):
+                        arcpy.AddField_management(out_fc, fld.name.split('.')[-1],
+                                                  FTYPES[fld.type],
+                                                  field_length=fld.length,
+                                                  field_alias=fld.alias)
+                        cur_fields.append(fld.name)
+
+            # insert cursor to write rows
+            with arcpy.da.InsertCursor(out_fc, [f.split('.')[-1] for f in cur_fields]) as irows:
+                for row in self.cursor(cur_fields, where, records, params, get_all).rows():
+                    irows.insertRow(row)
+
+            del irows
+
+            # if output is a shapefile
+            if isShp:
+                out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
+            print 'Created: "{0}"'.format(out_fc)
+            return out_fc
         else:
-            params['outSR'] = sr
-        g_type = G_DICT[self.geometryType]
-        path, fc_name = os.path.split(out_fc)
-        arcpy.CreateFeatureclass_management(path, fc_name, g_type,
-                                            spatial_reference=sr)
-
-        # add all fields
-        cur_fields = ['SHAPE@']
-        for fld in fields:
-            if fld.type not in (OID, SHAPE):
-                if not any(['shape_' in fld.name.lower(),
-                            'shape.' in fld.name.lower(),
-                            '(shape)' in fld.name.lower()]):
-                    arcpy.AddField_management(out_fc, fld.name.split('.')[-1],
-                                              FTYPES[fld.type],
-                                              field_length=fld.length,
-                                              field_alias=fld.alias)
-                    cur_fields.append(fld.name)
-
-        # insert cursor to write rows
-        with arcpy.da.InsertCursor(out_fc, [f.split('.')[-1] for f in cur_fields]) as irows:
-            for row in self.cursor(cur_fields, where, records, params, get_all).rows():
-                irows.insertRow(row)
-
-        del irows
-
-        # if output is a shapefile
-        if isShp:
-            out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
-        print 'Created: "{0}"'.format(out_fc)
-        return out_fc
+            print 'Cannot convert layer: "{0}" to feature class, Not a vector layer!'.format(self.name)
 
     def clip(self, poly, output, flds='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
