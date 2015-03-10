@@ -707,6 +707,11 @@ class BaseArcServer(object):
         return []
 
     @property
+    def mapServices(self):
+        """list of all MapServer objects"""
+        return [s for s in self.services if s.endswith('MapServer')]
+
+    @property
     def folders(self):
         """list of top directory services (unfolderized)"""
         if 'folders' in self.response:
@@ -914,7 +919,10 @@ class BaseMapServiceLayer(object):
 
         validate(self, ['fields', 'spatialReference'])
         self.fields_dict = self.response['fields']
-        self.fields = [Field(f) for f in self.fields_dict]
+        if self.fields_dict:
+            self.fields = [Field(f) for f in self.fields_dict]
+        else:
+            self.fields = []
 
     @property
     def OID(self):
