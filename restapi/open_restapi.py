@@ -246,47 +246,50 @@ class MapServiceLayer(BaseMapServiceLayer):
             get_all -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
         """
-        if not flds:
-            flds = '*'
-        if flds:
-            if flds == '*':
-                fields = self.fields
-            else:
-                if isinstance(flds, list):
-                    pass
-                elif isinstance(flds, basestring):
-                    flds = flds.split(',')
-                fields = [f for f in self.fields if f.name in flds]
+        if self.geometryType:
+            if not flds:
+                flds = '*'
+            if flds:
+                if flds == '*':
+                    fields = self.fields
+                else:
+                    if isinstance(flds, list):
+                        pass
+                    elif isinstance(flds, basestring):
+                        flds = flds.split(',')
+                    fields = [f for f in self.fields if f.name in flds]
 
-        # make new feature class
-        if not sr:
-            sr = self.spatialReference
-        g_type = G_DICT[self.geometryType]
+            # make new feature class
+            if not sr:
+                sr = self.spatialReference
+            g_type = G_DICT[self.geometryType]
 
-        # add all fields
-        w = shp_helper.shp(g_type, out_fc)
-        field_map = []
-        for fld in fields:
-            if fld.type not in (OID, SHAPE):
-                if not 'shape' in fld.name.lower():
-                    field_name = fld.name.split('.')[-1][:10]
-                    field_type = SHP_FTYPES[fld.type]
-                    field_length= str(fld.length)
-                    w.add_field(field_name, field_type, field_length)
-                    field_map.append((fld.name, field_name))
+            # add all fields
+            w = shp_helper.shp(g_type, out_fc)
+            field_map = []
+            for fld in fields:
+                if fld.type not in (OID, SHAPE):
+                    if not 'shape' in fld.name.lower():
+                        field_name = fld.name.split('.')[-1][:10]
+                        field_type = SHP_FTYPES[fld.type]
+                        field_length= str(fld.length)
+                        w.add_field(field_name, field_type, field_length)
+                        field_map.append((fld.name, field_name))
 
-        # search cursor to write rows
-        s_fields = ['SHAPE@'] + [f[0] for f in field_map]
-        cursor = self.cursor(s_fields, where, records, params, get_all)
-        for row in cursor.rows():
-            w.add_row(row[0], row[1:])
+            # search cursor to write rows
+            s_fields = ['SHAPE@'] + [f[0] for f in field_map]
+            cursor = self.cursor(s_fields, where, records, params, get_all)
+            for row in cursor.rows():
+                w.add_row(row[0], row[1:])
 
-        w.save()
-        print 'Created: "{0}"'.format(out_fc)
+            w.save()
+            print 'Created: "{0}"'.format(out_fc)
 
-        # write projection file
-        project(out_fc, sr)
-        return out_fc
+            # write projection file
+            project(out_fc, sr)
+            return out_fc
+        else:
+            print 'Cannot convert layer: "{0}" to feature class, Not a vector layer!'.format(self.name)
 
     def clip(self, poly, output, flds='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
