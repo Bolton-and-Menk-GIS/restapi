@@ -246,7 +246,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             get_all -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
         """
-        if self.geometryType:
+        if self.type == 'Feature Layer':
             if not flds:
                 flds = '*'
             if flds:
@@ -268,7 +268,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             w = shp_helper.shp(g_type, out_fc)
             field_map = []
             for fld in fields:
-                if fld.type not in (OID, SHAPE):
+                if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
                     if not 'shape' in fld.name.lower():
                         field_name = fld.name.split('.')[-1][:10]
                         field_type = SHP_FTYPES[fld.type]
@@ -289,7 +289,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             project(out_fc, sr)
             return out_fc
         else:
-            print 'Cannot convert layer: "{0}" to feature class, Not a vector layer!'.format(self.name)
+            print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
 
     def clip(self, poly, output, flds='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
