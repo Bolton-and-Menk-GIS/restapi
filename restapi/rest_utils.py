@@ -20,7 +20,8 @@ FTYPES = {'esriFieldTypeDate':'DATE',
           'esriFieldTypeInteger':'LONG',
           'esriFieldTypeGUID':'GUID',
           'esriFieldTypeRaster':'RASTER',
-          'esriFieldTypeGlobalID': 'GUID'}
+          'esriFieldTypeGlobalID': 'GUID',
+          'esriFieldTypeBlob': 'BLOB'}
 
 EXTRA ={'esriFieldTypeOID': 'OID@',
         'esriFieldTypeGeometry': 'SHAPE@'}
