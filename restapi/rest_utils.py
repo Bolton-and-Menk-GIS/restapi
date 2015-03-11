@@ -17,7 +17,9 @@ FTYPES = {'esriFieldTypeDate':'DATE',
           'esriFieldTypeSingle':'FLOAT',
           'esriFieldTypeDouble':'DOUBLE',
           'esriFieldTypeSmallInteger':'SHORT',
-          'esriFieldTypeInteger':'LONG',
+          'esriFieldTypeInteger':'LONG'}
+
+SKIP_FIELDS = {
           'esriFieldTypeGUID':'GUID',
           'esriFieldTypeRaster':'RASTER',
           'esriFieldTypeGlobalID': 'GUID',
@@ -550,13 +552,14 @@ class BaseCursor(object):
         self._all_fields = [Field(f) for f in layer_info['fields']]
         self.field_objects_string = fix_fields(self.url, fields, self.token)
         if fields == '*':
-            self.field_objects = self._all_fields
+            self.field_objects = [f for f in self._all_fields if f.type not in SKIP_FIELDS.keys()]
         else:
             self.field_objects = []
             for field in self.field_objects_string.split(','):
                 for fld in self._all_fields:
-                    if fld.name == field:
+                    if fld.name == field and fld.type not in SKIP_FIELDS.keys():
                         self.field_objects.append(fld)
+
         if get_all:
             self.records = None
             oid = [f.name for f in self._all_fields if f.type == OID][0]
