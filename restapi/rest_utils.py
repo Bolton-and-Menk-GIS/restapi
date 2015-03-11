@@ -31,7 +31,7 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryMultipoint': 'Multipoint',
           'esriGeometryEnvelope':'Envelope'}
 
-def _post(service, _params={'f': 'json'}, ret_json=True, token=''):
+def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -148,8 +148,8 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
     # create kmz file if requested
     if ret_form == 'kmz':
         import codecs
-        r = _post(endpoint, add_token(params, token), False)
-        name = _post(service_lyr)['name']
+        r = POST(endpoint, add_token(params, token), False)
+        name = POST(service_lyr)['name']
         r.encoding = 'zlib_codec'
 
         # write kmz using codecs
@@ -159,7 +159,7 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
         print 'Created: "{0}"'.format(kmz)
         return kmz
     else:
-        r = _post(endpoint, add_token(params, token))
+        r = POST(endpoint, add_token(params, token))
         if ret_form == 'json':
             return r
     return None
@@ -176,7 +176,7 @@ def get_layerID_by_name(service, name, token='', grp_lyr=False):
         grp_lyr -- default is false, does not return layer ID for group layers.  Set
             to true to search for group layers too.
     """
-    r = _post(service, add_token(token=token))
+    r = POST(service, add_token(token=token))
     if not 'layers' in r:
         return None
     all_layers = r['layers']
@@ -228,7 +228,7 @@ def list_fields(service_lyr, token=''):
         token -- token to handle security (only required if security is enabled)
     """
     try:
-        return [Field(f) for f in _post(service_lyr, add_token(token=token))['fields']]
+        return [Field(f) for f in POST(service_lyr, add_token(token=token))['fields']]
     except: return []
 
 def list_services(service, token='', filterer=True):
@@ -243,7 +243,7 @@ def list_services(service, token='', filterer=True):
             set to false to list all services.
     """
     all_services = []
-    r = _post(service, add_token(token=token))
+    r = POST(service, add_token(token=token))
     for s in r['services']:
         all_services.append('/'.join([service, s['name'], s['type']]))
     folders = r['folders']
@@ -254,7 +254,7 @@ def list_services(service, token='', filterer=True):
             except: pass
     for s in folders:
         new = '/'.join([service, s])
-        endpt = _post(new, add_token(token=token))
+        endpt = POST(new, add_token(token=token))
         for serv in endpt['services']:
            all_services.append('/'.join([service, serv['name'], serv['type']]))
     return all_services
@@ -270,7 +270,7 @@ def iter_services(service, token='', filterer=True):
         filterer -- default is true to exclude "Utilities" and "System" folders,
             set to false to list all services.
     """
-    r = _post(service, add_token(token=token))
+    r = POST(service, add_token(token=token))
     for s in r['services']:
         yield '/'.join([service, s['name'], s['type']])
     folders = r['folders']
@@ -281,7 +281,7 @@ def iter_services(service, token='', filterer=True):
             except: pass
     for s in folders:
         new = '/'.join([service, s])
-        endpt = _post(new, add_token(token=token))
+        endpt = POST(new, add_token(token=token))
         for serv in endpt['services']:
            yield '/'.join([service, serv['name'], serv['type']])
 
@@ -303,7 +303,7 @@ def list_layers(service, token=''):
     Optional:
         token -- token to handle security (only required if security is enabled)
     """
-    r = _post(service, add_token(token=token))
+    r = POST(service, add_token(token=token))
     if 'layers' in r:
         return [Layer(p) for p in r['layers']]
     return []
@@ -317,7 +317,7 @@ def list_tables(service, token=''):
     Optional:
         token -- token to handle security (only required if security is enabled)
     """
-    r = _post(service, add_token(token=token))
+    r = POST(service, add_token(token=token))
     if 'tables' in r:
         return [Table(p) for p in r['tables']]
     return []
@@ -354,7 +354,7 @@ def generate_token(url, user='', pw=''):
     ref, ip = '', ''
     use_body = False
     base = url.split('/rest')[0] + '/tokens'
-    version = _post(url.split('arcgis')[0] + 'arcgis/rest/services')
+    version = POST(url.split('arcgis')[0] + 'arcgis/rest/services')
 
     # changed at 10.3, must pass credentials through body now and differnt URL
     if 'currentVersion' in version:
@@ -370,7 +370,7 @@ def generate_token(url, user='', pw=''):
         # must use requets.post() to pass data through body
         r = requests.post(url=base, data=params).json() #use data
     else:
-        r = _post(base, params)
+        r = POST(base, params)
     if 'token' in r:
         return r['token']
     return None
@@ -453,7 +453,7 @@ def walk(url, filterer=True, token=''):
         print services
         print '\n\n'
     """
-    r = _post(url, token=token)
+    r = POST(url, token=token)
     services = []
     for s in r['services']:
         services.append('/'.join([s['name'], s['type']]))
@@ -467,7 +467,7 @@ def walk(url, filterer=True, token=''):
 
     for f in folders:
         new = '/'.join([url, f])
-        endpt = _post(new, token=token)
+        endpt = POST(new, token=token)
         services = []
         for serv in endpt['services']:
            services.append('/'.join([serv['name'], serv['type']]))
@@ -484,7 +484,7 @@ class Folder(object):
     def __init__(self, folder_url, token=''):
         self.url = folder_url.rstrip('/')
         self.token = token
-        self.response = _post(self.url, token=self.token)
+        self.response = POST(self.url, token=self.token)
         for key, value in self.response.iteritems():
             if key.lower() != 'services':
                 setattr(self, key, value)
@@ -545,7 +545,7 @@ class BaseCursor(object):
         self.url = url
         self.token = token
         self.records = records
-        layer_info = _post(self.url, token=self.token)
+        layer_info = POST(self.url, token=self.token)
         self._all_fields = [Field(f) for f in layer_info['fields']]
         self.field_objects_string = fix_fields(self.url, fields, self.token)
         if fields == '*':
@@ -683,7 +683,7 @@ class BaseArcServer(object):
                 self.token = generate_token(self.url, usr, pw)
                 if self.token:
                     params['token'] = self.token
-        self.raw_response = _post(self.url, params, ret_json=False)
+        self.raw_response = POST(self.url, params, ret_json=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
@@ -812,7 +812,7 @@ class BaseMapService(object):
                     params['token'] = self.token
         else:
             params['token'] = self.token
-        self.raw_response = _post(self.url, params, ret_json=False)
+        self.raw_response = POST(self.url, params, ret_json=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
@@ -913,7 +913,7 @@ class BaseMapServiceLayer(object):
                     params['token'] = self.token
         else:
             params['token'] = self.token
-        self.response = _post(self.url, add_token(token=self.token))
+        self.response = POST(self.url, add_token(token=self.token))
         for key, value in self.response.iteritems():
             setattr(self, key, value)
 
@@ -1000,7 +1000,7 @@ class BaseImageService(object):
                     params['token'] = self.token
         else:
             params['token'] = self.token
-        self.raw_response = _post(self.url, params, ret_json=False)
+        self.raw_response = POST(self.url, params, ret_json=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
