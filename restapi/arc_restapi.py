@@ -312,7 +312,7 @@ class ImageService(BaseImageService):
             }
 
         # post request
-        r = _post(query_url, p, token=self.token)
+        r = POST(query_url, p, token=self.token)
 
         # check for errors
         if 'error' in r:
