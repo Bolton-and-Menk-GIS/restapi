@@ -496,8 +496,6 @@ class Folder(object):
         for key, value in self.response.iteritems():
             if key.lower() != 'services':
                 setattr(self, key, value)
-    __slots__ = ['url', 'folders', 'token', 'currentVersion', 'response',
-                 'name', 'services', 'list_services']
 
     @property
     def name(self):
@@ -512,6 +510,9 @@ class Folder(object):
     def list_services(self):
         """method to list services"""
         return [s.name for s in self.services]
+
+    __slots__ = ['url', 'folders', 'token', 'currentVersion', 'response',
+                 'name', 'services', 'list_services']
 
 class Domain(object):
     """class to handle field domain object"""
