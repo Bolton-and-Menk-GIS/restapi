@@ -336,7 +336,11 @@ def validate(obj, filterer=[]):
         filterer -- list of object dictionary keys to skip
     """
     filterer.append('response')
-    for prop in obj.__dict__.keys():
+    if hasattr(obj, '__dict__'):
+        atts = obj.__dict__.keys()
+    elif hasattr(obj, '__slots__'):
+        atts = obj.__slots__
+    for prop in atts:
         p = getattr(obj, prop)
         if isinstance(p, dict) and prop not in filterer:
             setattr(obj, prop, type(prop, (object,), p))
@@ -481,6 +485,7 @@ class Service(object):
     def __init__(self, service_dict):
         for key, value in service_dict.iteritems():
             setattr(self, key, value)
+    __slots__ = ['name', 'type']
 
 class Folder(object):
     """class to handle ArcGIS REST Folder"""
@@ -491,6 +496,8 @@ class Folder(object):
         for key, value in self.response.iteritems():
             if key.lower() != 'services':
                 setattr(self, key, value)
+    __slots__ = ['url', 'folders', 'token', 'currentVersion', 'response',
+                 'name', 'services', 'list_services']
 
     @property
     def name(self):
@@ -506,25 +513,50 @@ class Folder(object):
         """method to list services"""
         return [s.name for s in self.services]
 
+class Domain(object):
+    """class to handle field domain object"""
+    def __init__(self, dom_dict):
+        for k,v in dom_dict.iteritems():
+            setattr(self, k, v)
+        self.values = {}
+        if self.type == 'codedValue':
+            for d in self.codedValues:
+                self.values[d['code']] = d['name']
+
+    def print_values(self):
+        """method to print values"""
+        for k,v in sorted(self.values.iteritems()):
+            print k,':', v
+
 class Field(object):
     """class for field to handle field info (name, alias, type, length)"""
     def __init__(self, f_dict):
         self.length = ''
+        self.domain = ''
         for key, value in f_dict.items():
-            setattr(self, key, value)
+            if key != 'domain':
+                setattr(self, key, value)
+            else:
+                if value:
+                    setattr(self, key, Domain(value))
+                else:
+                    setattr(self, key, value)
+    __slots__ = ['name', 'alias', 'type', 'length', 'domain']
 
 class Layer(object):
     """class to handle basic layer info"""
     def __init__(self, lyr_dict):
         for key, value in lyr_dict.items():
             setattr(self, key, value)
+    __slots__ = ['subLayerIds', 'name', 'maxScale', 'defaultVisibility',
+                 'parentLayerId', 'minScale', 'id']
 
 class Table(object):
     """class to handle table info"""
     def __init__(self, tab_dict):
         for key, value in tab_dict.items():
             setattr(self, key, value)
-        validate(self)
+    __slots__ = ['id', 'name']
 
 class BaseCursor(object):
     """class to handle query returns"""
