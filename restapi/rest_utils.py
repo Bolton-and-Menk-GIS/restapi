@@ -34,6 +34,10 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryMultipoint': 'Multipoint',
           'esriGeometryEnvelope':'Envelope'}
 
+def Round(x, base=5):
+    """round to nearest n"""
+    return int(base * round(float(x)/base))
+
 def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
@@ -1060,6 +1064,18 @@ class BaseImageService(object):
     def print_info(self):
         """Method to print all properties of service"""
         _print_info(self)
+
+    def adjustbbox(self, boundingBox):
+        """method to adjust bounding box for image clipping to maintain
+        cell size.
+
+        Required:
+            boundingBox -- bounding box string (comma separated)
+        """
+        cell_size = int(self.pixelSizeX)
+        if isinstance(boundingBox, basestring):
+            boundingBox = boundingBox.split(',')
+        return ','.join(map(str, map(lambda x: Round(x, cell_size), boundingBox)))
 
     def refresh(self):
         """refreshes the ImageService"""
