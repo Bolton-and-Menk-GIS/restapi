@@ -292,12 +292,17 @@ class ImageService(BaseImageService):
         geojson = poly_to_json(poly, envelope)
         desc = arcpy.Describe(poly)
         e = desc.extent
-        bbox = ','.join(map(str, [e.XMin, e.YMin, e.XMax, e.YMax]))
+        bbox = self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax])
         sr = desc.spatialReference.factoryCode
 
         # check for raster function availability
         if not self.allowRasterFunction:
             rendering_rule = ''
+
+        # find width and height for image size (round to whole number)
+        bbox_int = map(int, bbox.split(','))
+        width = abs(bbox_int[0] - bbox_int[2])
+        height = abs(bbox_int[1] - bbox_int[3])
 
         # set params
         p = {'f':'pjson',
@@ -306,6 +311,7 @@ class ImageService(BaseImageService):
              'format': 'tiff',
              'imageSR': sr,
              'bboxSR': sr,
+             'size': '{0},{1}'.format(width,height),
              'pixelType': self.pixelType,
              'noDataInterpretation': 'esriNoMatchAny',
              'interpolation': interp
