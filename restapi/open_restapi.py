@@ -337,9 +337,14 @@ class ImageService(BaseImageService):
             out_raster = os.path.splitext(out_raster)[0] + '.tif'
         query_url = '/'.join([self.url, 'exportImage'])
         geojson = poly_to_json(poly, envelope)
-        bbox = get_bbox(poly)
+        bbox = self.adjustbbox(get_bbox(poly))
         if not sr:
             sr = self.spatialReference
+
+        # find width and height for image size (round to pixel size)
+        bbox_int = map(int, bbox.split(','))
+        width = abs(bbox_int[0] - bbox_int[2])
+        height = abs(bbox_int[1] - bbox_int[3])
 
         # check for raster function availability
         if not self.allowRasterFunction:
@@ -348,10 +353,11 @@ class ImageService(BaseImageService):
         # set params
         p = {'f':'pjson',
              'renderingRule': rendering_rule,
-             'bbox':bbox,
+             'bbox': bbox,
              'format': 'tiff',
              'imageSR': sr,
              'bboxSR': sr,
+             'size': '{0},{1}'.format(width, height),
              'pixelType': self.pixelType,
              'noDataInterpretation': 'esriNoMatchAny',
              'interpolation': interp
