@@ -104,6 +104,25 @@ class MapService(BaseMapService):
         else:
             print 'Layer "{0}" not found!'.format(name)
 
+    def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, get_all=False):
+        """Cusor object to handle queries to rest endpoints
+
+        Required:
+           layer_name -- name of layer in map service
+
+        Optional:
+            fields -- option to limit fields returned.  All are returned by default
+            where -- where clause for cursor
+            records -- number of records to return (within bounds of max record count)
+            token --
+            add_params -- option to add additional search parameters
+            get_all -- option to get all records in layer.  This option may be time consuming
+                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
+                must be performed in chunks to get all records
+        """
+        lyr = get_layer_url(self.url, layer_name, self.token)
+        return Cursor(lyr, fields, where, records, self.token, add_params, get_all)
+
     def layer_to_fc(self, layer_name, out_fc, sr=None,
                     where='1=1', params={}, flds='*',
                     records=None, get_all=False):
