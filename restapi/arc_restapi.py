@@ -341,7 +341,9 @@ class ImageService(BaseImageService):
 
         # check for errors
         if 'error' in r:
-            print 'Error: {0}'.format(r['error']['messages'])
+            if 'details' in r['error']:
+                raise RuntimeError('\n'.join(r['error']['details']))
+
         elif 'href' in r:
             tiff = urllib.urlopen(r['href'].strip()).read()
             with open(out_raster, 'wb') as f:
