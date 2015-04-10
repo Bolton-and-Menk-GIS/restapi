@@ -191,15 +191,18 @@ class MapServiceLayer(BaseMapServiceLayer):
             get_all -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
         """
+        try:
+            # having issues if ran from Python Window in ArcMap
+            arcpy.env.addOutputsToMap = False
+        except:
+            pass
         if self.type == 'Feature Layer':
             isShp = False
             # dump to in_memory if output is shape to handle field truncation
             if out_fc.endswith('.shp'):
                 isShp = True
                 shp_name = out_fc
-                out_fc = os.path.join(arcpy.env.scratchGDB, 'temp_xxx')
-                if arcpy.Exists(out_fc):
-                    arcpy.management.Delete(out_fc)
+                out_fc = r'in_memory\temp_xxx'
 
             arcpy.env.overwriteOutput = True
             if not flds:
@@ -230,7 +233,9 @@ class MapServiceLayer(BaseMapServiceLayer):
                 if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
                     if not any(['shape_' in fld.name.lower(),
                                 'shape.' in fld.name.lower(),
-                                '(shape)' in fld.name.lower()]):
+                                '(shape)' in fld.name.lower(),
+                                'ojbectid' in fld.name.lower(),
+                                fld.name.lower() == 'fid']):
                         arcpy.AddField_management(out_fc, fld.name.split('.')[-1],
                                                   FTYPES[fld.type],
                                                   field_length=fld.length,
