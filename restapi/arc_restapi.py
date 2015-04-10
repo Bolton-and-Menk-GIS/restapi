@@ -197,7 +197,9 @@ class MapServiceLayer(BaseMapServiceLayer):
             if out_fc.endswith('.shp'):
                 isShp = True
                 shp_name = out_fc
-                out_fc = r'in_memory\temp_xxx'
+                out_fc = os.path.join(arcpy.env.scratchGDB, 'temp_xxx')
+                if arcpy.Exists(out_fc):
+                    arcpy.management.Delete(out_fc)
 
             arcpy.env.overwriteOutput = True
             if not flds:
