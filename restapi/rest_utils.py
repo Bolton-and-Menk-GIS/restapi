@@ -486,13 +486,15 @@ def walk(url, filterer=True, token=''):
 
 class Service(object):
     """class to handle ArcGIS REST Service (basic info)"""
+    __slots__ = ['name', 'type']
     def __init__(self, service_dict):
         for key, value in service_dict.iteritems():
             setattr(self, key, value)
-    __slots__ = ['name', 'type']
 
 class Folder(object):
     """class to handle ArcGIS REST Folder"""
+    __slots__ = ['url', 'folders', 'token', 'currentVersion', 'response',
+                 'name', 'services', 'list_services']
     def __init__(self, folder_url, token=''):
         self.url = folder_url.rstrip('/')
         self.token = token
@@ -513,10 +515,7 @@ class Folder(object):
 
     def list_services(self):
         """method to list services"""
-        return [s.name for s in self.services]
-
-    __slots__ = ['url', 'folders', 'token', 'currentVersion', 'response',
-                 'name', 'services', 'list_services']
+        return ['/'.join([s.name, s.type]) for s in self.services]
 
 class Domain(object):
     """class to handle field domain object"""
@@ -535,6 +534,7 @@ class Domain(object):
 
 class Field(object):
     """class for field to handle field info (name, alias, type, length)"""
+    __slots__ = ['name', 'alias', 'type', 'length', 'domain']
     def __init__(self, f_dict):
         self.length = ''
         self.domain = ''
@@ -546,22 +546,21 @@ class Field(object):
                     setattr(self, key, Domain(value))
                 else:
                     setattr(self, key, value)
-    __slots__ = ['name', 'alias', 'type', 'length', 'domain']
 
 class Layer(object):
     """class to handle basic layer info"""
+    __slots__ = ['subLayerIds', 'name', 'maxScale', 'defaultVisibility',
+                 'parentLayerId', 'minScale', 'id']
     def __init__(self, lyr_dict):
         for key, value in lyr_dict.items():
             setattr(self, key, value)
-    __slots__ = ['subLayerIds', 'name', 'maxScale', 'defaultVisibility',
-                 'parentLayerId', 'minScale', 'id']
 
 class Table(object):
     """class to handle table info"""
+    __slots__ = ['id', 'name']
     def __init__(self, tab_dict):
         for key, value in tab_dict.items():
             setattr(self, key, value)
-    __slots__ = ['id', 'name']
 
 class BaseCursor(object):
     """class to handle query returns"""
