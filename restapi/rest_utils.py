@@ -1,6 +1,5 @@
 """Helper functions and base classes for restapi module"""
 import requests
-import socket
 import getpass
 import fnmatch
 import datetime
@@ -362,7 +361,7 @@ def generate_token(url, user='', pw=''):
     """
     if not pw:
         pw = getpass.getpass('Type password and hit Enter:\n')
-    ref, ip = '', ''
+    ref = ''
     use_body = False
     base = url.split('/rest')[0] + '/tokens'
     version = POST(url.split('arcgis')[0] + 'arcgis/rest/services')
@@ -372,10 +371,12 @@ def generate_token(url, user='', pw=''):
         if float('.'.join(str(version['currentVersion']).split('.')[:2])) >= 10.3:
             use_body = True
             base += '/generateToken'
-    ip = socket.gethostbyname(socket.gethostname())
-    params = {'f': 'json', 'username': user,
-              'password': pw, 'client': 'requestip',
-              'referer': ref, 'ip': ip}
+
+    params = {'f': 'json',
+              'username': user,
+              'password': pw,
+              'client': 'requestip',
+              'referer': ref}
 
     if use_body:
         # must use requets.post() to pass data through body
