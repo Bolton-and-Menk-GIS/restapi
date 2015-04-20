@@ -365,6 +365,11 @@ def generate_token(url, user='', pw=''):
     use_body = False
     base = url.split('/rest')[0] + '/tokens'
     version = POST(url.split('arcgis')[0] + 'arcgis/rest/services')
+    params = {'f': 'json',
+              'username': user,
+              'password': pw,
+              'client': 'requestip',
+              'referer': ref}
 
     # changed at 10.3, must pass credentials through body now and differnt URL
     if 'currentVersion' in version:
@@ -372,15 +377,8 @@ def generate_token(url, user='', pw=''):
             use_body = True
             base += '/generateToken'
 
-    params = {'f': 'json',
-              'username': user,
-              'password': pw,
-              'client': 'requestip',
-              'referer': ref}
-
-    if use_body:
-        # must use requets.post() to pass data through body
-        r = requests.post(url=base, data=params).json() #use data
+        # must pass data through body, not query string
+        r = requests.post(url=base, data=params).json()
     else:
         r = POST(base, params)
     if 'token' in r:
