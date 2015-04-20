@@ -485,6 +485,12 @@ def walk(url, filterer=True, token=''):
            services.append('/'.join([serv['name'], serv['type']]))
         yield (f, endpt['folders'], services)
 
+class RequestError(object):
+    """class to handle restapi request errors"""
+    def __init__(self, err):
+        if 'error' in err:
+            raise RuntimeError('\n' + '\n'.join(' : '.join(map(str, [k,v])) for k,v in err['error'].items()))
+
 class Service(object):
     """class to handle ArcGIS REST Service (basic info)"""
     __slots__ = ['name', 'type']
@@ -562,6 +568,38 @@ class Table(object):
     def __init__(self, tab_dict):
         for key, value in tab_dict.items():
             setattr(self, key, value)
+
+class GPParam(object):
+    """class to handle GP Parameter Info"""
+    __slots__ = ['name', 'dataType', 'displayName','description', 'paramInfo',
+                 'direction', 'defaultValue', 'parameterType', 'category']
+    def __init__(self, p_dict):
+        for key, value in p_dict.items():
+            setattr(self, key, value)
+        self.paramInfo = p_dict
+
+class GPResult(object):
+    """class to handle GP Result"""
+    def __init__(self, res_dict):
+        self.response = res_dict
+        if 'results' in res_dict:
+            for k,v in res_dict['results'][0].items():
+                setattr(self, k, v)
+        else:
+            RequestError(res_dict)
+
+    @property
+    def messages(self):
+        """return messages as JSON"""
+        if 'messages' in self.response:
+            return self.response['messages']
+        else:
+            return []
+
+    def print_messages(self):
+        """prints all the GP messages"""
+        for msg in self.messages:
+            print msg['description']
 
 class BaseCursor(object):
     """class to handle query returns"""
@@ -703,19 +741,18 @@ class BaseRow(object):
         for field, value in self.atts.iteritems():
             setattr(self, field, value)
 
-class BaseArcServer(object):
-    """Class to handle ArcGIS Server Connection"""
+class RESTEndpoint(object):
+    """Base REST Endpoint Object to handle credentials and get JSON response
+
+    Required:
+        url -- image service url
+
+    Optional (below params only required if security is enabled):
+        usr -- username credentials for ArcGIS Server
+        pw -- password credentials for ArcGIS Server
+        token -- token to handle security (alternative to usr and pw)
+    """
     def __init__(self, url, usr='', pw='', token=''):
-        """ArcGIS Server Object
-
-        Required:
-            url -- url to ArcGIS REST Services directory
-
-        Optional:
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-        """
         self.url = url.rstrip('/')
         params = {'f': 'json'}
         self.token = token
@@ -724,11 +761,23 @@ class BaseArcServer(object):
                 self.token = generate_token(self.url, usr, pw)
                 if self.token:
                     params['token'] = self.token
+        else:
+            params['token'] = self.token
         self.raw_response = POST(self.url, params, ret_json=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
             self.print_info()
+
+    def print_info(self):
+        """Method to print all properties of service"""
+        _print_info(self)
+
+class BaseArcServer(RESTEndpoint):
+    """Class to handle ArcGIS Server Connection"""
+    def __init__(self, url, usr='', pw='', token=''):
+        super(BaseArcServer, self).__init__(url, usr, pw, token)
+
         for key, value in self.response.iteritems():
             if key.lower() not in ('services', 'folders'):
                 setattr(self, key, value)
@@ -830,34 +879,11 @@ class BaseArcServer(object):
         """refreshes the MapService"""
         self.__init__(self.url, token=self.token)
 
-class BaseMapService(object):
+class BaseMapService(RESTEndpoint):
     """Class to handle map service and requests"""
     def __init__(self, url, usr='', pw='', token=''):
-        """MapService Object
+        super(BaseMapService, self).__init__(url, usr, pw, token)
 
-        Required:
-            url -- map service url
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-        """
-        self.url = url.rstrip('/')
-        params = {'f': 'json'}
-        self.token = token
-        if not self.token:
-            if usr and pw:
-                self.token = generate_token(self.url, usr, pw)
-                if self.token:
-                    params['token'] = self.token
-        else:
-            params['token'] = self.token
-        self.raw_response = POST(self.url, params, ret_json=False)
-        self.elapsed = self.raw_response.elapsed
-        self.response = self.raw_response.json()
-        if 'error' in self.response:
-            self.print_info()
         self.layers = []
         self.tables = []
         if 'layers' in self.response:
@@ -922,20 +948,11 @@ class BaseMapService(object):
         """refreshes the MapService"""
         self.__init__(self.url, token=self.token)
 
-class BaseMapServiceLayer(object):
+class BaseMapServiceLayer(RESTEndpoint):
     """Class to handle advanced layer properties"""
     def __init__(self, url='', usr='', pw='', token=''):
-        params = {'f': 'json'}
-        self.url = url
-        self.token = token
-        if not self.token:
-            if usr and pw:
-                self.token = generate_token(self.url, usr, pw)
-                if self.token:
-                    params['token'] = self.token
-        else:
-            params['token'] = self.token
-        self.response = POST(self.url, add_token(token=self.token))
+        super(BaseMapServiceLayer, self).__init__(url, usr, pw, token)
+
         for key, value in self.response.iteritems():
             setattr(self, key, value)
 
@@ -999,34 +1016,10 @@ class BaseMapServiceLayer(object):
         """refreshes the MapServiceLayer"""
         self.__init__(self.url, token=self.token)
 
-class BaseImageService(object):
-    """Class to handle map service and requests"""
+class BaseImageService(RESTEndpoint):
+    """Class to handle Image service and requests"""
     def __init__(self, url, usr='', pw='', token=''):
-        """MapService Object
-
-        Required:
-            url -- image service url
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-        """
-        self.url = url.rstrip('/')
-        params = {'f': 'json'}
-        self.token = token
-        if not self.token:
-            if usr and pw:
-                self.token = generate_token(self.url, usr, pw)
-                if self.token:
-                    params['token'] = self.token
-        else:
-            params['token'] = self.token
-        self.raw_response = POST(self.url, params, ret_json=False)
-        self.elapsed = self.raw_response.elapsed
-        self.response = self.raw_response.json()
-        if 'error' in self.response:
-            self.print_info()
+        super(BaseImageService, self).__init__(url, usr, pw, token)
 
         for k, v in self.response.iteritems():
             if k != 'spatialReference':
@@ -1061,3 +1054,76 @@ class BaseImageService(object):
     def refresh(self):
         """refreshes the ImageService"""
         self.__init__(self.url, token=self.token)
+
+class GPService(RESTEndpoint):
+    """ Class to handle GP Service Object"""
+    def __init__self(self, url, usr='', pw='', token=''):
+        super(GPService, self).__init__(url, usr, pw, token)
+
+    @property
+    def isSynchronous(self):
+        return self.executionType == 'esriExecutionTypeSynchronous'
+
+    @property
+    def isAsynchronous(self):
+        return self.executionType == 'esriExecutionTypeAsynchronous'
+
+    def task(self, name):
+        return GPTask('/'.join([self.url, name]),token=self.token)
+
+class GPTask(GPService):
+    """class to handle GP Task"""
+    def __init__(self, url, usr='', pw='', token=''):
+        super(GPTask, self).__init__(url, usr, pw, token)
+
+        for key,value in self.response.iteritems():
+            if key != 'parameters':
+                setattr(self, key, value)
+
+    @property
+    def parameters(self):
+        """returns list of GPParam objects"""
+        return [GPParam(pd) for pd in self.response['parameters']]
+
+    def list_parameters(self):
+        """lists the parameter names"""
+        return [p.name for p in self.parameters]
+
+    def run(self, params_json={}, outSR='', processSR='', returnZ=False, returnM=False, **kwargs):
+        """Runs a Syncrhonous/Asynchronous GP task, automatically uses appropriate option
+
+        Required:
+            task -- name of task to run
+            params_json -- JSON object with {parameter_name: value, param2: value2, ...}
+
+        Optional:
+            outSR -- spatial reference for output geometries
+            processSR -- spatial reference used for geometry opterations
+            returnZ -- option to return Z values with data if applicable
+            returnM -- option to return M values with data if applicable
+            kwargs -- keyword arguments, can substitute this to pass in GP params instead of
+                using the params_json dictionary.  Only valid if no params_json
+        """
+        if self.isSynchronous:
+            runType = 'execute'
+        else:
+            runType = 'submitJob'
+        gp_exe_url = '/'.join([self.url, runType])
+        if not params_json:
+            params_json = {}
+            for k,v in kwargs.iteritems():
+                params_json[k] = v
+        params_json['env:outSR'] = outSR
+        params_json['env:processSR'] = processSR
+        params_json['returnZ'] = returnZ
+        params_json['returnM'] = returnZ
+        params_json['f'] = 'json'
+        params_json['token'] = self.token
+        r = requests.post(gp_exe_url, params_json).json()
+
+        # return result object
+        return GPResult(r)
+
+    def task(self, name=None):
+        """override task, redundant because this object is already a GP Task"""
+        return self
