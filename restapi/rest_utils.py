@@ -1042,6 +1042,9 @@ class GPService(RESTEndpoint):
     def __init__self(self, url, usr='', pw='', token=''):
         super(GPService, self).__init__(url, usr, pw, token)
 
+        for key, value in self.response.items():
+            setattr(self, key, value)
+
     @property
     def isSynchronous(self):
         return self.executionType == 'esriExecutionTypeSynchronous'
@@ -1051,6 +1054,7 @@ class GPService(RESTEndpoint):
         return self.executionType == 'esriExecutionTypeAsynchronous'
 
     def task(self, name):
+        """returns a GP Task object"""
         return GPTask('/'.join([self.url, name]),token=self.token)
 
 class GPTask(GPService):
