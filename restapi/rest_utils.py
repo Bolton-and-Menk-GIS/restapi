@@ -487,7 +487,7 @@ class RequestError(object):
     """class to handle restapi request errors"""
     def __init__(self, err):
         if 'error' in err:
-            raise RuntimeError('\n' + '\n'.join(' : '.join(map(str, [k,v])) for k,v in err['error'].items()))
+            raise RuntimeError('\n' + '\n'.join('{} : {}'.format(k,v) for k,v in err['error'].items()))
 
 class Service(object):
     """class to handle ArcGIS REST Service (basic info)"""
@@ -842,10 +842,6 @@ class BaseArcServer(RESTEndpoint):
         print '"{0}" not found in services'.format(wildcard)
         return ''
 
-    def print_info(self):
-        """Method to print all properties of service"""
-        _print_info(self)
-
     def get_folders(self):
         """method to get folder objects"""
         folder_objects = []
@@ -938,10 +934,6 @@ class BaseMapService(RESTEndpoint):
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params)
 
-    def print_info(self):
-        """Method to print all properties of service"""
-        _print_info(self)
-
     def refresh(self):
         """refreshes the MapService"""
         self.__init__(self.url, token=self.token)
@@ -988,10 +980,6 @@ class BaseMapServiceLayer(RESTEndpoint):
         except:
             return None
 
-    def print_info(self):
-        """Method to print all layer info"""
-        _print_info(self)
-
     def list_fields(self):
         """method to list field names"""
         return [f.name for f in self.fields]
@@ -1032,10 +1020,6 @@ class BaseImageService(RESTEndpoint):
                 return self.extent.spatialReference['wkid']
         except:
             return None
-
-    def print_info(self):
-        """Method to print all properties of service"""
-        _print_info(self)
 
     def adjustbbox(self, boundingBox):
         """method to adjust bounding box for image clipping to maintain
