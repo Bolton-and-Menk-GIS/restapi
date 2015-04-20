@@ -686,7 +686,7 @@ class BaseCursor(object):
         """returns the spatial Reference for features"""
         if 'spatialReference' in self.response:
             if 'latestWkid' in self.response['spatialReference']:
-                    return self.response['spatialReference']['latestWkid']
+                return self.response['spatialReference']['latestWkid']
             elif 'wkid' in self.repsonse['spatialReference']:
                 return self.response['spatialReference']['wkid']
         else:
@@ -1045,19 +1045,11 @@ class GPService(RESTEndpoint):
         for key, value in self.response.iteritems():
             setattr(self, key, value)
 
-    @property
-    def isSynchronous(self):
-        return self.executionType == 'esriExecutionTypeSynchronous'
-
-    @property
-    def isAsynchronous(self):
-        return self.executionType == 'esriExecutionTypeAsynchronous'
-
-    def task(self, name):
+    def task(self, name=self.tasks[0]):
         """returns a GP Task object"""
-        return GPTask('/'.join([self.url, name]),token=self.token)
+        return GPTask('/'.join([self.url, name]), token=self.token)
 
-class GPTask(GPService):
+class GPTask(RESTEndpoint):
     """class to handle GP Task"""
     def __init__(self, url, usr='', pw='', token=''):
         super(GPTask, self).__init__(url, usr, pw, token)
@@ -1065,6 +1057,14 @@ class GPTask(GPService):
         for key,value in self.response.iteritems():
             if key != 'parameters':
                 setattr(self, key, value)
+
+    @property
+    def isSynchronous(self):
+        return self.executionType == 'esriExecutionTypeSynchronous'
+
+    @property
+    def isAsynchronous(self):
+        return self.executionType == 'esriExecutionTypeAsynchronous'
 
     @property
     def parameters(self):
@@ -1087,8 +1087,8 @@ class GPTask(GPService):
             processSR -- spatial reference used for geometry opterations
             returnZ -- option to return Z values with data if applicable
             returnM -- option to return M values with data if applicable
-            kwargs -- keyword arguments, can substitute this to pass in GP params instead of
-                using the params_json dictionary.  Only valid if no params_json
+            kwargs -- keyword arguments, can substitute this to pass in GP params by name instead of
+                using the params_json dictionary.  Only valid if params_json dictionary is not supplied.
         """
         if self.isSynchronous:
             runType = 'execute'
@@ -1109,7 +1109,3 @@ class GPTask(GPService):
 
         # return result object
         return GPResult(r)
-
-    def task(self, name=None):
-        """override task, redundant because this object is already a GP Task"""
-        return self
