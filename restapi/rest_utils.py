@@ -1039,10 +1039,10 @@ class BaseImageService(RESTEndpoint):
 
 class GPService(RESTEndpoint):
     """ Class to handle GP Service Object"""
-    def __init__self(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token=''):
         super(GPService, self).__init__(url, usr, pw, token)
 
-        for key, value in self.response.items():
+        for key, value in self.response.iteritems():
             setattr(self, key, value)
 
     @property
