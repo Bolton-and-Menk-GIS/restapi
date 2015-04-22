@@ -3,6 +3,8 @@ import requests
 import getpass
 import fnmatch
 import datetime
+import collections
+import json
 import os
 from itertools import izip_longest
 
@@ -32,6 +34,8 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryPolyline': 'Polyline',
           'esriGeometryMultipoint': 'Multipoint',
           'esriGeometryEnvelope':'Envelope'}
+
+FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 
 def Round(x, base=5):
     """round to nearest n"""
@@ -428,7 +432,7 @@ def _print_info(obj):
     if hasattr(obj, 'response'):
         for attr, value in sorted(obj.response.iteritems()):
             if attr != 'response':
-                if attr in ('layers', 'tables', 'fields'):
+                if attr in ('layers', 'tables', 'fields') or 'fields' in attr.lower():
                     print '\n{0}:'.format(attr.title())
                     for layer in value:
                         print '\n'.join('\t{0}: {1}'.format(k,v)
@@ -539,10 +543,11 @@ class Domain(object):
 
 class Field(object):
     """class for field to handle field info (name, alias, type, length)"""
-    __slots__ = ['name', 'alias', 'type', 'length', 'domain']
+    __slots__ = ['name', 'alias', 'type', 'length', 'domain', 'required']
     def __init__(self, f_dict):
         self.length = ''
         self.domain = ''
+        self.required = ''
         for key, value in f_dict.items():
             if key != 'domain':
                 setattr(self, key, value)
@@ -572,6 +577,10 @@ class GPParam(object):
     __slots__ = ['name', 'dataType', 'displayName','description', 'paramInfo',
                  'direction', 'defaultValue', 'parameterType', 'category']
     def __init__(self, p_dict):
+        """handler for GP Task parameters
+
+        p_dict -- JSON object or dictionary containing parameter info
+        """
         for key, value in p_dict.items():
             setattr(self, key, value)
         self.paramInfo = p_dict
@@ -579,6 +588,10 @@ class GPParam(object):
 class GPResult(object):
     """class to handle GP Result"""
     def __init__(self, res_dict):
+        """handler for GP result
+
+        res_dict -- JSON response from GP Task execution
+        """
         self.response = res_dict
         if 'results' in res_dict:
             for k,v in res_dict['results'][0].items():
@@ -598,6 +611,81 @@ class GPResult(object):
         """prints all the GP messages"""
         for msg in self.messages:
             print msg['description']
+
+class GeocodeResult(object):
+    """class to handle Reverse Geocode Result"""
+    __slots__ = ['response', 'spatialReference','Result', 'type',
+                'candidates', 'locations', 'address', 'results']
+
+    def __init__(self, res_dict, geo_type):
+        """geocode response object
+
+        Required:
+            res_dict -- JSON response from geocode request
+            geo_type -- type of geocode operation (reverseGeocode|findAddressCandidates|geocodeAddresses)
+        """
+        RequestError(res_dict)
+        self.response = res_dict
+        self.type = 'esri_' + geo_type
+        self.spatialReference = None
+        self.candidates = []
+        self.locations = []
+        self.address = []
+        if 'spatialReference' in self.response:
+            self.spatialReference = self.response['spatialReference']
+
+        if self.type == 'esri_reverseGeocode':
+            addr_dict = {}
+            self.spatialReference = self.response['location']['spatialReference']
+            loc = self.response['location']
+            addr_dict['location'] = {'x': loc['x'], 'y': loc['y']}
+            addr_dict['attributes'] = self.response['address']
+            addr_dict['address'] = self.response['address']['Address']
+            addr_dict['score'] = None
+            self.address.append(addr_dict)
+
+        # legacy response from find? <- deprecated?
+        # http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/find #still works
+        elif self.type == 'esri_find':
+            # format legacy results
+            for res in self.response['locations']:
+                ref_dict = {}
+                for k,v in res.iteritems():
+                    if k == 'name':
+                        ref_dict['address'] = v
+                    elif k == 'feature':
+                        atts_dict = {}
+                        for att, val in res[k].iteritems():
+                            if att == 'geometry':
+                                ref_dict['location'] = val
+                            elif att == 'attributes':
+                                for att2, val2 in res[k][att].iteritems():
+                                    if att2.lower() == 'score':
+                                        ref_dict['score'] = val2
+                                    else:
+                                        atts_dict[att2] = val2
+                            ref_dict['attributes'] = atts_dict
+                self.locations.append(ref_dict)
+
+        else:
+            if self.type == 'esri_findAddressCandidates':
+                self.candidates = self.response['candidates']
+
+            elif self.type == 'esri_geocodeAddresses':
+                self.locations = self.response['locations']
+
+        self.Result = collections.namedtuple('GeocodeResult_result',
+                                        'address attributes location score')
+    @property
+    def results(self):
+        results = []
+        for res in self.address + self.candidates + self.locations:
+            results.append(self.Result(*[v for k,v in sorted(res.items())]))
+        return results
+
+    def __len__(self):
+        """get count of results"""
+        return len(self.results)
 
 class BaseCursor(object):
     """class to handle query returns"""
@@ -1037,21 +1125,118 @@ class BaseImageService(RESTEndpoint):
         """refreshes the ImageService"""
         self.__init__(self.url, token=self.token)
 
+class GeocodeService(RESTEndpoint):
+    """class to handle Geocode Service"""
+    def __init__(self, url, usr='', pw='', token=''):
+        """Geocode Service object
+
+        Required:
+            url -- Geocode service url
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
+        super(GeocodeService, self).__init__(url, usr, pw, token)
+
+        for key, value in self.response.iteritems():
+            if key in ('addressFields', 'candidateFields', 'intersectionCandidateFields'):
+                setattr(self, key, [Field(v) for v in value])
+            else:
+                setattr(self, key, value)
+
+    def geocodeAddresses(self, addr_list, outSR=4326):
+        """geocode a list of addresses
+
+        Required:
+            addr_list -- list of full addresses ['100 S Riverfront St, Mankato, MN 56001',..]
+            outSR -- output spatial refrence for geocoded addresses
+        """
+        geo_url = self.url + '/geocodeAddresses'
+
+        recs = {"records": []}
+        for i, addr in enumerate(addr_list):
+            recs['records'].append({"attributes": {"OBJECTID": i+1,
+                                                   "SingleLine": addr}})
+
+        params = {'addresses': json.dumps(recs),
+                  'outSR': outSR,
+                  'f': 'json'}
+
+        return GeocodeResult(POST(geo_url, params, token=self.token), geo_url.split('/')[-1])
+
+    def reverseGeocode(self, x, y, distance=100, outSR=4326, returnIntersection=False):
+        """reverse geocodes an address by x, y coordinates
+
+        Required:
+            x -- longitude, x-coordinate
+            y -- latitude, y-coordinate
+            distance -- distance in meters from given location which a matching address will be found
+            outSR -- wkid for output address
+        """
+        geo_url = self.url + '/reverseGeocode'
+        params = {'location': '{},{}'.format(x,y),
+                  'distance': distance,
+                  'outSR': outSR,
+                  'returnIntersection': str(returnIntersection).lower(),
+                  'f': 'json'}
+
+        return GeocodeResult(POST(geo_url, params, token=self.token), geo_url.split('/')[-1])
+
+    def findAddressCandidates(self, address, outSR=4326, outFields='*', returnIntersection=False):
+        """finds address candidates for an anddress
+
+        Required:
+            address -- full address (380 New York Street, Redlands, CA 92373)
+            outFields -- list of fields for output. Default is * for all fields.  Will
+                accept either list of fields [], or comma separated string.
+            outSR -- wkid for output address
+        """
+        geo_url = self.url + '/findAddressCandidates'
+        params = {'SingleLine': address,
+                  'outSR': outSR,
+                  'outFields': outFields,
+                  'returnIntersection': str(returnIntersection).lower(),
+                  'f': 'json'}
+
+        return GeocodeResult(POST(geo_url, params, token=self.token), geo_url.split('/')[-1])
+
 class GPService(RESTEndpoint):
     """ Class to handle GP Service Object"""
     def __init__(self, url, usr='', pw='', token=''):
+        """GP Service object
+
+        Required:
+            url -- GP service url
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
         super(GPService, self).__init__(url, usr, pw, token)
 
         for key, value in self.response.iteritems():
             setattr(self, key, value)
 
-    def task(self, name=self.tasks[0]):
+    def task(self, name):
         """returns a GP Task object"""
         return GPTask('/'.join([self.url, name]), token=self.token)
 
 class GPTask(RESTEndpoint):
     """class to handle GP Task"""
     def __init__(self, url, usr='', pw='', token=''):
+        """GP Task object
+
+        Required:
+            url -- GP Task url
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
         super(GPTask, self).__init__(url, usr, pw, token)
 
         for key,value in self.response.iteritems():
