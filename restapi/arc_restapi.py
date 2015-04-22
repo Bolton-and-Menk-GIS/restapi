@@ -4,6 +4,7 @@ import arcpy
 import os
 import json
 from rest_utils import *
+arcpy.env.overwriteOutput = True
 
 def poly_to_json(poly, envelope=False):
     """Converts a features to JSON
@@ -28,6 +29,22 @@ def poly_to_json(poly, envelope=False):
 class Cursor(BaseCursor):
     """Class to handle Cursor object"""
     def __init__(self, url, fields='*', where='1=1', records=None, token='', add_params={}, get_all=False):
+        """Cusor object to handle queries to rest endpoints
+
+        Required:
+            url -- url to layer's rest endpoint
+
+        Optional:
+            fields -- option to limit fields returned.  All are returned by default
+            where -- where clause for cursor
+            records -- number of records to return.  Default is None to return all
+                records within bounds of max record count unless get_all is True
+            token -- token to handle security (only required if security is enabled)
+            add_params -- option to add additional search parameters
+            get_all -- option to get all records in layer.  This option may be time consuming
+                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
+                must be performed in chunks to get all records.
+        """
         super(Cursor, self).__init__(url, fields, where, records, token, add_params, get_all)
 
     def get_rows(self):
@@ -43,6 +60,12 @@ class Cursor(BaseCursor):
 class Row(BaseRow):
     """Class to handle Row object"""
     def __init__(self, features, fields):
+        """Row object for Cursor
+
+        Required:
+            features -- features JSON object
+            fields -- fields participating in cursor
+        """
         super(Row, self).__init__(features, fields)
 
     @property
@@ -72,10 +95,65 @@ class Row(BaseRow):
             _values.insert(self.fields.index(self.shape_field_ob), self.geometry)
         return tuple(_values)
 
+class GeocodeHandler(object):
+    """class to handle geocode results"""
+    __slots__ = ['spatialReference', 'results', 'fields', 'formattedResults']
+
+    def __init__(self, geocodeResult):
+        """geocode response object handler
+
+        Required:
+            geocodeResult -- GeocodeResult object
+        """
+        self.results = geocodeResult.results
+        self.spatialReference = geocodeResult.spatialReference['wkid']
+
+    @property
+    def fields(self):
+        """returns collections.namedtuple with (name, type)"""
+        res_sample = self.results[0]
+        __fields = []
+        for f, val in res_sample.attributes.iteritems():
+            if isinstance(val, float):
+                if val >= -3.4E38 and val <= 1.2E38:
+                    __fields.append(FIELD_SCHEMA(name=f, type='FLOAT'))
+                else:
+                    __fields.append(FIELD_SCHEMA(name=f, type='DOUBLE'))
+            elif isinstance(val, (int, long)):
+                if abs(val) < 32768:
+                    __fields.append(FIELD_SCHEMA(name=f, type='SHORT'))
+                else:
+                    __fields.append(FIELD_SCHEMA(name=f, type='LONG'))
+            else:
+                __fields.append(FIELD_SCHEMA(name=f, type='TEXT'))
+        return __fields
+
+
+    @property
+    def formattedResults(self):
+        """returns a generator with formated results as Row objects"""
+        for res in self.results:
+            pt = arcpy.PointGeometry(arcpy.Point(res.location['x'],
+                                                 res.location['y']),
+                                                 self.spatialReference)
+
+            yield (pt,) + tuple(res.attributes[f.name] for f in self.fields)
+
 class ArcServer(BaseArcServer):
     """class to handle ArcServer connection"""
     def __init__(self, url, usr='', pw='', token=''):
+        """Base REST Endpoint Object to handle credentials and get JSON response
+
+        Required:
+            url -- ArcGIS services directory
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
         super(ArcServer, self).__init__(url, usr, pw, token)
+
 
     def get_MapService(self, name_or_wildcard):
         """method to return MapService Object, supports wildcards
@@ -90,6 +168,16 @@ class ArcServer(BaseArcServer):
 
 class MapService(BaseMapService):
     def __init__(self, url, usr='', pw='', token=''):
+        """MapService object
+
+    Required:
+        url -- MapService url
+
+    Optional (below params only required if security is enabled):
+        usr -- username credentials for ArcGIS Server
+        pw -- password credentials for ArcGIS Server
+        token -- token to handle security (alternative to usr and pw)
+    """
         super(MapService, self).__init__(url, usr, pw, token)
 
     def layer(self, name):
@@ -169,6 +257,16 @@ class MapService(BaseMapService):
 class MapServiceLayer(BaseMapServiceLayer):
     """Class to handle advanced layer properties"""
     def __init__(self, url='', usr='', pw='', token=''):
+        """MapService Layer object
+
+        Required:
+            url -- MapService layer url (should include index to layer)
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
         super(MapServiceLayer, self).__init__(url, usr, pw, token)
 
     def cursor(self, fields='*', where='1=1', records=None, add_params={}, get_all=False):
@@ -298,6 +396,16 @@ class MapServiceLayer(BaseMapServiceLayer):
 class ImageService(BaseImageService):
     """Class to handle map service and requests"""
     def __init__(self, url, usr='', pw='', token=''):
+        """Image Service object
+
+        Required:
+            url -- image service url
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
         super(ImageService, self).__init__(url, usr, pw, token)
 
     def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation'):
@@ -373,3 +481,36 @@ class ImageService(BaseImageService):
           "variableName" : "Raster"
         }
         self.exportImage(poly, out_raster, rendering_rule=ren)
+
+class Geocoder(GeocodeService):
+    """class to handle Geocoding operations"""
+    def __init__(self, url, usr='', pw='', token=''):
+        """Geocoder object, created from GeocodeService
+
+        Required:
+            url -- Geocode service url
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
+        super(Geocoder, self).__init__(url, usr, pw, token)
+
+    def exportResults(self, geocodeResultObject, out_fc):
+        """exports the geocode results to feature class"""
+        handler = GeocodeHandler(geocodeResultObject)
+        path, name = os.path.split(out_fc)
+
+        # make feature class
+        arcpy.management.CreateFeatureclass(path, name, 'POINT', spatial_reference=handler.spatialReference)
+        for field in handler.fields:
+            arcpy.management.AddField(out_fc, field.name, field.type, field_length=254)
+
+        # add records
+        fields = ['SHAPE@'] + [f.name for f in handler.fields]
+        with arcpy.da.InsertCursor(out_fc, fields) as irows:
+            for values in handler.formattedResults:
+                irows.insertRow(values)
+        print 'Created: "{}"'.format(out_fc)
+        return out_fc
