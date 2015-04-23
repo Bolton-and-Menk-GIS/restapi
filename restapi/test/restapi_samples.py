@@ -12,6 +12,7 @@
 #   are being accessed, and the load the server is receiving at the time of each
 #   request.
 #-------------------------------------------------------------------------------
+import sys
 import restapi
 import os
 
@@ -21,7 +22,7 @@ usgs_rest_url = 'http://services.nationalmap.gov/ArcGIS/rest/services'
 # no authentication is required, so no username and password are supplied
 ags = restapi.ArcServer(usgs_rest_url)
 
-### get folder and service properties
+# get folder and service properties
 print ags.folders
 print ags.services
 
@@ -38,7 +39,7 @@ col = structures.layer('college/university')
 # list fields from col layer
 print col.list_fields()
 
-### run search cursor for colleges in Nebraska (maximimum limit may be 1000 records)
+# run search cursor for colleges in Nebraska (maximimum limit may be 1000 records)
 query = "STATE = 'NE'"
 for row in col.cursor(where=query).rows():
     print row
@@ -71,4 +72,23 @@ esri_json = {"rings":[[[-121.5,38.6],[-121.4,38.6],
 cali = os.path.join(folder, 'Sacramento_Universities.shp')
 col.clip(esri_json, cali)
 
+# hennepin county, MN geocoder
+henn = 'http://gis.hennepin.us/arcgis/rest/services/Locators/HC_COMPOSITE/GeocodeServer'
+geocoder = restapi.Geocoder(henn)
+# find target field, use the SingleLine address field by default
+geoResult = restapi.geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403') 
+geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
+del geocoder
 
+# geocoder
+esri_geocoder = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer'
+geocoder = restapi.Geocoder(esri_geocoder)
+# find candidates using **kwargs to fill in locator fields, no single line option
+candidates = geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
+print len(candidates)
+for candidate in candidates.results:
+    print candidate.location
+
+# export results to shapefile
+out_shp = os.path.join(folder, 'Esri_headquarters.shp')
+geocoder.exportResults(candidates, out_shp)
