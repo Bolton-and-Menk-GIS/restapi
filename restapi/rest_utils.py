@@ -37,6 +37,13 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
 
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 
+def GeocodeField(f_dict):
+    """returns a GeocodeField named tuple
+
+    f_dict -- dictionary containing Geocode Field properties"""
+    col_ob = collections.namedtuple('GeocodeField', ' '.join(f_dict.keys()))
+    return col_ob(**f_dict)
+
 def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
@@ -1145,9 +1152,9 @@ class GeocodeService(RESTEndpoint):
             if key in ('addressFields',
                        'candidateFields',
                        'intersectionCandidateFields'):
-                setattr(self, key, [Field(v) for v in value])
+                setattr(self, key, [GeocodeField(v) for v in value])
             elif key == 'singleLineAddressField':
-                setattr(self, key, Field(value))
+                setattr(self, key, GeocodeField(value))
             elif key == 'locators':
                 for loc_dict in value:
                     self.locators.append(loc_dict['name'])
