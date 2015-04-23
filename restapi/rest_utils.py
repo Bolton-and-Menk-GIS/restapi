@@ -35,7 +35,7 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryMultipoint': 'Multipoint',
           'esriGeometryEnvelope':'Envelope'}
 
-FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
+FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type length')
 
 def Round(x, base=5):
     """round to nearest n"""
@@ -1140,25 +1140,39 @@ class GeocodeService(RESTEndpoint):
         """
         super(GeocodeService, self).__init__(url, usr, pw, token)
 
+        self.locators = []
         for key, value in self.response.iteritems():
-            if key in ('addressFields', 'candidateFields', 'intersectionCandidateFields'):
+            if key in ('addressFields',
+                       'candidateFields',
+                       'intersectionCandidateFields'):
                 setattr(self, key, [Field(v) for v in value])
+            elif key == 'singleLineAddressField':
+                setattr(self, key, Field(value))
+            elif key == 'locators':
+                for loc_dict in value:
+                    self.locators.append(loc_dict['name'])
             else:
                 setattr(self, key, value)
 
-    def geocodeAddresses(self, addr_list, outSR=4326):
+    def geocodeAddresses(self, addr_list, outSR=4326, address_field=''):
         """geocode a list of addresses
 
         Required:
             addr_list -- list of full addresses ['100 S Riverfront St, Mankato, MN 56001',..]
             outSR -- output spatial refrence for geocoded addresses
+            **kwargs -- key word arguments to use for Address, City, State, etc fields if no SingleLine field
         """
         geo_url = self.url + '/geocodeAddresses'
 
         recs = {"records": []}
+        if not address_field:
+            if hasattr(self, 'singleLineAddressField'):
+                address_field = self.singleLineAddressField.name
+            else:
+                address_field = self.addressFields[0].name
         for i, addr in enumerate(addr_list):
             recs['records'].append({"attributes": {"OBJECTID": i+1,
-                                                   "SingleLine": addr}})
+                                                   address_field: addr}})
 
         params = {'addresses': json.dumps(recs),
                   'outSR': outSR,
@@ -1184,7 +1198,7 @@ class GeocodeService(RESTEndpoint):
 
         return GeocodeResult(POST(geo_url, params, token=self.token), geo_url.split('/')[-1])
 
-    def findAddressCandidates(self, address, outSR=4326, outFields='*', returnIntersection=False):
+    def findAddressCandidates(self, address='', outSR=4326, outFields='*', returnIntersection=False, **kwargs):
         """finds address candidates for an anddress
 
         Required:
@@ -1192,13 +1206,21 @@ class GeocodeService(RESTEndpoint):
             outFields -- list of fields for output. Default is * for all fields.  Will
                 accept either list of fields [], or comma separated string.
             outSR -- wkid for output address
+            **kwargs -- key word arguments to use for Address, City, State, etc fields if no SingleLine field
         """
         geo_url = self.url + '/findAddressCandidates'
-        params = {'SingleLine': address,
-                  'outSR': outSR,
+        params = {'outSR': outSR,
                   'outFields': outFields,
                   'returnIntersection': str(returnIntersection).lower(),
                   'f': 'json'}
+        if address:
+            if hasattr(self, 'singleLineAddressField'):
+                params[self.singleLineAddressField.name] = address
+            else:
+                params[self.addressFields[0].name] = address
+        if kwargs:
+            for fld_name, fld_query in kwargs.iteritems():
+                params[fld_name] = fld_query
 
         return GeocodeResult(POST(geo_url, params, token=self.token), geo_url.split('/')[-1])
 
