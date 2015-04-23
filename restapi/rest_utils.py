@@ -35,7 +35,7 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryMultipoint': 'Multipoint',
           'esriGeometryEnvelope':'Envelope'}
 
-FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type length')
+FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 
 def Round(x, base=5):
     """round to nearest n"""
