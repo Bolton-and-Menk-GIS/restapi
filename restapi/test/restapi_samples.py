@@ -23,8 +23,15 @@ usgs_rest_url = 'http://services.nationalmap.gov/ArcGIS/rest/services'
 ags = restapi.ArcServer(usgs_rest_url)
 
 # get folder and service properties
-print ags.folders
-print ags.services
+print 'Number of folders: {}'.format(len(ags.folders))
+print 'Number of services: {}'.format(len(ags.services))
+
+# walk thru directories
+for root, folders, services in ags.walk():
+    print root
+    print folders
+    print services
+    print '\n'
 
 # access "Structures" service
 structures = ags.get_MapService('structures')
@@ -76,16 +83,17 @@ col.clip(esri_json, cali)
 henn = 'http://gis.hennepin.us/arcgis/rest/services/Locators/HC_COMPOSITE/GeocodeServer'
 geocoder = restapi.Geocoder(henn)
 # find target field, use the SingleLine address field by default
-geoResult = restapi.geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403') 
+geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
+
+# export results to shapefile
 geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
-del geocoder
 
 # geocoder
-esri_geocoder = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer'
-geocoder = restapi.Geocoder(esri_geocoder)
-# find candidates using **kwargs to fill in locator fields, no single line option
-candidates = geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
-print len(candidates)
+esri_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer'
+esri_geocoder = restapi.Geocoder(esri_url)
+# find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
+candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
+print 'Number of address candidates: {}'.format(len(candidates))
 for candidate in candidates.results:
     print candidate.location
 
