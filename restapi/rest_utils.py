@@ -37,11 +37,12 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
 
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 
-def GeocodeField(f_dict):
+def Field(f_dict={}, name='Field'):
     """returns a GeocodeField named tuple
 
-    f_dict -- dictionary containing Geocode Field properties"""
-    col_ob = collections.namedtuple('GeocodeField', ' '.join(f_dict.keys()))
+    f_dict -- dictionary containing Field properties
+    name -- name for Field object"""
+    col_ob = collections.namedtuple(name, ' '.join(f_dict.keys()))
     return col_ob(**f_dict)
 
 def Round(x, base=5):
@@ -105,9 +106,17 @@ def mil_to_date(mil):
     if mil == None:
         return None
     elif mil < 0:
-        return datetime.datetime(1970, 1, 1) + datetime.timedelta(seconds=(mil/1000))
+        return datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=(mil/1000))
     else:
-        return datetime.datetime.fromtimestamp(mil / 1000)
+        return datetime.datetime.utcfromtimestamp(mil / 1000)
+
+def date_to_mil(date):
+    """converts datetime.datetime() object to milliseconds
+
+    date -- datetime.datetime() object"""
+    if isinstance(date, datetime.datetime):
+        epoch = datetime.datetime.utcfromtimestamp(0)
+        return long((date - epoch).total_seconds() * 1000.0)
 
 def fix_fields(service_lyr, fields, token=''):
     """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@")
@@ -388,10 +397,7 @@ def generate_token(url, user='', pw=''):
             use_body = True
             base += '/generateToken'
 
-        # must pass data through body, not query string
-        r = requests.post(url=base, data=params).json()
-    else:
-        r = POST(base, params)
+    r = requests.post(url=base, data=params).json()
     if 'token' in r:
         return r['token']
     return None
@@ -533,37 +539,6 @@ class Folder(object):
         """method to list services"""
         return ['/'.join([s.name, s.type]) for s in self.services]
 
-class Domain(object):
-    """class to handle field domain object"""
-    def __init__(self, dom_dict):
-        for k,v in dom_dict.iteritems():
-            setattr(self, k, v)
-        self.values = {}
-        if self.type == 'codedValue':
-            for d in self.codedValues:
-                self.values[d['code']] = d['name']
-
-    def print_values(self):
-        """method to print values"""
-        for k,v in sorted(self.values.iteritems()):
-            print k,':', v
-
-class Field(object):
-    """class for field to handle field info (name, alias, type, length)"""
-    __slots__ = ['name', 'alias', 'type', 'length', 'domain', 'required']
-    def __init__(self, f_dict):
-        self.length = ''
-        self.domain = ''
-        self.required = ''
-        for key, value in f_dict.items():
-            if key != 'domain':
-                setattr(self, key, value)
-            else:
-                if value:
-                    setattr(self, key, Domain(value))
-                else:
-                    setattr(self, key, value)
-
 class Layer(object):
     """class to handle basic layer info"""
     __slots__ = ['subLayerIds', 'name', 'maxScale', 'defaultVisibility',
@@ -685,6 +660,7 @@ class GeocodeResult(object):
                                         'address attributes location score')
     @property
     def results(self):
+        """returns list of result objects"""
         results = []
         for res in self.address + self.candidates + self.locations:
             results.append(self.Result(*[v for k,v in sorted(res.items())]))
@@ -693,6 +669,40 @@ class GeocodeResult(object):
     def __len__(self):
         """get count of results"""
         return len(self.results)
+
+class EditResult(object):
+    """class to handle Edit operation results"""
+    __slots__ = ['addResults', 'updateResults', 'deleteResults',
+                'summary', 'affectedOIDs', 'failedOIDs']
+    def __init__(self, res_dict):
+        RequestError(res_dict)
+        self.failedOIDs = []
+        self.addResults = []
+        self.updateResults = []
+        self.deleteResults = []
+        for key, value in res_dict.iteritems():
+            for v in value:
+                if v['success'] in (True, 'true'):
+                    getattr(self, key).append(v['objectId'])
+                else:
+                    self.failedOIDs.append(v['objectId'])
+        self.affectedOIDs = self.addResults + self.updateResults + self.deleteResults
+
+    def summary(self):
+        """print summary of edit operation"""
+        if self.affectedOIDs:
+            if self.addResults:
+                print 'Added {} feature(s)'.format(len(self.addResults))
+            if self.updateResults:
+                print 'Updated {} feature(s)'.format(len(self.updateResults))
+            if self.deleteResults:
+                print 'Deleted {} feature(s)'.format(len(self.deleteResults))
+        if self.failedOIDs:
+            print 'Failed to edit {0} feature(s)!\n{1}'.format(len(self.failedOIDs), self.failedOIDs)
+
+    def __len__(self):
+        """return count of affected OIDs"""
+        return len(self.affectedOIDs)
 
 class BaseCursor(object):
     """class to handle query returns"""
@@ -803,7 +813,7 @@ class BaseCursor(object):
 
     @property
     def count(self):
-        """returns total number of records in Cursor"""
+        """returns total number of records in Cursor (user queried)"""
         return len(self.features[:self.records])
 
 class BaseRow(object):
@@ -966,6 +976,186 @@ class BaseArcServer(RESTEndpoint):
 
     def refresh(self):
         """refreshes the MapService"""
+        self.__init__(self.url, token=self.token)
+
+class FeatureService(RESTEndpoint):
+    """class to handle Feature Service
+
+    Required:
+        url -- image service url
+
+    Optional (below params only required if security is enabled):
+        usr -- username credentials for ArcGIS Server
+        pw -- password credentials for ArcGIS Server
+        token -- token to handle security (alternative to usr and pw)
+    """
+    def __init__(self, url, usr='', pw='', token=''):
+        super(FeatureService, self).__init__(url, usr, pw, token)
+
+        self.layers = []
+        self.tables = []
+        if 'layers' in self.response:
+            self.layers = [Layer(p) for p in self.response['layers']]
+        if 'tables' in self.response:
+            self.tables = [Table(p) for p in self.response['tables']]
+        for key, value in self.response.items():
+            if key not in ('layers', 'tables'):
+                setattr(self, key, value)
+        try:
+            if 'latestWkid' in self.response['spatialReference']:
+                self.spatialReference = self.response['spatialReference']['latestWkid']
+            else:
+                self.spatialReference = self.response['spatialReference']['wkid']
+        except:
+            # try well known text (wkt)
+            self.spatialReference = self.response['spatialReference']
+
+    def list_layers(self):
+        """Method to return a list of layer names in a MapService"""
+        return [l.name for l in self.layers]
+
+    def list_tables(self):
+        """Method to return a list of layer names in a MapService"""
+        return [t.name for t in self.tables]
+
+    def list_fields(self, layer_name):
+        """Method to return field names from a layer"""
+        lyr = get_layer_url(self.url, layer_name, self.token)
+        return [f.name for f in list_fields(lyr, self.token)]
+
+    def get_fields(self, layer_name):
+        """Method to return field objects from a layer"""
+        lyr = get_layer_url(self.url, layer_name, self.token)
+        return list_fields(lyr, self.token)
+
+    def layer_to_kmz(self, layer_name, flds='*', where='1=1', params={}):
+        """Method to create kmz from query
+
+        Required:
+            layer_name -- name of map service layer to export to fc
+
+        Optional:
+            flds -- list of fields for fc. If none specified, all fields are returned.
+                Supports fields in list [] or comma separated string "field1,field2,.."
+            where -- optional where clause
+            params -- dictionary of parameters for query
+        """
+        lyr = self.layer(layer_name)
+        lyr.layer_to_kmz(flds, where, params)
+
+
+class FeatureLayer(RESTEndpoint):
+    def __init__(self, url, usr='', pw='', token=''):
+        """class to handle Feature Service Layer
+
+        Required:
+            url -- image service url
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
+        super(FeatureLayer, self).__init__(url, usr, pw, token)
+
+        for key, value in self.response.iteritems():
+            if key == 'fields':
+                setattr(self, key, [Field(v, 'FeatureLayerField') for v in value])
+            else:
+                setattr(self, key, value)
+
+    def addFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
+        """add new features to feature service layer
+
+        features -- esri JSON representation of features
+
+        ex:
+        adds = [{"geometry":
+                     {"x":-10350208.415443439,
+                      "y":5663994.806146532,
+                      "spatialReference":
+                          {"wkid":102100}},
+                 "attributes":
+                     {"Utility_Type":2,"Five_Yr_Plan":"No","Rating":None,"Inspection_Date":1429885595000}}
+        """
+        add_url = self.url + '/addFeatures'
+        params = {'features': json.dumps(features),
+                  'gdbVersion': gdbVersion,
+                  'rollbackOnFailure': str(rollbackOnFailure).lower(),
+                  'f': 'json'}
+
+        # update features
+        result = EditResult(POST(add_url, params, token=self.token))
+        result.summary()
+        return result
+
+    def updateFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
+        """add new features to feature service layer
+
+        features -- features to be added (JSON)
+        gdbVersion -- geodatabase version to apply edits
+        rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+        """
+        update_url = self.url + '/updateFeatures'
+        params = {'features': json.dumps(features),
+                  'gdbVersion': gdbVersion,
+                  'rollbackOnFailure': rollbackOnFailure,
+                  'f': 'json'}
+
+        # update features
+        result = EditResult(POST(update_url, params, token=self.token))
+        result.summary()
+        return result
+
+    def deleteFeatures(self, oids='', where='', geometry='', geometryType='',
+                       spatialRel='', inSR='', gdbVersion='', rollbackOnFailure=True):
+        """deletes features based on list of OIDs
+
+        oids -- list of oids or comma separated values
+        where -- where clause for features to be deleted.  All selected features will be deleted
+        geometry -- geometry JSON object used to delete features.
+        geometryType -- type of geometry
+        spatialRel -- spatial relationship.  Default is "esriSpatialRelationshipIntersects"
+        inSR -- input spatial reference for geometry
+        gdbVersion -- geodatabase version to apply edits
+        rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+
+        oids format example:
+            oids = [1, 2, 3] # list
+            oids = "1, 2, 4" # as string"""
+        if not geometryType:
+            geometryType = 'esriGeometryEnvelope'
+        if not spatialRel:
+            spatialRel = 'esriSpatialRelIntersects'
+        del_url = self.url + '/deleteFeatures'
+        if isinstance(oids, (list, tuple)):
+            oids = ', '.join(map(str, oids))
+        params = {'objectIds': oids,
+                  'where': where,
+                  'geometry': json.dumps(geometry),
+                  'geometryType': geometryType,
+                  'spatialRel': spatialRel,
+                  'gdbVersion': gdbVersion,
+                  'rollbackOnFailure': rollbackOnFailure,
+                  'f': 'json'}
+
+        # delete features
+        result = EditResult(POST(del_url, params, token=self.token))
+        result.summary()
+        return result
+
+    def applyEdits(self, adds='', updates='', deletes='', gdbVersion='', rollbackOnFailure=True):
+        """apply edits on a feature service layer
+
+        adds -- features to add (JSON)
+        updates -- features to be updated (JSON)
+        deletes -- oids to be deleted (list, tuple, or comma separated string)
+        gdbVersion -- geodatabase version to apply edits
+        rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+        """
+
+    def refresh(self):
+        """refreshes the FeatureService"""
         self.__init__(self.url, token=self.token)
 
 class BaseMapService(RESTEndpoint):
@@ -1152,9 +1342,9 @@ class GeocodeService(RESTEndpoint):
             if key in ('addressFields',
                        'candidateFields',
                        'intersectionCandidateFields'):
-                setattr(self, key, [GeocodeField(v) for v in value])
+                setattr(self, key, [Field(v, 'GeocodeField') for v in value])
             elif key == 'singleLineAddressField':
-                setattr(self, key, GeocodeField(value))
+                setattr(self, key, Field(value, 'GeocodeField'))
             elif key == 'locators':
                 for loc_dict in value:
                     self.locators.append(loc_dict['name'])
