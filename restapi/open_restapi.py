@@ -524,10 +524,19 @@ class Geocoder(GeocodeService):
         super(Geocoder, self).__init__(url, usr, pw, token)
 
     def exportResults(self, geocodeResultObject, out_fc):
-        """exports the geocode results to feature class"""
-        handler = GeocodeHandler(geocodeResultObject)
+        """exports the geocode results to feature class
 
-        # create shapefiel
+        Required:
+            geocodeResultObject -- results from geocode operation, must be of type
+                GeocodeResult.
+            out_fc -- full path to output shapefile
+        """
+        handler = GeocodeHandler(geocodeResultObject)
+        if not handler.results:
+            print 'Geocoder returned 0 results! Did not create output'
+            return None
+
+        # create shapefile
         w = shp_helper.shp('POINT', out_fc)
         for field in handler.fields:
             w.add_field(field.name, field.type, 254)
