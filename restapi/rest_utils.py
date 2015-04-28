@@ -38,7 +38,7 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 
 def Field(f_dict={}, name='Field'):
-    """returns a GeocodeField named tuple
+    """returns a named tuple for lightweight, dynamic Field objects
 
     f_dict -- dictionary containing Field properties
     name -- name for Field object"""
@@ -359,6 +359,7 @@ def validate(obj, filterer=[]):
         filterer -- list of object dictionary keys to skip
     """
     filterer.append('response')
+    atts = []
     if hasattr(obj, '__dict__'):
         atts = obj.__dict__.keys()
     elif hasattr(obj, '__slots__'):
@@ -1351,29 +1352,69 @@ class GeocodeService(RESTEndpoint):
             else:
                 setattr(self, key, value)
 
-    def geocodeAddresses(self, addr_list, outSR=4326, address_field=''):
-        """geocode a list of addresses
+    def geocodeAddresses(self, recs, outSR=4326, address_field=''):
+        """geocode a list of addresses.  If there is a singleLineAddress field present in the
+        geocoding service, the only input required is a list of addresses.  Otherwise, a record
+        set an be passed in for the "recs" parameter.  See formatting example at bottom.
 
         Required:
-            addr_list -- list of full addresses ['100 S Riverfront St, Mankato, MN 56001',..]
+            recs -- JSON object for fields as record set if no SingleLine field available.
+                If singleLineAddress is present a list of full addresses can be passed in.
+
+        Optional:
             outSR -- output spatial refrence for geocoded addresses
-            **kwargs -- key word arguments to use for Address, City, State, etc fields if no SingleLine field
+            address_field -- name of address field or Single Line address field
+
+        # recs param examples
+        # preferred option as record set (from esri help docs):
+        recs = {
+            "records": [
+                {
+                    "attributes": {
+                        "OBJECTID": 1,
+                        "STREET": "440 Arguello Blvd",
+                        "ZONE": "94118"
+                    }
+                },
+           {
+                    "attributes": {
+                        "OBJECTID": 2,
+                        "STREET": "450 Arguello Blvd",
+                        "ZONE": "94118"
+                    }
+                }
+            ]
+        }
+
+        # full address list option if singleLineAddressField is present
+        recs = ['100 S Riverfront St, Mankato, MN 56001',..]
         """
         geo_url = self.url + '/geocodeAddresses'
+        if isinstance(recs, (list, tuple)):
+            addr_list = recs[:]
+            recs = {"records": []}
+            if not address_field:
+                if hasattr(self, 'singleLineAddressField'):
+                    address_field = self.singleLineAddressField.name
+                else:
+                    address_field = self.addressFields[0].name
+                    print 'Warning, no singleLineAddressField found...Using "{}" field'.format(address_field)
+            for i, addr in enumerate(addr_list):
+                recs['records'].append({"attributes": {"OBJECTID": i+1,
+                                                       address_field: addr}})
 
-        recs = {"records": []}
-        if not address_field:
-            if hasattr(self, 'singleLineAddressField'):
-                address_field = self.singleLineAddressField.name
-            else:
-                address_field = self.addressFields[0].name
-        for i, addr in enumerate(addr_list):
-            recs['records'].append({"attributes": {"OBJECTID": i+1,
-                                                   address_field: addr}})
+        # validate recs, make sure OBECTID is present
+        elif isinstance(recs, dict) and 'records' in recs:
+            for i, atts in enumerate(recs['records']):
+                if not 'OBJECTID' in atts['attributes']:
+                    atts['attributes']['OBJECTID'] = i + 1 #do not start at 0
+
+        else:
+            raise ValueError('Not a valid input for "recs" parameter!')
 
         params = {'addresses': json.dumps(recs),
-                  'outSR': outSR,
-                  'f': 'json'}
+                      'outSR': outSR,
+                      'f': 'json'}
 
         return GeocodeResult(POST(geo_url, params, token=self.token), geo_url.split('/')[-1])
 
