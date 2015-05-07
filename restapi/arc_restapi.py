@@ -296,6 +296,13 @@ class MapServiceLayer(BaseMapServiceLayer):
         except:
             pass
         if self.type == 'Feature Layer':
+            isShp = False
+            # dump to in_memory if output is shape to handle field truncation
+            if out_fc.endswith('.shp'):
+                isShp = True
+                shp_name = out_fc
+                out_fc = r'in_memory\temp_xxx'
+
             arcpy.env.overwriteOutput = True
             if not flds:
                 flds = '*'
@@ -309,52 +316,45 @@ class MapServiceLayer(BaseMapServiceLayer):
                         flds = flds.split(',')
                     fields = [f for f in self.fields if f.name in flds]
 
-            # feature set
-            fs = arcpy.FeatureSet()
+            # make new feature class
+            if not sr:
+                sr = self.spatialReference
+            else:
+                params['outSR'] = sr
+            g_type = G_DICT[self.geometryType]
+            path, fc_name = os.path.split(out_fc)
+            arcpy.CreateFeatureclass_management(path, fc_name, g_type,
+                                                spatial_reference=sr)
 
             # add all fields
             cur_fields = ['SHAPE@']
             for fld in fields:
                 if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
-                    cur_fields.append(fld.name)
+                    if not any(['shape_' in fld.name.lower(),
+                                'shape.' in fld.name.lower(),
+                                '(shape)' in fld.name.lower(),
+                                'ojbectid' in fld.name.lower(),
+                                fld.name.lower() == 'fid']):
+                        arcpy.AddField_management(out_fc, fld.name.split('.')[-1],
+                                                  FTYPES[fld.type],
+                                                  field_length=fld.length,
+                                                  field_alias=fld.alias)
+                        cur_fields.append(fld.name)
 
-            # get response, use query_all if get_all is True
-            field_objects_string = fix_fields(self.url, cur_fields, self.token)
-            if get_all:
-                oid = [f.name for f in self.fields if f.type == OID][0]
-                if 'maxRecordCount' in self.response:
-                    max_recs = self.response['maxRecordCount']
-                else:
-                    # guess at 500 (default 1000 limit cut in half at 10.0 if returning geometry?)
-                    max_recs = 500
+            # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
+            with arcpy.da.InsertCursor(out_fc, [f.split('.')[-1] for f in cur_fields]) as irows:
+                for row in self.cursor(cur_fields, where, records, params, get_all).rows():
+                    irows.insertRow(row)
 
-                for i, where2 in enumerate(query_all(self.url, oid, max_recs, where, params, self.token)):
-                    sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
-                    resp = query(self.url, field_objects_string, sql,
-                                 add_params=params, token=self.token)
-                    if i < 1:
-                        json_response = resp
-                    else:
-                        json_response['features'] += resp['features']
+            del irows
 
-            else:
-                json_response = query(self.url, field_objects_string, where,
-                                       add_params=add_token(params, self.token))
-            tmp_json = os.path.join(os.environ['TEMP'],
-                                    'temp_feats_{}.json'.format(
-                                    time.strftime('%Y%m%d%H%M%S')))
-            with open(tmp_json, 'w') as f:
-                json.dump(json_response, f, ensure_ascii=False)
-            fs.load(tmp_json)
-            out_fc = arcpy.management.CopyFeatures(fs, out_fc)
-            try:
-                arcpy.management.Delete(tmp_json)
-            except:
-                pass
+            # if output is a shapefile
+            if isShp:
+                out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
             print 'Created: "{0}"'.format(out_fc)
             return out_fc
         else:
-            print 'Cannot export layer: "{0}", it is not a Feature Layer!'.format(self.name)
+            print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
 
     def clip(self, poly, output, flds='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
