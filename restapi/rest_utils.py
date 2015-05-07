@@ -42,6 +42,9 @@ def Field(f_dict={}, name='Field'):
 
     f_dict -- dictionary containing Field properties
     name -- name for Field object"""
+    # make sure always has length
+    if not 'length' in f_dict:
+        f_dict['length'] = None
     col_ob = collections.namedtuple(name, ' '.join(f_dict.keys()))
     return col_ob(**f_dict)
 
