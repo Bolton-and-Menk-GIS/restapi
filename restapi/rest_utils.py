@@ -42,9 +42,10 @@ def Field(f_dict={}, name='Field'):
 
     f_dict -- dictionary containing Field properties
     name -- name for Field object"""
-    # make sure always has length
-    if not 'length' in f_dict:
-        f_dict['length'] = None
+    # make sure always has at least name, length, type
+    for attr in ('name', 'length', 'type'):
+        if not attr in f_dict:
+            f_dict[attr] = None
     col_ob = collections.namedtuple(name, ' '.join(f_dict.keys()))
     return col_ob(**f_dict)
 
