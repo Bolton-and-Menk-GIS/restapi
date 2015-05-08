@@ -58,6 +58,10 @@ class Cursor(BaseCursor):
         for feature in self.features[:self.records]:
             yield Row(feature, self.field_objects).values
 
+    def __iter__(self):
+        """returns Cursor.rows() generator"""
+        return self.rows()
+
 class Row(BaseRow):
     """Class to handle Row object"""
     def __init__(self, features, fields):
