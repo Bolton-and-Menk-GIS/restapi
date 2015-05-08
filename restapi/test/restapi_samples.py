@@ -48,7 +48,7 @@ print col.list_fields()
 
 # run search cursor for colleges in Nebraska (maximimum limit may be 1000 records)
 query = "STATE = 'NE'"
-for row in col.cursor(where=query).rows():
+for row in col.cursor(where=query):
     print row
 
 # Note: can also do this from the MapService level like this:
@@ -86,6 +86,7 @@ geocoder = restapi.Geocoder(henn)
 geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
 
 # export results to shapefile
+print 'found {} candidates'.format(len(geoResult))
 geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
 
 # geocoder
@@ -94,7 +95,7 @@ esri_geocoder = restapi.Geocoder(esri_url)
 # find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
 candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
 print 'Number of address candidates: {}'.format(len(candidates))
-for candidate in candidates.results:
+for candidate in candidates:
     print candidate.location
 
 # export results to shapefile
