@@ -374,7 +374,7 @@ def validate(obj, filterer=[]):
             setattr(obj, prop, type(prop, (object,), p))
     return obj
 
-def generate_token(url, user='', pw=''):
+def generate_token(url, user='', pw='', expiration=60):
     """Generates a token to handle ArcGIS Server Security, this is
     different from generating a token from the admin side.  Meant
     for external use.
@@ -383,6 +383,9 @@ def generate_token(url, user='', pw=''):
         url -- url to services directory or individual map service
         user -- username credentials for ArcGIS Server
         pw -- password credentials for ArcGIS Server
+
+    Optional:
+        expiration -- time (in minutes) for token lifetime.  Max is 100.
     """
     if not pw:
         pw = getpass.getpass('Type password and hit Enter:\n')
@@ -394,7 +397,8 @@ def generate_token(url, user='', pw=''):
               'username': user,
               'password': pw,
               'client': 'requestip',
-              'referer': ref}
+              'referer': ref,
+              'expiration': min([expiration, 100])} #set max at 100
 
     # changed at 10.3, must pass credentials through body now and differnt URL
     if 'currentVersion' in version:
@@ -674,6 +678,11 @@ class GeocodeResult(object):
     def __len__(self):
         """get count of results"""
         return len(self.results)
+
+    def __iter__(self):
+        """return an iterator (as generator)"""
+        for r in self.results:
+            yield r
 
 class EditResult(object):
     """class to handle Edit operation results"""
