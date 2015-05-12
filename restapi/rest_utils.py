@@ -992,6 +992,10 @@ class BaseArcServer(RESTEndpoint):
         """refreshes the MapService"""
         self.__init__(self.url, token=self.token)
 
+    def __iter__(self):
+        """returns an generator for services"""
+        return self.list_services()
+
 class FeatureService(RESTEndpoint):
     """class to handle Feature Service
 
@@ -1056,7 +1060,6 @@ class FeatureService(RESTEndpoint):
         """
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params)
-
 
 class FeatureLayer(RESTEndpoint):
     def __init__(self, url, usr='', pw='', token=''):
@@ -1167,6 +1170,39 @@ class FeatureLayer(RESTEndpoint):
         gdbVersion -- geodatabase version to apply edits
         rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
         """
+    def addAttachment(self, oid, attachment, content_type=''):
+        """add an attachment to a feature service layer
+
+        Required:
+            oid -- OBJECT ID of feature in which to add attachment
+            attachment -- path to attachment
+
+        Optional:
+            content_type -- html media type for "content_type" header.  If nothing provided,
+            will use a best guess based on file extension (using mimetypes)
+
+            valid content types can be found here @:
+                http://en.wikipedia.org/wiki/Internet_media_type
+        """
+        # use mimetypes to guess "content_type"
+        if not content_type:
+            import mimetypes
+            known = mimetypes.types_map
+            common = mimetypes.common_types
+            ext = os.path.splitext(attachment)[-1]
+            if ext in known:
+                content_type = known[ext]
+            elif ext in common:
+                content_type = common[ext]
+
+        # make post request
+        att_url = '{}/{}/addAttachment'.format(self.url, oid)
+        files = {'attachment': (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
+        params = {'token': self.token,'f': 'json'}
+        r = requests.post(att_url, params, files=files)
+        if 'addAttachmentResult' in r:
+            print r['addAttachmentResult']
+        return r
 
     def refresh(self):
         """refreshes the FeatureService"""
