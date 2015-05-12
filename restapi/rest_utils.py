@@ -1184,25 +1184,30 @@ class FeatureLayer(RESTEndpoint):
             valid content types can be found here @:
                 http://en.wikipedia.org/wiki/Internet_media_type
         """
-        # use mimetypes to guess "content_type"
-        if not content_type:
-            import mimetypes
-            known = mimetypes.types_map
-            common = mimetypes.common_types
-            ext = os.path.splitext(attachment)[-1]
-            if ext in known:
-                content_type = known[ext]
-            elif ext in common:
-                content_type = common[ext]
+        if self.hasAttachments:
 
-        # make post request
-        att_url = '{}/{}/addAttachment'.format(self.url, oid)
-        files = {'attachment': (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
-        params = {'token': self.token,'f': 'json'}
-        r = requests.post(att_url, params, files=files)
-        if 'addAttachmentResult' in r:
-            print r['addAttachmentResult']
-        return r
+            # use mimetypes to guess "content_type"
+            if not content_type:
+                import mimetypes
+                known = mimetypes.types_map
+                common = mimetypes.common_types
+                ext = os.path.splitext(attachment)[-1]
+                if ext in known:
+                    content_type = known[ext]
+                elif ext in common:
+                    content_type = common[ext]
+
+            # make post request
+            att_url = '{}/{}/addAttachment'.format(self.url, oid)
+            files = {'attachment': (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
+            params = {'token': self.token,'f': 'json'}
+            r = requests.post(att_url, params, files=files).json()
+            if 'addAttachmentResult' in r:
+                print r['addAttachmentResult']
+            return r
+
+        else:
+            raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
     def refresh(self):
         """refreshes the FeatureService"""
