@@ -142,7 +142,7 @@ def fix_fields(service_lyr, fields, token=''):
             fields = fields.replace('OID@', [f.name for f in _fields if f.type == OID][0])
     return fields
 
-def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', token=''):
+def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', token='', kmz=''):
     """runs more robust queries against a rest mapservice layer.  extra arguments can be
     passed in using the add_params dictionary.
 
@@ -183,7 +183,8 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
         r.encoding = 'zlib_codec'
 
         # write kmz using codecs
-        kmz = validate_name(r'C:\Users\{0}\Desktop\{1}.kmz'.format(os.environ['USERNAME'], name))
+        if not kmz:
+            kmz = validate_name(r'C:\Users\{0}\Desktop\{1}.kmz'.format(os.environ['USERNAME'], name))
         with codecs.open(kmz, 'wb') as f:
             f.write(r.content)
         print 'Created: "{0}"'.format(kmz)
@@ -1046,20 +1047,33 @@ class FeatureService(RESTEndpoint):
         lyr = get_layer_url(self.url, layer_name, self.token)
         return list_fields(lyr, self.token)
 
-    def layer_to_kmz(self, layer_name, flds='*', where='1=1', params={}):
+    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
 
         Required:
             layer_name -- name of map service layer to export to fc
 
         Optional:
+            out_kmz -- output kmz file path, if none specified will be saved on Desktop
             flds -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             where -- optional where clause
             params -- dictionary of parameters for query
         """
         lyr = self.layer(layer_name)
-        lyr.layer_to_kmz(flds, where, params)
+        lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
+
+    def layer(self, name):
+        """Method to return a layer object with advanced properties by name
+
+        Required:
+            name -- layer name (supports wildcard syntax*)
+        """
+        layer_path = get_layer_url(self.url, name, self.token)
+        if layer_path:
+            return FeatureLayer(layer_path, token=self.token)
+        else:
+            print 'Layer "{0}" not found!'.format(name)
 
 class FeatureLayer(RESTEndpoint):
     def __init__(self, url, usr='', pw='', token=''):
@@ -1209,6 +1223,18 @@ class FeatureLayer(RESTEndpoint):
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
+    def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
+        """Method to create kmz from query
+
+        Optional:
+            out_kmz -- output kmz file path, if none specified will be saved on Desktop
+            flds -- list of fields for fc. If none specified, all fields are returned.
+                Supports fields in list [] or comma separated string "field1,field2,.."
+            where -- optional where clause
+            params -- dictionary of parameters for query
+        """
+        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
+
     def refresh(self):
         """refreshes the FeatureService"""
         self.__init__(self.url, token=self.token)
@@ -1259,20 +1285,21 @@ class BaseMapService(RESTEndpoint):
         lyr = get_layer_url(self.url, layer_name, self.token)
         return list_fields(lyr, self.token)
 
-    def layer_to_kmz(self, layer_name, flds='*', where='1=1', params={}):
+    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
 
         Required:
             layer_name -- name of map service layer to export to fc
 
         Optional:
+            out_kmz -- output kmz file path, if none specified will be saved on Desktop
             flds -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             where -- optional where clause
             params -- dictionary of parameters for query
         """
         lyr = self.layer(layer_name)
-        lyr.layer_to_kmz(flds, where, params)
+        lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
     def refresh(self):
         """refreshes the MapService"""
@@ -1324,19 +1351,17 @@ class BaseMapServiceLayer(RESTEndpoint):
         """method to list field names"""
         return [f.name for f in self.fields]
 
-    def layer_to_kmz(self, flds='*', where='1=1', params={}):
+    def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
 
-        Required:
-            layer_name -- name of map service layer to export to fc
-
         Optional:
+            out_kmz -- output kmz file path, if none specified will be saved on Desktop
             flds -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             where -- optional where clause
             params -- dictionary of parameters for query
         """
-        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token)
+        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
 
     def refresh(self):
         """refreshes the MapServiceLayer"""
