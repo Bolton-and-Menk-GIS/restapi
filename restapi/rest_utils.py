@@ -49,6 +49,13 @@ def Field(f_dict={}, name='Field'):
     col_ob = collections.namedtuple(name, ' '.join(f_dict.keys()))
     return col_ob(**f_dict)
 
+def GPParam(p_dict):
+    """object to handle GP Parameter
+
+    p_dict -- parameter dictionary (JSON)"""
+    param_ob = collections.namedtuple('GPParam', ' '.join(p_dict.keys()))
+    return param_ob(**p_dict)
+
 def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
@@ -213,10 +220,12 @@ def get_layerID_by_name(service, name, token='', grp_lyr=False):
     all_layers = r['layers']
     for layer in all_layers:
         if fnmatch.fnmatch(layer['name'], name):
-            if grp_lyr and layer['subLayerIds'] != None:
-                return layer['id']
-            elif not grp_lyr and not layer['subLayerIds']:
-                return layer['id']
+            if 'subLayerIds' in layer:
+                if grp_lyr and layer['subLayerIds'] != None:
+                    return layer['id']
+                elif not grp_lyr and not layer['subLayerIds']:
+                    return layer['id']
+            return layer['id']
     for tab in r['tables']:
         if fnmatch.fnmatch(tab['name'], name):
             return tab['id']
@@ -563,19 +572,6 @@ class Table(object):
     def __init__(self, tab_dict):
         for key, value in tab_dict.items():
             setattr(self, key, value)
-
-class GPParam(object):
-    """class to handle GP Parameter Info"""
-    __slots__ = ['name', 'dataType', 'displayName','description', 'paramInfo',
-                 'direction', 'defaultValue', 'parameterType', 'category']
-    def __init__(self, p_dict):
-        """handler for GP Task parameters
-
-        p_dict -- JSON object or dictionary containing parameter info
-        """
-        for key, value in p_dict.items():
-            setattr(self, key, value)
-        self.paramInfo = p_dict
 
 class GPResult(object):
     """class to handle GP Result"""
@@ -1107,7 +1103,7 @@ class FeatureLayer(RESTEndpoint):
                       "spatialReference":
                           {"wkid":102100}},
                  "attributes":
-                     {"Utility_Type":2,"Five_Yr_Plan":"No","Rating":None,"Inspection_Date":1429885595000}}
+                     {"Utility_Type":2,"Five_Yr_Plan":"No","Rating":None,"Inspection_Date":1429885595000}}]
         """
         add_url = self.url + '/addFeatures'
         params = {'features': json.dumps(features),
@@ -1123,9 +1119,21 @@ class FeatureLayer(RESTEndpoint):
     def updateFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """add new features to feature service layer
 
-        features -- features to be added (JSON)
-        gdbVersion -- geodatabase version to apply edits
-        rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+        Required:
+            features -- features to be added (JSON)
+
+        Optional:
+            gdbVersion -- geodatabase version to apply edits
+            rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+
+        # example syntax
+        updates = [{"geometry":
+                {"x":-10350208.415443439,
+                 "y":5663994.806146532,
+                 "spatialReference":
+                     {"wkid":102100}},
+            "attributes":
+                {"Five_Yr_Plan":"Yes","Rating":90,"OBJECTID":1}}] #only fields that were changed!
         """
         update_url = self.url + '/updateFeatures'
         params = {'features': json.dumps(features),
