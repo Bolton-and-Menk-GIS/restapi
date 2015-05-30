@@ -11,6 +11,8 @@
 #   module depends on your connection speeds, the capabilities of the servers that
 #   are being accessed, and the load the server is receiving at the time of each
 #   request.
+# help docs can be found @:
+#   http://gis.bolton-menk.com/restapi-documentation/restapi-module.html
 #-------------------------------------------------------------------------------
 import sys
 import restapi
