@@ -9,7 +9,7 @@
 # Copyright:   (c) calebma 2014
 # Licence:     BMI
 #-------------------------------------------------------------------------------
-from rest_utils import FeatureService, FeatureLayer, GeocodeService, GPService, GPTask
+from rest_utils import FeatureService, FeatureLayer, GeocodeService, GPService, GPTask, POST, generate_token
 
 # look for arcpy access, otherwise use open source version
 # open source version may be faster.
@@ -26,3 +26,9 @@ __organization__ = 'Bolton & Menk, Inc.'
 __author_email__ = 'calebma@bolton-menk.com'
 __website__ = 'https://github.com/Bolton-and-Menk-GIS/restapi'
 __version__ = '0.1'
+__documentation__ = 'http://gis.bolton-menk.com/restapi-documentation/restapi-module.html'
+
+def getHelp():
+    import webbrowser
+    webbrowser.open_new_tab(__documentation__)
+    return __documentation__
