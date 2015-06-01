@@ -18,6 +18,9 @@ import sys
 import restapi
 import os
 
+# open help documentation
+restapi.getHelp()
+
 # connect USGS ArcGIS Server Instance
 usgs_rest_url = 'http://services.nationalmap.gov/ArcGIS/rest/services'
 
@@ -103,3 +106,5 @@ for candidate in candidates:
 # export results to shapefile
 out_shp = os.path.join(folder, 'Esri_headquarters.shp')
 geocoder.exportResults(candidates, out_shp)
+
+
