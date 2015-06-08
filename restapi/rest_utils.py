@@ -7,6 +7,7 @@ import collections
 import json
 import os
 from itertools import izip_longest
+from collections import namedtuple
 
 # esri fields
 OID = 'esriFieldTypeOID'
@@ -36,6 +37,15 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryEnvelope':'Envelope'}
 
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
+BASE_PATTERN = 'http*://*/arcgis/rest/services*'
+
+def namedTuple(name, pdict):
+    """creates a named tuple from a dictionary
+
+    name -- name of namedtuple object
+    pdict -- parameter dictionary that defines the properties"""
+    obj = namedtuple(name, sorted(pdict.keys()))
+    return obj(**pdict)
 
 def Field(f_dict={}, name='Field'):
     """returns a named tuple for lightweight, dynamic Field objects
@@ -46,15 +56,14 @@ def Field(f_dict={}, name='Field'):
     for attr in ('name', 'length', 'type'):
         if not attr in f_dict:
             f_dict[attr] = None
-    col_ob = collections.namedtuple(name, ' '.join(f_dict.keys()))
-    return col_ob(**f_dict)
+
+    return namedTuple(name, f_dict)
 
 def GPParam(p_dict):
     """object to handle GP Parameter
 
     p_dict -- parameter dictionary (JSON)"""
-    param_ob = collections.namedtuple('GPParam', ' '.join(p_dict.keys()))
-    return param_ob(**p_dict)
+    return namedTuple('GPParam', p_dict)
 
 def Round(x, base=5):
     """round to nearest n"""
@@ -79,6 +88,7 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     if r.status_code != 200:
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
     else:
+        RequestError(r.json())
         if ret_json:
             return r.json()
         else:
@@ -466,10 +476,11 @@ def _print_info(obj):
             if attr != 'response':
                 if attr in ('layers', 'tables', 'fields') or 'fields' in attr.lower():
                     print '\n{0}:'.format(attr.title())
-                    for layer in value:
-                        print '\n'.join('\t{0}: {1}'.format(k,v)
-                                        for k,v in layer.iteritems())
-                        print '\n'
+                    if value:
+                        for layer in value:
+                            print '\n'.join('\t{0}: {1}'.format(k,v)
+                                            for k,v in layer.iteritems())
+                            print '\n'
                 elif isinstance(value, dict):
                     print '{0} Properties:'.format(attr)
                     for k,v in value.iteritems():
@@ -575,30 +586,34 @@ class Table(object):
 
 class GPResult(object):
     """class to handle GP Result"""
-    def __init__(self, res_dict):
+    __slots__ = ['response', 'results', 'messages', 'print_messages', 'elapsed']
+    def __init__(self, raw_response):
         """handler for GP result
 
         res_dict -- JSON response from GP Task execution
         """
-        self.response = res_dict
-        if 'results' in res_dict:
-            for k,v in res_dict['results'][0].items():
-                setattr(self, k, v)
-        else:
-            RequestError(res_dict)
+        self.response = raw_response.json()
+        self.elapsed = raw_response.elapsed
+        RequestError(self.response)
+
+    @property
+    def results(self):
+        if 'results' in self.response:
+           return self.response['results']
+        return []
 
     @property
     def messages(self):
         """return messages as JSON"""
         if 'messages' in self.response:
-            return self.response['messages']
-        else:
-            return []
+            return [namedTuple('Message', d) for d in self.response['messages']]
+        return []
 
     def print_messages(self):
         """prints all the GP messages"""
         for msg in self.messages:
-            print msg['description']
+            print 'Message Type: {}'.format(msg.type)
+            print '\tDescription: {}\n'.format(msg.description)
 
 class GeocodeResult(object):
     """class to handle Reverse Geocode Result"""
@@ -867,7 +882,13 @@ class RESTEndpoint(object):
         token -- token to handle security (alternative to usr and pw)
     """
     def __init__(self, url, usr='', pw='', token=''):
-        self.url = url.rstrip('/')
+        self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
+        if not fnmatch.fnmatch(self.url, BASE_PATTERN):
+            _plus_services = self.url + '/arcgis/rest/services'
+            if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
+                self.url = _plus_services
+            else:
+                RequestError({'error':{'URL Error': '"{}" is an invalid ArdGIS REST Directory!'.format(self.url)}})
         params = {'f': 'json'}
         self.token = token
         if not self.token:
@@ -886,6 +907,10 @@ class RESTEndpoint(object):
     def print_info(self):
         """Method to print all properties of service"""
         _print_info(self)
+
+    def refresh(self):
+        """refreshes the service"""
+        self.__init__(self.url, token=self.token)
 
 class BaseArcServer(RESTEndpoint):
     """Class to handle ArcGIS Server Connection"""
@@ -985,27 +1010,14 @@ class BaseArcServer(RESTEndpoint):
         """
         return walk(self.url, filterer, self.token)
 
-    def refresh(self):
-        """refreshes the MapService"""
-        self.__init__(self.url, token=self.token)
-
     def __iter__(self):
         """returns an generator for services"""
         return self.list_services()
 
-class FeatureService(RESTEndpoint):
-    """class to handle Feature Service
-
-    Required:
-        url -- image service url
-
-    Optional (below params only required if security is enabled):
-        usr -- username credentials for ArcGIS Server
-        pw -- password credentials for ArcGIS Server
-        token -- token to handle security (alternative to usr and pw)
-    """
+class BaseMapService(RESTEndpoint):
+    """Class to handle map service and requests"""
     def __init__(self, url, usr='', pw='', token=''):
-        super(FeatureService, self).__init__(url, usr, pw, token)
+        super(BaseMapService, self).__init__(url, usr, pw, token)
 
         self.layers = []
         self.tables = []
@@ -1014,16 +1026,21 @@ class FeatureService(RESTEndpoint):
         if 'tables' in self.response:
             self.tables = [Table(p) for p in self.response['tables']]
         for key, value in self.response.items():
-            if key not in ('layers', 'tables'):
+            if key not in ('layers', 'tables', 'spatialReference'):
                 setattr(self, key, value)
+        validate(self, ['spatialReference'])
+        self.properties = sorted(self.__dict__.keys())
+
+    @property
+    def spatialReference(self):
+        """return the spatial reference"""
         try:
             if 'latestWkid' in self.response['spatialReference']:
-                self.spatialReference = self.response['spatialReference']['latestWkid']
+                return self.response['spatialReference']['latestWkid']
             else:
-                self.spatialReference = self.response['spatialReference']['wkid']
+                return self.response['spatialReference']['wkid']
         except:
-            # try well known text (wkt)
-            self.spatialReference = self.response['spatialReference']
+            return None
 
     def list_layers(self):
         """Method to return a list of layer names in a MapService"""
@@ -1043,6 +1060,110 @@ class FeatureService(RESTEndpoint):
         lyr = get_layer_url(self.url, layer_name, self.token)
         return list_fields(lyr, self.token)
 
+class BaseMapServiceLayer(RESTEndpoint):
+    """Class to handle advanced layer properties"""
+    def __init__(self, url='', usr='', pw='', token=''):
+        super(BaseMapServiceLayer, self).__init__(url, usr, pw, token)
+
+        for key, value in self.response.iteritems():
+            if key != 'spatialReference':
+                setattr(self, key, value)
+
+        validate(self, ['fields', 'spatialReference'])
+        self.fields_dict = self.response['fields']
+        if self.fields_dict:
+            self.fields = [Field(f) for f in self.fields_dict]
+        else:
+            self.fields = []
+
+    @property
+    def OID(self):
+        """OID field object"""
+        try:
+            return [f for f in self.fields if f.type == OID][0]
+        except:
+            return None
+
+    @property
+    def SHAPE(self):
+        """SHAPE field object"""
+        try:
+            return [f for f in self.fields if f.type == SHAPE][0]
+        except:
+            return None
+
+    @property
+    def spatialReference(self):
+        """return the spatial reference"""
+        try:
+            if 'latestWkid' in self.response['spatialReference']:
+                return self.response['spatialReference']['latestWkid']
+            else:
+                return self.response['spatialReference']['wkid']
+        except:
+            return None
+
+    def list_fields(self):
+        """method to list field names"""
+        return [f.name for f in self.fields]
+
+    def Query(self, flds='*', where='1=1', add_params={}, **kwargs):
+        """query layer and get response as JSON
+
+        Optional:
+            flds -- fields to return. Default is "*" to return all fields
+            where -- where clause
+            add_params -- extra parameters to add to query string passed as dict
+            kwargs -- extra parameters to add to query string passed as key word arguments,
+                will override add_params***
+
+        # default params for all queries
+        params = {'returnGeometry' : 'true', 'outFields' : fields,
+                  'where': where, 'f' : 'json'}
+        """
+        for k,v in kwargs.iteritems():
+            add_params[k] = v
+        return query(self.url, flds, where, add_params, token=self.token)
+
+    def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
+        """Method to create kmz from query
+
+        Optional:
+            out_kmz -- output kmz file path, if none specified will be saved on Desktop
+            flds -- list of fields for fc. If none specified, all fields are returned.
+                Supports fields in list [] or comma separated string "field1,field2,.."
+            where -- optional where clause
+            params -- dictionary of parameters for query
+        """
+        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
+
+class FeatureService(BaseMapService):
+    """class to handle FeatureService"""
+    def __init__(self, url, usr='', pw='', token=''):
+        """class to handle Feature Service
+
+        Required:
+            url -- image service url
+
+        Optional (below params only required if security is enabled):
+            usr -- username credentials for ArcGIS Server
+            pw -- password credentials for ArcGIS Server
+            token -- token to handle security (alternative to usr and pw)
+        """
+        super(FeatureService, self).__init__(url, usr, pw, token)
+
+    def layer(self, name):
+        """Method to return a layer object with advanced properties by name
+
+        Required:
+            name -- layer name (supports wildcard syntax*)
+        """
+        layer_path = get_layer_url(self.url, name, self.token)
+        if layer_path:
+            return FeatureLayer(layer_path, token=self.token)
+        else:
+            print 'Layer "{0}" not found!'.format(name)
+
     def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
 
@@ -1059,19 +1180,8 @@ class FeatureService(RESTEndpoint):
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
-    def layer(self, name):
-        """Method to return a layer object with advanced properties by name
-
-        Required:
-            name -- layer name (supports wildcard syntax*)
-        """
-        layer_path = get_layer_url(self.url, name, self.token)
-        if layer_path:
-            return FeatureLayer(layer_path, token=self.token)
-        else:
-            print 'Layer "{0}" not found!'.format(name)
-
 class FeatureLayer(RESTEndpoint):
+    """class to handle FeatureLayer"""
     def __init__(self, url, usr='', pw='', token=''):
         """class to handle Feature Service Layer
 
@@ -1089,7 +1199,35 @@ class FeatureLayer(RESTEndpoint):
             if key == 'fields':
                 setattr(self, key, [Field(v, 'FeatureLayerField') for v in value])
             else:
-                setattr(self, key, value)
+                if key != 'spatialReference':
+                    setattr(self, key, value)
+
+    @property
+    def OID(self):
+        """OID field object"""
+        try:
+            return [f for f in self.fields if f.type == OID][0]
+        except:
+            return None
+
+    @property
+    def SHAPE(self):
+        """SHAPE field object"""
+        try:
+            return [f for f in self.fields if f.type == SHAPE][0]
+        except:
+            return None
+
+    @property
+    def spatialReference(self):
+        """return the spatial reference"""
+        try:
+            if 'latestWkid' in self.response['spatialReference']:
+                return self.response['spatialReference']['latestWkid']
+            else:
+                return self.response['spatialReference']['wkid']
+        except:
+            return None
 
     def addFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """add new features to feature service layer
@@ -1231,133 +1369,86 @@ class FeatureLayer(RESTEndpoint):
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
-    def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
-
-        Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
-        """
-        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
-
-    def refresh(self):
-        """refreshes the FeatureService"""
-        self.__init__(self.url, token=self.token)
-
-class BaseMapService(RESTEndpoint):
-    """Class to handle map service and requests"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(BaseMapService, self).__init__(url, usr, pw, token)
-
-        self.layers = []
-        self.tables = []
-        if 'layers' in self.response:
-            self.layers = [Layer(p) for p in self.response['layers']]
-        if 'tables' in self.response:
-            self.tables = [Table(p) for p in self.response['tables']]
-        for key, value in self.response.items():
-            if key not in ('layers', 'tables'):
-                setattr(self, key, value)
-        try:
-            if 'latestWkid' in self.response['spatialReference']:
-                self.spatialReference = self.response['spatialReference']['latestWkid']
-            else:
-                self.spatialReference = self.response['spatialReference']['wkid']
-        except:
-            try:
-                # try well known text (wkt)
-                self.spatialReference = self.response['spatialReference']
-            except:
-                self.spatialReference = None
-        validate(self, ['spatialReference'])
-        self.properties = sorted(self.__dict__.keys())
-
-    def list_layers(self):
-        """Method to return a list of layer names in a MapService"""
-        return [l.name for l in self.layers]
-
-    def list_tables(self):
-        """Method to return a list of layer names in a MapService"""
-        return [t.name for t in self.tables]
-
-    def list_fields(self, layer_name):
-        """Method to return field names from a layer"""
-        lyr = get_layer_url(self.url, layer_name, self.token)
-        return [f.name for f in list_fields(lyr, self.token)]
-
-    def get_fields(self, layer_name):
-        """Method to return field objects from a layer"""
-        lyr = get_layer_url(self.url, layer_name, self.token)
-        return list_fields(lyr, self.token)
-
-    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
+    def attachments(self, oid, gdbVersion=''):
+        """query attachments for an OBJECTDID
 
         Required:
-            layer_name -- name of map service layer to export to fc
+            oid -- object ID
 
         Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
+            gdbVersion -- Geodatabase version to query, only supported if self.isDataVersioned is true
         """
-        lyr = self.layer(layer_name)
-        lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
+        if self.hasAttachments:
+            query_url = '{0}/{1}/attachments'.format(self.url, oid)
+            r = POST(query_url, token=self.token)
 
-    def refresh(self):
-        """refreshes the MapService"""
-        self.__init__(self.url, token=self.token)
+            attInfos = []
+            if 'attachmentInfos' in r:
+                for attInfo in r['attachmentInfos']:
+                    attInfos.append(namedTuple('Attachment', attInfo))
 
-class BaseMapServiceLayer(RESTEndpoint):
-    """Class to handle advanced layer properties"""
-    def __init__(self, url='', usr='', pw='', token=''):
-        super(BaseMapServiceLayer, self).__init__(url, usr, pw, token)
+            return attInfos
 
-        for key, value in self.response.iteritems():
-            setattr(self, key, value)
-
-        validate(self, ['fields', 'spatialReference'])
-        self.fields_dict = self.response['fields']
-        if self.fields_dict:
-            self.fields = [Field(f) for f in self.fields_dict]
         else:
-            self.fields = []
+            raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
-    @property
-    def OID(self):
-        """OID field object"""
-        try:
-            return [f for f in self.fields if f.type == OID][0]
-        except:
-            return None
+    def calculate(self, exp, where='1=1', sqlFormat='standard'):
+        """calculate a field in a Feature Layer
 
-    @property
-    def SHAPE(self):
-        """SHAPE field object"""
-        try:
-            return [f for f in self.fields if f.type == SHAPE][0]
-        except:
-            return None
+        Required:
+            exp -- expression as JSON [{"field": "Street", "value": "Main St"},..]
 
-    @property
-    def spatialReference(self):
-        """spatial reference (WKID)"""
-        try:
-            if 'latestWkid' in self.extent.spatialReference:
-                return self.extent.spatialReference['latestWkid']
-            else:
-                return self.extent.spatialReference['wkid']
-        except:
-            return None
+        Optional:
+            where -- where clause for field calculator
+            sqlFormat -- SQL format for expression (standard|native)
 
-    def list_fields(self):
-        """method to list field names"""
-        return [f.name for f in self.fields]
+        Example expressions as JSON:
+            exp = [{"field" : "Quality", "value" : 3}]
+            exp =[{"field" : "A", "sqlExpression" : "B*3"}]
+        """
+        if hasattr(self, 'supportsCalculate') and self.supportsCalculate:
+            calc_url = self.url + '/calculate'
+            p = {'returnIdsOnly':'true',
+                'returnGeometry': 'false',
+                'outFields': '',
+                'calcExpression': json.dumps(exp),
+                'sqlFormat': sqlFormat}
+
+            return POST(calc_url, where=where, add_params=p, token=self.token)
+
+        else:
+            raise NotImplementedError('FeatureLayer "{}" does not support field calculations!'.format(self.name))
+
+    def Query(self, flds='*', where='1=1', add_params={}, **kwargs):
+        """query layer and get response as JSON
+
+        Optional:
+            flds -- fields to return. Default is "*" to return all fields
+            where -- where clause
+            add_params -- extra parameters to add to query string passed as dict
+            kwargs -- extra parameters to add to query string passed as key word arguments,
+                will override add_params***
+
+        # default params for all queries
+        params = {'returnGeometry' : 'true', 'outFields' : fields,
+                  'where': where, 'f' : 'json'}
+        """
+        for k,v in kwargs.iteritems():
+            add_params[k] = v
+        return query(self.url, flds, where, add_params, token=self.token)
+
+
+    def getOIDs(self, where='1=1', max_recs=None):
+        """return a list of OIDs from feature layer
+
+        Optional:
+            where -- where clause for OID selection
+            max_recs -- maximimum number of records to return (maxRecordCount does not apply)
+        """
+        p = {'returnIdsOnly':'true',
+             'returnGeometry': 'false',
+             'outFields': ''}
+        return sorted(query(self.url, where=where, add_params=p,token=self.token)['objectIds'])[:max_recs]
 
     def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
@@ -1370,10 +1461,6 @@ class BaseMapServiceLayer(RESTEndpoint):
             params -- dictionary of parameters for query
         """
         return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
-
-    def refresh(self):
-        """refreshes the MapServiceLayer"""
-        self.__init__(self.url, token=self.token)
 
 class BaseImageService(RESTEndpoint):
     """Class to handle Image service and requests"""
@@ -1386,11 +1473,12 @@ class BaseImageService(RESTEndpoint):
 
     @property
     def spatialReference(self):
+        """return the spatial reference"""
         try:
-            if 'latestWkid' in self.extent.spatialReference:
-                return self.extent.spatialReference['latestWkid']
+            if 'latestWkid' in self.response['spatialReference']:
+                return self.response['spatialReference']['latestWkid']
             else:
-                return self.extent.spatialReference['wkid']
+                return self.response['spatialReference']['wkid']
         except:
             return None
 
@@ -1406,9 +1494,28 @@ class BaseImageService(RESTEndpoint):
             boundingBox = boundingBox.split(',')
         return ','.join(map(str, map(lambda x: Round(x, cell_size), boundingBox)))
 
-    def refresh(self):
-        """refreshes the ImageService"""
-        self.__init__(self.url, token=self.token)
+    def pointIdentify(self, x, y, inSR=None):
+        """method to get pixel value from x,y coordinates
+
+        Required:
+            x -- x coordinate
+            y -- y coordinate
+
+        Optional:
+            inSR -- input spatial reference.  Should be supplied if spatial
+                reference is different from the Image Service's projection
+        """
+        IDurl = self.url + '/identify'
+        if not inSR:
+            inSR = self.spatialReference
+        params = {'geometry': json.dumps({"x":x,"y":y,
+                                "spatialReference":{"wkid":inSR}}),
+                  'geometryType':'esriGeometryPoint',
+                  'f':'json'}
+        j = POST(IDurl, params, token=self.token)
+        RequestError(j)
+        if 'value' in j:
+            return j['value']
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""
@@ -1592,10 +1699,12 @@ class GPTask(RESTEndpoint):
 
     @property
     def isSynchronous(self):
+        """task is synchronous"""
         return self.executionType == 'esriExecutionTypeSynchronous'
 
     @property
     def isAsynchronous(self):
+        """task is asynchronous"""
         return self.executionType == 'esriExecutionTypeAsynchronous'
 
     @property
@@ -1637,7 +1746,7 @@ class GPTask(RESTEndpoint):
         params_json['returnM'] = returnZ
         params_json['f'] = 'json'
         params_json['token'] = self.token
-        r = requests.post(gp_exe_url, params_json).json()
+        r = requests.post(gp_exe_url, params_json)
 
         # return result object
         return GPResult(r)
