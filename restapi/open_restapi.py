@@ -111,64 +111,64 @@ def exportReplica(replica, out_folder):
             out_file = os.path.join(att_loc, attInfo['name'])
             with open(out_file, 'wb') as f:
                 f.write(urllib.urlopen(attInfo['url']).read())
-            att_dict[attInfo['parentGlobalId']] = out_file
+            att_dict[attInfo['parentGlobalId']] = out_file.strip()
 
-        # make new feature class
-        sr = layer.spatialReference
+        if layer.features:
 
-        out_fc = validate_name(os.path.join(out_folder, layer.name + '.shp'))
-        g_type = G_DICT[layer.geometryType]
+            # make new feature class
+            sr = layer.spatialReference
 
-        # add all fields
-        layer_fields = [f for f in layer.fields if f.type not in (SHAPE, OID)]
-        w = shp_helper.shp(g_type, out_fc)
-        guid = None
-        field_map = []
-        for fld in layer_fields:
-            field_name = fld.name.split('.')[-1][:10]
-            field_type = SHP_FTYPES[fld.type]
-            if fld.type == 'esriFieldTypeGlobalID':
-                guid = fld.name
-            if not fld.length:
-                field_length = 0
-            field_length= str(fld.length)
-            w.add_field(field_name, field_type, field_length)
-            field_map.append((fld.name, field_name))
-
-        w.add_field('ATTCH_PATH', 'C', '254')
-
-        # search cursor to write rows
-        s_fields = [f[0] for f in field_map]
-        date_indices = [i for i,f in enumerate(layer_fields) if f.type == 'esriFieldTypeDate']
-
-        for feature in layer.features:
-            row = [feature['attributes'][f] for f in s_fields]
-            if guid:
-                row += [att_dict[feature['attributes'][guid]]]
-            for i in date_indices:
-                row[i] = mil_to_date(row[i])
-
+            out_fc = validate_name(os.path.join(out_folder, layer.name + '.shp'))
             g_type = G_DICT[layer.geometryType]
-            if g_type == 'Polygon':
-                geom = feature['geometry']['rings']
 
-            elif g_type == 'Polyline':
-                 geom = feature['geometry']['paths']
+            # add all fields
+            layer_fields = [f for f in layer.fields if f.type not in (SHAPE, OID)]
+            w = shp_helper.shp(g_type, out_fc)
+            guid = None
+            field_map = []
+            for fld in layer_fields:
+                field_name = fld.name.split('.')[-1][:10]
+                field_type = SHP_FTYPES[fld.type]
+                if fld.type == 'esriFieldTypeGlobalID':
+                    guid = fld.name
+                field_length = str(fld.length) if fld.length else "50"
+                w.add_field(field_name, field_type, field_length)
+                field_map.append((fld.name, field_name))
 
-            elif g_type == 'Point':
-                 geom = [feature['geometry']['x'], feature['geometry']['y']]
+            w.add_field('ATTCH_PATH', 'C', '254')
 
-            else:
-                # multipoint - to do
-                pass
+            # search cursor to write rows
+            s_fields = [f[0] for f in field_map]
+            date_indices = [i for i,f in enumerate(layer_fields) if f.type == 'esriFieldTypeDate']
 
-            w.add_row(geom, row)
+            for feature in layer.features:
+                row = [feature['attributes'][f] for f in s_fields]
+                if guid:
+                    row += [att_dict[feature['attributes'][guid]]]
+                for i in date_indices:
+                    row[i] = mil_to_date(row[i])
 
-        w.save()
-        print 'Created: "{0}"'.format(out_fc)
+                g_type = G_DICT[layer.geometryType]
+                if g_type == 'Polygon':
+                    geom = feature['geometry']['rings']
 
-        # write projection file
-        project(out_fc, sr)
+                elif g_type == 'Polyline':
+                     geom = feature['geometry']['paths']
+
+                elif g_type == 'Point':
+                     geom = [feature['geometry']['x'], feature['geometry']['y']]
+
+                else:
+                    # multipoint - to do
+                    pass
+
+                w.add_row(geom, row)
+
+            w.save()
+            print 'Created: "{0}"'.format(out_fc)
+
+            # write projection file
+            project(out_fc, sr)
 
     return out_folder
 
@@ -485,7 +485,7 @@ class MapServiceLayer(BaseMapServiceLayer):
                     if not 'shape' in fld.name.lower():
                         field_name = fld.name.split('.')[-1][:10]
                         field_type = SHP_FTYPES[fld.type]
-                        field_length= str(fld.length)
+                        field_length = str(fld.length) if fld.length else "50"
                         w.add_field(field_name, field_type, field_length)
                         field_map.append((fld.name, field_name))
 
