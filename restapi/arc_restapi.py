@@ -4,8 +4,6 @@ import arcpy
 import os
 import time
 import json
-import rest_utils
-reload(rest_utils)
 from rest_utils import *
 arcpy.env.overwriteOutput = True
 
