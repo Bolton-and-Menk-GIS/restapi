@@ -1227,6 +1227,9 @@ class FeatureService(BaseMapService):
             replicaSR -- output spatial reference for replica data
             **kwargs -- optional keyword arguments for createReplica request
         """
+        if not self.syncEnabled:
+            raise NotImplementedError('FeatureService "{}" does not support Sync!'.format(self.url))
+
         # validate layers
         if isinstance(layers, basestring):
             layers = [l.strip() for l in layers.split(',')]
