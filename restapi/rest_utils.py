@@ -595,16 +595,6 @@ class Folder(object):
         """method to list services"""
         return ['/'.join([s.name, s.type]) for s in self.services]
 
-class Point(namedtuple('Point', 'x y spatialReference')):
-    """simple Point object that can be converted to arcpy.Point or arcpy.PointGeometry"""
-    __slots__ = ()
-    def __new__(cls, x, y, spatialReference=None):
-        """
-        x -- x coordinate
-        y -- y coordinate
-        sr -- spatial reference (wkid or arcpy.SpatialReference)"""
-        return super(Point, cls).__new__(cls, x, y, spatialReference)
-
 class Layer(object):
     """class to handle basic layer info"""
     __slots__ = ['subLayerIds', 'name', 'maxScale', 'defaultVisibility',
@@ -1227,7 +1217,7 @@ class FeatureService(BaseMapService):
             replicaSR -- output spatial reference for replica data
             **kwargs -- optional keyword arguments for createReplica request
         """
-        if not self.syncEnabled:
+        if hasattr(self, 'syncEnabled') and not self.syncEnabled:
             raise NotImplementedError('FeatureService "{}" does not support Sync!'.format(self.url))
 
         # validate layers
