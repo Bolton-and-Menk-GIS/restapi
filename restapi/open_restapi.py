@@ -17,9 +17,9 @@ SHP_FTYPES = {
           'esriFieldTypeDouble':'F',
           'esriFieldTypeSmallInteger':'N',
           'esriFieldTypeInteger':'N',
-          'esriFieldTypeGUID':'L',
+          'esriFieldTypeGUID':'C',
           'esriFieldTypeRaster':'B',
-          'esriFieldTypeGlobalID': 'L'
+          'esriFieldTypeGlobalID': 'C'
           }
 
 def project(SHAPEFILE, wkid):
@@ -86,6 +86,91 @@ def poly_to_json(poly, wkid=3857, envelope=False):
             rings = [shape.points]
         ring_dict = {"rings": rings, "spatialReference":{"wkid":wkid}}
         return ring_dict
+
+def exportReplica(replica, out_folder):
+    """converts a restapi.Replica() to a Shapefiles
+
+    replica -- input restapi.Replica() object, must be generated from restapi.FeatureService.createReplica()
+    out_folder -- full path to folder location where new files will be stored.
+    """
+    if not hasattr(replica, 'replicaName'):
+        print 'Not a valid input!  Must be generated from restapi.FeatureService.createReplica() method!'
+        return
+
+    # attachment directory and gdb set up
+    att_loc = os.path.join(out_folder, 'Attachments')
+    if not os.path.exists(att_loc):
+        os.makedirs(att_loc)
+
+    # set schema and create feature classes
+    for layer in replica.layers:
+
+        # download attachments
+        att_dict = {}
+        for attInfo in layer.attachments:
+            out_file = os.path.join(att_loc, attInfo['name'])
+            with open(out_file, 'wb') as f:
+                f.write(urllib.urlopen(attInfo['url']).read())
+            att_dict[attInfo['parentGlobalId']] = out_file
+
+        # make new feature class
+        sr = layer.spatialReference
+
+        out_fc = validate_name(os.path.join(out_folder, layer.name + '.shp'))
+        g_type = G_DICT[layer.geometryType]
+
+        # add all fields
+        layer_fields = [f for f in layer.fields if f.type not in (SHAPE, OID)]
+        w = shp_helper.shp(g_type, out_fc)
+        guid = None
+        field_map = []
+        for fld in layer_fields:
+            field_name = fld.name.split('.')[-1][:10]
+            field_type = SHP_FTYPES[fld.type]
+            if fld.type == 'esriFieldTypeGlobalID':
+                guid = fld.name
+            if not fld.length:
+                field_length = 0
+            field_length= str(fld.length)
+            w.add_field(field_name, field_type, field_length)
+            field_map.append((fld.name, field_name))
+
+        w.add_field('ATTCH_PATH', 'C', '254')
+
+        # search cursor to write rows
+        s_fields = [f[0] for f in field_map]
+        date_indices = [i for i,f in enumerate(layer_fields) if f.type == 'esriFieldTypeDate']
+
+        for feature in layer.features:
+            row = [feature['attributes'][f] for f in s_fields]
+            if guid:
+                row += [att_dict[feature['attributes'][guid]]]
+            for i in date_indices:
+                row[i] = mil_to_date(row[i])
+
+            g_type = G_DICT[layer.geometryType]
+            if g_type == 'Polygon':
+                geom = feature['geometry']['rings']
+
+            elif g_type == 'Polyline':
+                 geom = feature['geometry']['paths']
+
+            elif g_type == 'Point':
+                 geom = [feature['geometry']['x'], feature['geometry']['y']]
+
+            else:
+                # multipoint - to do
+                pass
+
+            w.add_row(geom, row)
+
+        w.save()
+        print 'Created: "{0}"'.format(out_fc)
+
+        # write projection file
+        project(out_fc, sr)
+
+    return out_folder
 
 class Cursor(BaseCursor):
     """Class to handle Cursor object"""
@@ -301,6 +386,22 @@ class MapService(BaseMapService):
         """
         lyr = self.layer(layer_name)
         lyr.layer_to_fc(out_fc, sr, where, params, flds, records, get_all)
+
+    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
+        """Method to create kmz from query
+
+        Required:
+            layer_name -- name of map service layer to export to fc
+
+        Optional:
+            out_kmz -- output kmz file path, if none specified will be saved on Desktop
+            flds -- list of fields for fc. If none specified, all fields are returned.
+                Supports fields in list [] or comma separated string "field1,field2,.."
+            where -- optional where clause
+            params -- dictionary of parameters for query
+        """
+        lyr = self.layer(layer_name)
+        lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
     def clip(self, layer_name, poly, output, fields='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
