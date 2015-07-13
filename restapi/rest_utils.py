@@ -19,12 +19,12 @@ FTYPES = {'esriFieldTypeDate':'DATE',
           'esriFieldTypeSingle':'FLOAT',
           'esriFieldTypeDouble':'DOUBLE',
           'esriFieldTypeSmallInteger':'SHORT',
-          'esriFieldTypeInteger':'LONG'}
+          'esriFieldTypeInteger':'LONG',
+          'esriFieldTypeGUID':'GUID',
+          'esriFieldTypeGlobalID': 'GUID'}
 
 SKIP_FIELDS = {
-          'esriFieldTypeGUID':'GUID',
           'esriFieldTypeRaster':'RASTER',
-          'esriFieldTypeGlobalID': 'GUID',
           'esriFieldTypeBlob': 'BLOB'}
 
 EXTRA ={'esriFieldTypeOID': 'OID@',
@@ -55,7 +55,7 @@ def Field(f_dict={}, name='Field'):
     # make sure always has at least name, length, type
     for attr in ('name', 'length', 'type'):
         if not attr in f_dict:
-            f_dict[attr] = None
+            f_dict[attr] = None if attr != 'length' else 0
 
     return namedTuple(name, f_dict)
 
@@ -82,6 +82,8 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     token -- token to handle security (only required if security is enabled)
     """
     h = {"content-type":"text"}
+    if not token and 'token' in _params:
+        token = _params['token']
     r = requests.post(service, params=add_token(_params, token), headers=h, verify=False)
 
     # make sure return
@@ -114,6 +116,11 @@ def add_token(p_dict={'f': 'json'}, token=None):
             dictionary is returned
     """
     if token:
+        if isinstance(token, Token):
+            if not token.isExpired:
+                p_dict['token'] = token.token
+            else:
+                print 'Token expired at {}! Please sign in again.'.format(token.expires)
         p_dict['token'] = token
     return p_dict
 
@@ -426,10 +433,8 @@ def generate_token(url, user='', pw='', expiration=60):
             use_body = True
             base += '/generateToken'
 
-    r = requests.post(url=base, data=params).json()
-    if 'token' in r:
-        return r['token']
-    return None
+    return Token(requests.post(url=base, data=params).json())
+
 
 def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
     """query all records.  Will iterate through "chunks" of OID's until all
@@ -530,6 +535,27 @@ def walk(url, filterer=True, token=''):
            services.append('/'.join([serv['name'], serv['type']]))
         yield (f, endpt['folders'], services)
 
+class Token(object):
+    """class to handle token authentication"""
+    __slots__ = ['token', 'expires', 'isExpired']
+    def __init__(self, response):
+        """response JSON object from generate_token"""
+        RequestError(response)
+        self.token = response['token']
+        self.expires = mil_to_date(response['expires'])
+
+    @property
+    def isExpired(self):
+        """boolean value for expired or not"""
+        if datetime.datetime.now() > self.expires:
+            return True
+        else:
+            return False
+
+    def __str__(self):
+        """return token as string representation"""
+        return self.token
+
 class RequestError(object):
     """class to handle restapi request errors"""
     def __init__(self, err):
@@ -568,6 +594,16 @@ class Folder(object):
     def list_services(self):
         """method to list services"""
         return ['/'.join([s.name, s.type]) for s in self.services]
+
+class Point(namedtuple('Point', 'x y spatialReference')):
+    """simple Point object that can be converted to arcpy.Point or arcpy.PointGeometry"""
+    __slots__ = ()
+    def __new__(cls, x, y, spatialReference=None):
+        """
+        x -- x coordinate
+        y -- y coordinate
+        sr -- spatial reference (wkid or arcpy.SpatialReference)"""
+        return super(Point, cls).__new__(cls, x, y, spatialReference)
 
 class Layer(object):
     """class to handle basic layer info"""
@@ -888,17 +924,14 @@ class RESTEndpoint(object):
             if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
                 self.url = _plus_services
             else:
-                RequestError({'error':{'URL Error': '"{}" is an invalid ArdGIS REST Directory!'.format(self.url)}})
+                RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
         params = {'f': 'json'}
         self.token = token
         if not self.token:
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
-                if self.token:
-                    params['token'] = self.token
-        else:
-            params['token'] = self.token
-        self.raw_response = POST(self.url, params, ret_json=False)
+
+        self.raw_response = POST(self.url, params, ret_json=False, token=self.token)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
@@ -1180,6 +1213,99 @@ class FeatureService(BaseMapService):
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
+    def createReplica(self, layers, replicaName, geometry='', geometryType='', inSR='', replicaSR='', **kwargs):
+        """query attachments, returns a JSON object
+
+        Required:
+            layers -- list of layers to create replicas for (valid inputs below)
+            replicaName -- name of replica
+
+        Optional:
+            geometry -- optional geometry to query features
+            geometryType -- type of geometry
+            inSR -- input spatial reference for geometry
+            replicaSR -- output spatial reference for replica data
+            **kwargs -- optional keyword arguments for createReplica request
+        """
+        # validate layers
+        if isinstance(layers, basestring):
+            layers = [l.strip() for l in layers.split(',')]
+
+        elif not isinstance(layers, (list, tuple)):
+            layers = [layers]
+
+        if all(map(lambda x: isinstance(x, int), layers)):
+            layers = ','.join(map(str, layers))
+
+        elif all(map(lambda x: isinstance(x, basestring), layers)):
+            layers = ','.join(map(str, filter(lambda x: x is not None,
+                                [s.id for s in self.layers if s.name.lower()
+                                 in [l.lower() for l in layers]])))
+
+        if not geometry and not geometryType:
+            ext = self.initialExtent
+            geometry= ','.join(map(str, [ext.xmin,ext.ymin,ext.xmax,ext.ymax]))
+            geometryType = 'esriGeometryEnvelope'
+            inSR = self.spatialReference
+            useGeometry = False
+        else:
+            useGeometry = True
+
+        if not replicaSR:
+            replicaSR = self.spatialReference
+
+        validated = layers.split(',')
+        options = {'replicaName': replicaName,
+                   'layers': layers,
+                   'layerQueries': '',
+                   'geometry': geometry,
+                   'geometryType': geometryType,
+                   'inSR': inSR,
+                   'replicaSR':	replicaSR,
+                   'transportType':	'esriTransportTypeUrl',
+                   'returnAttachments':	'true',
+                   'returnAttachmentsDataByUrl': 'true',
+                   'async':	'false',
+                   'f': 'pjson',
+                   'syncModel':	'perReplica',
+                   'dataFormat': 'json',
+                   'replicaOptions': '',
+                   'token': self.token.token if isinstance(self.token, Token) else self.token
+                   }
+
+        for k,v in kwargs.iteritems():
+            options[k] = v
+            if k == 'layerQueries':
+                if isinstance(options[k], basestring):
+                    options[k] = json.loads(options[k])
+                for key in options[k].keys():
+                    options[k][key]['useGeometry'] = useGeometry
+                    options[k] = json.dumps(options[k])
+
+        st = requests.post(self.url + '/createReplica', options).json()
+        RequestError(st)
+        js = POST(st['URL'], token=self.token)
+        RequestError(js)
+
+        if not replicaSR:
+            replicaSR = self.spatialReference
+
+        repLayers = []
+        for i,l in enumerate(js['layers']):
+            l['layerURL'] = '/'.join([self.url, validated[i]])
+            layer_ob = FeatureLayer(l['layerURL'], token=self.token)
+            l['fields'] = layer_ob.fields
+            l['name'] = layer_ob.name
+            l['geometryType'] = layer_ob.geometryType
+            l['spatialReference'] = replicaSR
+            if not 'attachments' in l:
+                l['attachments'] = []
+            repLayers.append(namedTuple('ReplicaLayer', l))
+
+        rep_dict = js
+        rep_dict['layers'] = repLayers
+        return namedTuple('Replica', rep_dict)
+
 class FeatureLayer(RESTEndpoint):
     """class to handle FeatureLayer"""
     def __init__(self, url, usr='', pw='', token=''):
@@ -1330,6 +1456,9 @@ class FeatureLayer(RESTEndpoint):
         gdbVersion -- geodatabase version to apply edits
         rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
         """
+        # TO DO
+        pass
+
     def addAttachment(self, oid, attachment, content_type=''):
         """add an attachment to a feature service layer
 
@@ -1360,7 +1489,7 @@ class FeatureLayer(RESTEndpoint):
             # make post request
             att_url = '{}/{}/addAttachment'.format(self.url, oid)
             files = {'attachment': (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
-            params = {'token': self.token,'f': 'json'}
+            params = {'token': self.token.token,'f': 'json'}
             r = requests.post(att_url, params, files=files).json()
             if 'addAttachmentResult' in r:
                 print r['addAttachmentResult']
@@ -1494,26 +1623,41 @@ class BaseImageService(RESTEndpoint):
             boundingBox = boundingBox.split(',')
         return ','.join(map(str, map(lambda x: Round(x, cell_size), boundingBox)))
 
-    def pointIdentify(self, x, y, inSR=None):
-        """method to get pixel value from x,y coordinates
+    def pointIdentify(self, **kwargs):
+        """method to get pixel value from x,y coordinates or JSON point object
 
-        Required:
+        Recognized key word arguments:
+            geometry -- JSON point object as dictionary
             x -- x coordinate
             y -- y coordinate
-
-        Optional:
-            inSR -- input spatial reference.  Should be supplied if spatial
+            sr -- input spatial reference.  Should be supplied if spatial
                 reference is different from the Image Service's projection
+
+        geometry example:
+            geometry = {"x":3.0,"y":5.0,"spatialReference":{"wkid":102100}}
         """
         IDurl = self.url + '/identify'
-        if not inSR:
-            inSR = self.spatialReference
-        params = {'geometry': json.dumps({"x":x,"y":y,
-                                "spatialReference":{"wkid":inSR}}),
+
+        if 'geometry' in kwargs:
+            g = kwargs['geometry']
+            if isinstance(g, dict):
+                geometry = json.dumps(g)
+            elif isinstance(g, basestring):
+                geometry = g
+
+        elif 'x' in kwargs and 'y' in kwargs:
+            g = {'x': kwargs['x'], 'y': kwargs['y']}
+            if 'sr' in kwargs:
+                g["spatialReference"] = {"wkid": kwargs['sr']}
+            else:
+                g["spatialReference"] = {"wkid": self.spatialReference}
+            geometry = json.dumps(g)
+
+        params = {'geometry': geometry,
                   'geometryType':'esriGeometryPoint',
                   'f':'json'}
+
         j = POST(IDurl, params, token=self.token)
-        RequestError(j)
         if 'value' in j:
             return j['value']
 
@@ -1745,7 +1889,7 @@ class GPTask(RESTEndpoint):
         params_json['returnZ'] = returnZ
         params_json['returnM'] = returnZ
         params_json['f'] = 'json'
-        params_json['token'] = self.token
+        params_json['token'] = self.token.token
         r = requests.post(gp_exe_url, params_json)
 
         # return result object
