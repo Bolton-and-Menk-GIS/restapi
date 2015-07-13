@@ -55,7 +55,7 @@ def Field(f_dict={}, name='Field'):
     # make sure always has at least name, length, type
     for attr in ('name', 'length', 'type'):
         if not attr in f_dict:
-            f_dict[attr] = None if attr != 'length' else 0
+            f_dict[attr] = None
 
     return namedTuple(name, f_dict)
 
@@ -1244,12 +1244,16 @@ class FeatureService(BaseMapService):
 
         if not geometry and not geometryType:
             ext = self.initialExtent
+            inSR = self.initialExtent.spatialReference
             geometry= ','.join(map(str, [ext.xmin,ext.ymin,ext.xmax,ext.ymax]))
             geometryType = 'esriGeometryEnvelope'
             inSR = self.spatialReference
             useGeometry = False
         else:
             useGeometry = True
+            if isinstance(geometry, dict) and 'spatialReference' in geometry and not inSR:
+                inSR = geometry['spatialReference']
+
 
         if not replicaSR:
             replicaSR = self.spatialReference
@@ -1276,11 +1280,12 @@ class FeatureService(BaseMapService):
         for k,v in kwargs.iteritems():
             options[k] = v
             if k == 'layerQueries':
-                if isinstance(options[k], basestring):
-                    options[k] = json.loads(options[k])
-                for key in options[k].keys():
-                    options[k][key]['useGeometry'] = useGeometry
-                    options[k] = json.dumps(options[k])
+                if options[k]:
+                    if isinstance(options[k], basestring):
+                        options[k] = json.loads(options[k])
+                    for key in options[k].keys():
+                        options[k][key]['useGeometry'] = useGeometry
+                        options[k] = json.dumps(options[k])
 
         st = requests.post(self.url + '/createReplica', options).json()
         RequestError(st)
