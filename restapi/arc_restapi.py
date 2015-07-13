@@ -59,71 +59,72 @@ def exportReplica(replica, out_folder):
 
         fc = os.path.join(gdb, arcpy.ValidateTableName(layer.name, gdb))
 
-        arcpy.management.CreateFeatureclass(gdb, os.path.basename(fc), G_DICT[layer.geometryType],
-                                            spatial_reference=layer.spatialReference)
+        if layer.features:
+            arcpy.management.CreateFeatureclass(gdb, os.path.basename(fc), G_DICT[layer.geometryType],
+                                                spatial_reference=layer.spatialReference)
 
-        # set up schema
-        guid, guidFieldName = None, None
-        layer_fields = [f for f in layer.fields if f.type not in (SHAPE, OID)]
-        for i, field in enumerate(layer_fields):
+            # set up schema
+            guid, guidFieldName = None, None
+            layer_fields = [f for f in layer.fields if f.type not in (SHAPE, OID)]
+            for i, field in enumerate(layer_fields):
 
-            if field.type == 'esriFieldTypeGlobalID':
-                field_name = 'ORIG_GlobalID'
-                guid = i
-                guidFieldName = field.name
-            else:
-                field_name = field.name
+                if field.type == 'esriFieldTypeGlobalID':
+                    field_name = 'ORIG_GlobalID'
+                    guid = i
+                    guidFieldName = field.name
+                else:
+                    field_name = field.name
 
-            # set up domain if necessary
-            gdb_domains = []
-            if field.domain:
-                if field.domain['name'] not in gdb_domains:
-                    if 'codedValues' in field.domain:
-                        dType = 'CODED'
-                    else:
-                        dType = 'RANGE'
+                # set up domain if necessary
+                gdb_domains = []
+                if field.domain:
+                    if field.domain['name'] not in gdb_domains:
+                        if 'codedValues' in field.domain:
+                            dType = 'CODED'
+                        else:
+                            dType = 'RANGE'
 
-                    arcpy.management.CreateDomain(gdb, field.domain['name'],
-                                                  field.domain['name'],
-                                                  FTYPES[field.type],
-                                                  dType)
-                    if dType == 'CODED':
-                        for cv in field.domain['codedValues']:
-                            arcpy.management.AddCodedValueToDomain(gdb, field.domain['name'], cv['code'], cv['name'])
-                    else:
-                        _min, _max = field.domain['range']
-                        arcpy.management.SetValueForRangeDomain(gdb, field.domain['name'], _min, _max)
+                        arcpy.management.CreateDomain(gdb, field.domain['name'],
+                                                      field.domain['name'],
+                                                      FTYPES[field.type],
+                                                      dType)
+                        if dType == 'CODED':
+                            for cv in field.domain['codedValues']:
+                                arcpy.management.AddCodedValueToDomain(gdb, field.domain['name'], cv['code'], cv['name'])
+                        else:
+                            _min, _max = field.domain['range']
+                            arcpy.management.SetValueForRangeDomain(gdb, field.domain['name'], _min, _max)
 
-                    gdb_domains.append(field.domain['name'])
+                        gdb_domains.append(field.domain['name'])
 
-                field_domain = field.domain['name']
-            else:
-                field_domain = ''
+                    field_domain = field.domain['name']
+                else:
+                    field_domain = ''
 
-            arcpy.management.AddField(fc, field_name, FTYPES[field.type],
-                                        field_length=field.length,
-                                        field_alias=field.alias,
-                                        field_domain=field_domain)
+                arcpy.management.AddField(fc, field_name, FTYPES[field.type],
+                                            field_length=field.length,
+                                            field_alias=field.alias,
+                                            field_domain=field_domain)
 
-        # set up field values
-        fld_names = ['SHAPE@'] + [f.name for f in layer_fields]
-        if guid != None:
-            fld_names[guid + 1] = 'ORIG_GlobalID'
-        date_indices = [i for i,f in enumerate(layer_fields) if f.type == 'esriFieldTypeDate']
+            # set up field values
+            fld_names = ['SHAPE@'] + [f.name for f in layer_fields]
+            if guid != None:
+                fld_names[guid + 1] = 'ORIG_GlobalID'
+            date_indices = [i for i,f in enumerate(layer_fields) if f.type == 'esriFieldTypeDate']
 
-        with arcpy.da.InsertCursor(fc, fld_names) as irows:
-            for rowD in layer.features:
-                row = [rowD['attributes'][f] if f in rowD['attributes']
-                       else rowD['attributes'][guidFieldName] for f in fld_names[1:]]
+            with arcpy.da.InsertCursor(fc, fld_names) as irows:
+                for rowD in layer.features:
+                    row = [rowD['attributes'][f] if f in rowD['attributes']
+                           else rowD['attributes'][guidFieldName] for f in fld_names[1:]]
 
-                for i in date_indices:
-                    row[i] = mil_to_date(row[i])
+                    for i in date_indices:
+                        row[i] = mil_to_date(row[i])
 
-                shape = arcpy.AsShape(rowD['geometry'], True)
-                irows.insertRow([shape] + row)
+                    shape = arcpy.AsShape(rowD['geometry'], True)
+                    irows.insertRow([shape] + row)
 
         # Enable Attachments
-        if layer.attachments:
+        if layer.attachments and layer.features:
             arcpy.management.AddGlobalIDs(fc)
             arcpy.management.EnableAttachments(fc)
 
@@ -141,8 +142,10 @@ def exportReplica(replica, out_folder):
             arcpy.management.AddAttachments(fc, 'ORIG_GlobalID', tmp_tab, 'ORIG_GlobalID', 'PHOTO_NAME', in_working_folder=att_loc)
             arcpy.management.Delete(tmp_tab)
 
-    print 'Created: "{}"'.format(gdb)
-    return gdb
+            print 'Created: "{}"'.format(gdb)
+            return gdb
+
+    return out_folder
 
 class Cursor(BaseCursor):
     """Class to handle Cursor object"""
