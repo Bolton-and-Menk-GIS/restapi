@@ -4,6 +4,7 @@ import getpass
 import fnmatch
 import datetime
 import collections
+import urllib
 import json
 import os
 from itertools import izip_longest
@@ -82,9 +83,13 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     token -- token to handle security (only required if security is enabled)
     """
     h = {"content-type":"text"}
-    if not token and 'token' in _params:
-        token = _params['token']
-    r = requests.post(service, params=add_token(_params, token), headers=h, verify=False)
+    if token:
+        if isinstance(token, Token) and token.isExpired:
+            print 'Token expired at {}! Please sign in again.'.format(token.expires)
+        cookie = {'agstoken': token.token if isinstance(token, Token) else token}
+    else:
+        cookie = ''
+    r = requests.post(service, params=_params, headers=h, cookies=cookie, verify=False)
 
     # make sure return
     if r.status_code != 200:
@@ -106,23 +111,6 @@ def validate_name(file_name):
     for f,r in d.iteritems():
         root = root.replace(f,r)
     return os.path.join(path, '_'.join(root.split()) + ext)
-
-def add_token(p_dict={'f': 'json'}, token=None):
-    """Adds a token to parameters dictionary for web request
-
-    Optional:
-        p_dict -- parameter dictionary
-        token -- token to add to p_dict. If no token is supplied, the original
-            dictionary is returned
-    """
-    if token:
-        if isinstance(token, Token):
-            if not token.isExpired:
-                p_dict['token'] = token.token
-            else:
-                print 'Token expired at {}! Please sign in again.'.format(token.expires)
-        p_dict['token'] = token
-    return p_dict
 
 def mil_to_date(mil):
     """date items from REST services are reported in milliseconds,
@@ -202,7 +190,7 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
     # create kmz file if requested
     if ret_form == 'kmz':
         import codecs
-        r = POST(endpoint, add_token(params, token), False)
+        r = POST(endpoint, params, ret_json=False, token=token)
         name = POST(service_lyr)['name']
         r.encoding = 'zlib_codec'
 
@@ -214,7 +202,7 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
         print 'Created: "{0}"'.format(kmz)
         return kmz
     else:
-        r = POST(endpoint, add_token(params, token))
+        r = POST(endpoint, params, token=token)
         if ret_form == 'json':
             return r
     return None
@@ -231,7 +219,7 @@ def get_layerID_by_name(service, name, token='', grp_lyr=False):
         grp_lyr -- default is false, does not return layer ID for group layers.  Set
             to true to search for group layers too.
     """
-    r = POST(service, add_token(token=token))
+    r = POST(service, token=token)
     if not 'layers' in r:
         return None
     all_layers = r['layers']
@@ -285,7 +273,7 @@ def list_fields(service_lyr, token=''):
         token -- token to handle security (only required if security is enabled)
     """
     try:
-        return [Field(f) for f in POST(service_lyr, add_token(token=token))['fields']]
+        return [Field(f) for f in POST(service_lyr, token=token)['fields']]
     except: return []
 
 def list_services(service, token='', filterer=True):
@@ -300,7 +288,7 @@ def list_services(service, token='', filterer=True):
             set to false to list all services.
     """
     all_services = []
-    r = POST(service, add_token(token=token))
+    r = POST(service, token=token)
     for s in r['services']:
         all_services.append('/'.join([service, s['name'], s['type']]))
     folders = r['folders']
@@ -311,7 +299,7 @@ def list_services(service, token='', filterer=True):
             except: pass
     for s in folders:
         new = '/'.join([service, s])
-        endpt = POST(new, add_token(token=token))
+        endpt = POST(new, token=token)
         for serv in endpt['services']:
            all_services.append('/'.join([service, serv['name'], serv['type']]))
     return all_services
@@ -327,7 +315,7 @@ def iter_services(service, token='', filterer=True):
         filterer -- default is true to exclude "Utilities" and "System" folders,
             set to false to list all services.
     """
-    r = POST(service, add_token(token=token))
+    r = POST(service, token=token)
     for s in r['services']:
         yield '/'.join([service, s['name'], s['type']])
     folders = r['folders']
@@ -338,7 +326,7 @@ def iter_services(service, token='', filterer=True):
             except: pass
     for s in folders:
         new = '/'.join([service, s])
-        endpt = POST(new, add_token(token=token))
+        endpt = POST(new, token=token)
         for serv in endpt['services']:
            yield '/'.join([service, serv['name'], serv['type']])
 
@@ -360,7 +348,7 @@ def list_layers(service, token=''):
     Optional:
         token -- token to handle security (only required if security is enabled)
     """
-    r = POST(service, add_token(token=token))
+    r = POST(service, token=token)
     if 'layers' in r:
         return [Layer(p) for p in r['layers']]
     return []
@@ -374,7 +362,7 @@ def list_tables(service, token=''):
     Optional:
         token -- token to handle security (only required if security is enabled)
     """
-    r = POST(service, add_token(token=token))
+    r = POST(service, token=token)
     if 'tables' in r:
         return [Table(p) for p in r['tables']]
     return []
@@ -389,7 +377,9 @@ def validate(obj, filterer=[]):
     Optional:
         filterer -- list of object dictionary keys to skip
     """
-    filterer.append('response')
+    if not isinstance(filterer, list):
+        filterer = list(filterer)
+    filterer += ['raw_response', 'response', '_cookie', 'token']
     atts = []
     if hasattr(obj, '__dict__'):
         atts = obj.__dict__.keys()
@@ -456,7 +446,7 @@ def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
         add_params['returnIdsOnly'] = 'true'
 
     # get oids
-    oids = sorted(query(layer_url, where=where, add_params=add_params,token=token)['objectIds'])
+    oids = sorted(query(layer_url, where=where, add_params=add_params, token=token)['objectIds'])
     print 'total records: {0}'.format(len(oids))
 
     # remove returnIdsOnly from dict
@@ -537,12 +527,13 @@ def walk(url, filterer=True, token=''):
 
 class Token(object):
     """class to handle token authentication"""
-    __slots__ = ['token', 'expires', 'isExpired']
+    __slots__ = ['token', 'expires', 'isExpired', '_cookie']
     def __init__(self, response):
         """response JSON object from generate_token"""
         RequestError(response)
         self.token = response['token']
         self.expires = mil_to_date(response['expires'])
+        self._cookie = {'agstoken': self.token}
 
     @property
     def isExpired(self):
@@ -725,9 +716,10 @@ class GeocodeResult(object):
 class EditResult(object):
     """class to handle Edit operation results"""
     __slots__ = ['addResults', 'updateResults', 'deleteResults',
-                'summary', 'affectedOIDs', 'failedOIDs']
+                'summary', 'affectedOIDs', 'failedOIDs', 'response']
     def __init__(self, res_dict):
         RequestError(res_dict)
+        self.response = res_dict
         self.failedOIDs = []
         self.addResults = []
         self.updateResults = []
@@ -810,7 +802,7 @@ class BaseCursor(object):
 
         else:
             self.response = query(self.url, self.field_objects_string, where,
-                                   add_params=add_token(add_params, self.token))
+                                   add_params=add_params, token=token)
 
         # check for errors
         if 'error' in self.response:
@@ -906,6 +898,10 @@ class RESTEndpoint(object):
         usr -- username credentials for ArcGIS Server
         pw -- password credentials for ArcGIS Server
         token -- token to handle security (alternative to usr and pw)
+
+    Note:
+        If using Microsft ARR (Application Request Routing) as a load balancer for services,you
+        may need to append an 'ARRAffinity' cookie to the self._cookie or the self.token attribute.
     """
     def __init__(self, url, usr='', pw='', token=''):
         self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
@@ -917,11 +913,18 @@ class RESTEndpoint(object):
                 RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
         params = {'f': 'json'}
         self.token = token
+        self._cookie = None
         if not self.token:
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
 
-        self.raw_response = POST(self.url, params, ret_json=False, token=self.token)
+        else:
+            if isinstance(token, Token) and token.isExpired:
+                print 'Token expired at {}! Please sign in again.'.format(token.expires)
+
+        if self.token:
+            self._cookie = self.token._cookie if isinstance(self.token, Token) else {'agstoken': self.token}
+        self.raw_response = requests.post(self.url, params, cookies=self._cookie)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
@@ -1267,7 +1270,6 @@ class FeatureService(BaseMapService):
                    'syncModel':	'perReplica',
                    'dataFormat': 'json',
                    'replicaOptions': '',
-                   'token': self.token.token if isinstance(self.token, Token) else self.token
                    }
 
         for k,v in kwargs.iteritems():
@@ -1280,7 +1282,7 @@ class FeatureService(BaseMapService):
                         options[k][key]['useGeometry'] = useGeometry
                         options[k] = json.dumps(options[k])
 
-        st = requests.post(self.url + '/createReplica', options).json()
+        st = requests.post(self.url + '/createReplica', options, cookies=self._cookie).json()
         RequestError(st)
         js = POST(st['URL'], token=self.token)
         RequestError(js)
@@ -1353,6 +1355,10 @@ class FeatureLayer(RESTEndpoint):
         except:
             return None
 
+    def list_fields(self):
+        """method to list field names"""
+        return [f.name for f in self.fields]
+
     def addFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """add new features to feature service layer
 
@@ -1368,13 +1374,13 @@ class FeatureLayer(RESTEndpoint):
                      {"Utility_Type":2,"Five_Yr_Plan":"No","Rating":None,"Inspection_Date":1429885595000}}]
         """
         add_url = self.url + '/addFeatures'
-        params = {'features': json.dumps(features),
+        params = {'features': json.dumps(features) if isinstance(features, list) else features,
                   'gdbVersion': gdbVersion,
                   'rollbackOnFailure': str(rollbackOnFailure).lower(),
-                  'f': 'json'}
+                  'f': 'pjson'}
 
         # update features
-        result = EditResult(POST(add_url, params, token=self.token))
+        result = EditResult(requests.post(add_url, params, cookies=self._cookie).json())
         result.summary()
         return result
 
@@ -1457,7 +1463,7 @@ class FeatureLayer(RESTEndpoint):
         # TO DO
         pass
 
-    def addAttachment(self, oid, attachment, content_type=''):
+    def addAttachment(self, oid, attachment, content_type='', gdbVersion=''):
         """add an attachment to a feature service layer
 
         Required:
@@ -1466,7 +1472,8 @@ class FeatureLayer(RESTEndpoint):
 
         Optional:
             content_type -- html media type for "content_type" header.  If nothing provided,
-            will use a best guess based on file extension (using mimetypes)
+                will use a best guess based on file extension (using mimetypes)
+            gdbVersion -- geodatabase version for attachment
 
             valid content types can be found here @:
                 http://en.wikipedia.org/wiki/Internet_media_type
@@ -1478,7 +1485,7 @@ class FeatureLayer(RESTEndpoint):
                 import mimetypes
                 known = mimetypes.types_map
                 common = mimetypes.common_types
-                ext = os.path.splitext(attachment)[-1]
+                ext = os.path.splitext(attachment)[-1].lower()
                 if ext in known:
                     content_type = known[ext]
                 elif ext in common:
@@ -1487,8 +1494,10 @@ class FeatureLayer(RESTEndpoint):
             # make post request
             att_url = '{}/{}/addAttachment'.format(self.url, oid)
             files = {'attachment': (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
-            params = {'token': self.token.token,'f': 'json'}
-            r = requests.post(att_url, params, files=files).json()
+            params = {'f': 'json'}
+            if gdbVersion:
+                params['gdbVersion'] = gdbVersion
+            r = requests.post(att_url, params, files=files, cookies=self._cookie).json()
             if 'addAttachmentResult' in r:
                 print r['addAttachmentResult']
             return r
@@ -1509,15 +1518,46 @@ class FeatureLayer(RESTEndpoint):
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
             r = POST(query_url, token=self.token)
 
-            attInfos = []
             if 'attachmentInfos' in r:
                 for attInfo in r['attachmentInfos']:
-                    attInfos.append(namedTuple('Attachment', attInfo))
+                    attInfo['attachmentURL'] = '{}/{}'.format(query_url, attInfo['id'])
 
-            return attInfos
+                class Attachment(namedtuple('Attachment', 'id name size contentType attachmentURL')):
+                    """class to handle Attachment object"""
+                    __slots__ = ()
+                    def __new__(cls,  **kwargs):
+                        return super(Attachment, cls).__new__(cls, **kwargs)
+
+                    def __str__(self):
+                        if hasattr(self, 'id') and hasattr(self, 'name'):
+                            return '<Attachment ID>: {} ({})'.format(self.id, self.name)
+                        else:
+                            return '<Attachment> ?'
+
+                    def download(self, out_path, verbose=True):
+                        """download the attachment to specified path
+
+                        out_path -- output path for attachment
+
+                        optional:
+                            verbose -- if true will print sucessful download message
+                        """
+                        out_file = os.path.join(out_path, self.name)
+                        with open(out_file, 'wb') as f:
+                            f.write(urllib.urlopen(self.attachmentURL).read())
+
+                        if verbose:
+                            print 'downloaded attachment "{}" to "{}"'.format(self.name, out_path)
+                        return out_file
+
+                return [Attachment(**a) for a in r['attachmentInfos']]
+
+            return []
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
+
+
 
     def calculate(self, exp, where='1=1', sqlFormat='standard'):
         """calculate a field in a Feature Layer
@@ -1887,8 +1927,7 @@ class GPTask(RESTEndpoint):
         params_json['returnZ'] = returnZ
         params_json['returnM'] = returnZ
         params_json['f'] = 'json'
-        params_json['token'] = self.token.token
-        r = requests.post(gp_exe_url, params_json)
+        r = requests.post(gp_exe_url, params_json, cookies=self._cookie)
 
         # return result object
         return GPResult(r)
