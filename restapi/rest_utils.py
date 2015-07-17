@@ -8,6 +8,7 @@ import urllib
 import time
 import json
 import os
+import sys
 from itertools import izip_longest
 from collections import namedtuple
 
@@ -40,6 +41,7 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
 
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 BASE_PATTERN = 'http*://*/arcgis/rest/services*'
+RESTAPI_TOKEN = None
 
 def namedTuple(name, pdict):
     """creates a named tuple from a dictionary
@@ -84,6 +86,8 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     token -- token to handle security (only required if security is enabled)
     """
     h = {"content-type":"text"}
+    if not token and RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
+        token = RESTAPI_TOKEN
     if token:
         if isinstance(token, Token) and token.isExpired:
             print 'Token expired at {}! Please sign in again.'.format(token.expires)
@@ -424,7 +428,9 @@ def generate_token(url, user='', pw='', expiration=60):
             use_body = True
             base += '/generateToken'
 
-    return Token(requests.post(url=base, data=params).json())
+    token = Token(requests.post(url=base, data=params).json())
+    setattr(sys.modules[__name__], 'RESTAPI_TOKEN', token)
+    return token
 
 
 def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
@@ -918,6 +924,9 @@ class RESTEndpoint(object):
         if not self.token:
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
+            else:
+                if RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
+                    self.token = RESTAPI_TOKEN
 
         else:
             if isinstance(token, Token) and token.isExpired:
