@@ -565,10 +565,13 @@ class ImageService(BaseImageService):
             out_raster = os.path.splitext(out_raster)[0] + '.tif'
         query_url = '/'.join([self.url, 'exportImage'])
         geojson = poly_to_json(poly, envelope)
-        desc = arcpy.Describe(poly)
-        e = desc.extent
+        if isinstance(poly, basestring) and '{' in poly:
+            poly = json.loads(poly)
+
+        polygon = arcpy.AsShape(geojson, True)
+        e = polygon.extent
         bbox = self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax])
-        sr = desc.spatialReference.factoryCode
+        sr = polygon.spatialReference.factoryCode
 
         # check for raster function availability
         if not self.allowRasterFunction:
