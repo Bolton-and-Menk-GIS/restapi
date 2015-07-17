@@ -75,7 +75,8 @@ output = os.path.join(folder, 'Nebraska_Universities.shp')
 col.layer_to_fc(output, where=query)
 
 # export to KMZ
-col.layer_to_kmz()
+kmz = os.path.join(folder, 'Nebraska_Universities.kmz')
+col.layer_to_kmz(kmz)
 
 # clip col layer by polygon (Sacramento area)
 esri_json = {"rings":[[[-121.5,38.6],[-121.4,38.6],
@@ -123,7 +124,7 @@ fs = restapi.FeatureService(fs_url)
 # layer method returns a restapi.FeatureLayer, different from restapi.MapServiceLayer
 incidents = fs.layer('incidents')
 
-# grab 5 OID's and get attachment info
+# grab 10 OID's and get attachment info
 oids = incidents.getOIDs(max_recs=10)
 
 # add new feature
@@ -206,4 +207,3 @@ point = {"geometryType":"esriGeometryPoint",
 # run task, passing in gp parameters as keyword arguments (**kwargs)
 res = gp.run(Input_Location=str(point), Drive_Times = '1 2 3', inSR = 102100)
 print res.results[0]['dataType']
-
