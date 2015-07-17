@@ -5,6 +5,7 @@ import fnmatch
 import datetime
 import collections
 import urllib
+import time
 import json
 import os
 from itertools import izip_longest
@@ -1267,7 +1268,6 @@ class FeatureService(BaseMapService):
                    'returnAttachmentsDataByUrl': 'true',
                    'async':	'false',
                    'f': 'pjson',
-                   'syncModel':	'perReplica',
                    'dataFormat': 'json',
                    'replicaOptions': '',
                    }
@@ -1282,9 +1282,21 @@ class FeatureService(BaseMapService):
                         options[k][key]['useGeometry'] = useGeometry
                         options[k] = json.dumps(options[k])
 
-        st = requests.post(self.url + '/createReplica', options, cookies=self._cookie).json()
+        if self.syncCapabilities.supportsPerReplicaSync:
+            options['syncModel'] = 'perReplica'
+        else:
+            options['syncModel'] = 'perLayer'
+
+        if options['async'] in ('true', True) and self.syncCapabilities.supportsAsync:
+            st = requests.post(self.url + '/createReplica', options, cookies=self._cookie).json()
+            while 'statusUrl' not in st:
+                time.sleep(1)
+        else:
+            options['async'] = 'false'
+            st = requests.post(self.url + '/createReplica', options, cookies=self._cookie).json()
+
         RequestError(st)
-        js = POST(st['URL'], token=self.token)
+        js = POST(st['URL'] if 'URL' in st else st['statusUrl'], token=self.token)
         RequestError(js)
 
         if not replicaSR:
@@ -1518,9 +1530,13 @@ class FeatureLayer(RESTEndpoint):
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
             r = POST(query_url, token=self.token)
 
+            add_tok = ''
+            if self.token:
+                add_tok = '?token={}'.format(self.token.token if isinstance(self.token, Token) else self.token)
+
             if 'attachmentInfos' in r:
                 for attInfo in r['attachmentInfos']:
-                    attInfo['attachmentURL'] = '{}/{}'.format(query_url, attInfo['id'])
+                    attInfo['attachmentURL'] = '{}/{}{}'.format(query_url, attInfo['id'], add_tok)
 
                 class Attachment(namedtuple('Attachment', 'id name size contentType attachmentURL')):
                     """class to handle Attachment object"""
@@ -1530,7 +1546,7 @@ class FeatureLayer(RESTEndpoint):
 
                     def __str__(self):
                         if hasattr(self, 'id') and hasattr(self, 'name'):
-                            return '<Attachment ID>: {} ({})'.format(self.id, self.name)
+                            return '<Attachment ID: {} ({})>'.format(self.id, self.name)
                         else:
                             return '<Attachment> ?'
 
@@ -1543,6 +1559,7 @@ class FeatureLayer(RESTEndpoint):
                             verbose -- if true will print sucessful download message
                         """
                         out_file = os.path.join(out_path, self.name)
+
                         with open(out_file, 'wb') as f:
                             f.write(urllib.urlopen(self.attachmentURL).read())
 
@@ -1556,8 +1573,6 @@ class FeatureLayer(RESTEndpoint):
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
-
-
 
     def calculate(self, exp, where='1=1', sqlFormat='standard'):
         """calculate a field in a Feature Layer
