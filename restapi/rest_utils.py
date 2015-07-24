@@ -48,8 +48,19 @@ def namedTuple(name, pdict):
 
     name -- name of namedtuple object
     pdict -- parameter dictionary that defines the properties"""
-    obj = namedtuple(name, sorted(pdict.keys()))
-    return obj(**pdict)
+    class obj(namedtuple(name, sorted(pdict.keys()))):
+        """class to handle {}""".format(name)
+        __slots__ = ()
+        def __new__(cls,  **kwargs):
+            return super(obj, cls).__new__(cls, **kwargs)
+
+        def asJSON(self):
+            """return object as JSON"""
+            return {f: getattr(self, f) for f in self._fields}
+
+    o = obj(**pdict)
+    o.__class__.__name__ = name
+    return o
 
 def Field(f_dict={}, name='Field'):
     """returns a named tuple for lightweight, dynamic Field objects
@@ -90,7 +101,7 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
         token = RESTAPI_TOKEN
     if token:
         if isinstance(token, Token) and token.isExpired:
-            print 'Token expired at {}! Please sign in again.'.format(token.expires)
+            raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
         cookie = {'agstoken': token.token if isinstance(token, Token) else token}
     else:
         cookie = ''
@@ -124,6 +135,8 @@ def mil_to_date(mil):
     Required:
         mil -- time in milliseconds
     """
+    if isinstance(mil, basestring):
+        mil = long(mil)
     if mil == None:
         return None
     elif mil < 0:
@@ -372,7 +385,7 @@ def list_tables(service, token=''):
         return [Table(p) for p in r['tables']]
     return []
 
-def validate(obj, filterer=[]):
+def objectize(obj, filterer=[]):
     """will dynamically create new a new object and set the properties
     if its attribute is a dictionary
 
@@ -390,10 +403,20 @@ def validate(obj, filterer=[]):
         atts = obj.__dict__.keys()
     elif hasattr(obj, '__slots__'):
         atts = obj.__slots__
+    setattr(obj, 'JSON', {})
     for prop in atts:
         p = getattr(obj, prop)
+        getattr(obj, 'JSON')[prop] = p
         if isinstance(p, dict) and prop not in filterer:
-            setattr(obj, prop, type(prop, (object,), p))
+            setattr(obj, prop, type('.'.join([obj.__class__.__name__, prop]), (object,), p))
+        elif isinstance(p, list) and prop not in filterer:
+            setattr(obj, prop, [])
+            for v in p:
+                if isinstance(v, dict):
+                    getattr(obj, prop).append(namedTuple('_'.join([obj.__class__.__name__, prop]), v))
+                else:
+                    getattr(obj, prop).append(v)
+
     return obj
 
 def generate_token(url, user='', pw='', expiration=60):
@@ -927,10 +950,12 @@ class RESTEndpoint(object):
             else:
                 if RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
                     self.token = RESTAPI_TOKEN
+                elif RESTAPI_TOKEN and RESTAPI_TOKEN.isExpired:
+                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
 
         else:
             if isinstance(token, Token) and token.isExpired:
-                print 'Token expired at {}! Please sign in again.'.format(token.expires)
+                raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
 
         if self.token:
             self._cookie = self.token._cookie if isinstance(self.token, Token) else {'agstoken': self.token}
@@ -1064,7 +1089,7 @@ class BaseMapService(RESTEndpoint):
         for key, value in self.response.items():
             if key not in ('layers', 'tables', 'spatialReference'):
                 setattr(self, key, value)
-        validate(self, ['spatialReference'])
+        objectize(self, ['spatialReference'])
         self.properties = sorted(self.__dict__.keys())
 
     @property
@@ -1105,7 +1130,7 @@ class BaseMapServiceLayer(RESTEndpoint):
             if key != 'spatialReference':
                 setattr(self, key, value)
 
-        validate(self, ['fields', 'spatialReference'])
+        objectize(self, ['fields', 'spatialReference'])
         self.fields_dict = self.response['fields']
         if self.fields_dict:
             self.fields = [Field(f) for f in self.fields_dict]
