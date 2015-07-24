@@ -92,30 +92,30 @@ if not os.path.exists(folder):
 ##col.clip(esri_json, cali)
 
 #----------------------------------------------------------------------------------------------------#
-# Geocoding examples
-# hennepin county, MN geocoder
-henn = 'http://gis.hennepin.us/arcgis/rest/services/Locators/HC_COMPOSITE/GeocodeServer'
-geocoder = restapi.Geocoder(henn)
-# find target field, use the SingleLine address field by default
-geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
-
-# export results to shapefile
-print 'found {} candidates'.format(len(geoResult))
-geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
-
-# geocoder
-esri_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer'
-esri_geocoder = restapi.Geocoder(esri_url)
-
-# find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
-candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
-print 'Number of address candidates: {}'.format(len(candidates))
-for candidate in candidates:
-    print candidate.location
-
-# export results to shapefile
-out_shp = os.path.join(folder, 'Esri_headquarters.shp')
-geocoder.exportResults(candidates, out_shp)
+### Geocoding examples
+### hennepin county, MN geocoder
+##henn = 'http://gis.hennepin.us/arcgis/rest/services/Locators/HC_COMPOSITE/GeocodeServer'
+##geocoder = restapi.Geocoder(henn)
+### find target field, use the SingleLine address field by default
+##geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
+##
+### export results to shapefile
+##print 'found {} candidates'.format(len(geoResult))
+##geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
+##
+### geocoder
+##esri_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer'
+##esri_geocoder = restapi.Geocoder(esri_url)
+##
+### find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
+##candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
+##print 'Number of address candidates: {}'.format(len(candidates))
+##for candidate in candidates:
+##    print candidate.location
+##
+### export results to shapefile
+##out_shp = os.path.join(folder, 'Esri_headquarters.shp')
+##geocoder.exportResults(candidates, out_shp)
 
 #----------------------------------------------------------------------------------------------------#
 # feature service with attachment testing
@@ -152,7 +152,11 @@ oid = result.addResults[0]
 # download python image
 url = 'http://www.cis.upenn.edu/~lhuang3/cse399-python/images/pslytherin.png'
 im = urllib.urlopen(url).read()
-incidents.addAttachment(oid, im)
+tmp = os.path.join(os.path.dirname(sys.argv[0]), 'python.png') 
+with open(tmp, 'wb') as f:
+    f.write(im)
+incidents.addAttachment(oid, tmp)
+os.remove(tmp)
 
 # get attachment info from service and download it
 attachments = incidents.attachments(oid)
