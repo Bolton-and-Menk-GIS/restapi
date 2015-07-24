@@ -144,7 +144,7 @@ def mil_to_date(mil):
     else:
         return datetime.datetime.utcfromtimestamp(mil / 1000)
 
-def date_to_mil(date):
+def date_to_mil(date=None):
     """converts datetime.datetime() object to milliseconds
 
     date -- datetime.datetime() object"""
@@ -406,14 +406,17 @@ def objectize(obj, filterer=[]):
     setattr(obj, 'JSON', {})
     for prop in atts:
         p = getattr(obj, prop)
-        getattr(obj, 'JSON')[prop] = p
+        try:
+            getattr(obj, 'JSON')[prop] = p
+        except:
+            pass
         if isinstance(p, dict) and prop not in filterer:
             setattr(obj, prop, type('.'.join([obj.__class__.__name__, prop]), (object,), p))
         elif isinstance(p, list) and prop not in filterer:
             setattr(obj, prop, [])
             for v in p:
                 if isinstance(v, dict):
-                    getattr(obj, prop).append(namedTuple('_'.join([obj.__class__.__name__, prop]), v))
+                    getattr(obj, prop).append(namedTuple('_'.join([obj.__class__.__name__, prop]).rstrip('s'), v))
                 else:
                     getattr(obj, prop).append(v)
 
@@ -616,6 +619,14 @@ class Folder(object):
         """method to list services"""
         return ['/'.join([s.name, s.type]) for s in self.services]
 
+    def __len__(self):
+        """return number of services in folder"""
+        return len(self.services)
+
+    def __nonzero__(self):
+        """return True if services are present"""
+        return bool(len(self))
+
 class Layer(object):
     """class to handle basic layer info"""
     __slots__ = ['subLayerIds', 'name', 'maxScale', 'defaultVisibility',
@@ -742,6 +753,10 @@ class GeocodeResult(object):
         """return an iterator (as generator)"""
         for r in self.results:
             yield r
+
+    def __nonzero__(self):
+        """returns True if results are returned"""
+        return bool(len(self))
 
 class EditResult(object):
     """class to handle Edit operation results"""
@@ -889,6 +904,14 @@ class BaseCursor(object):
     def count(self):
         """returns total number of records in Cursor (user queried)"""
         return len(self.features[:self.records])
+
+    def __len__(self):
+        """return the count"""
+        return self.count
+
+    def __nonzero__(self):
+        """return True if records in cursor"""
+        return bool(self.count)
 
 class BaseRow(object):
     """Class to handle Row object"""
