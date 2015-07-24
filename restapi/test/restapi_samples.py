@@ -18,6 +18,7 @@
 import sys
 import restapi
 import os
+import urllib
 
 # open help documentation
 restapi.getHelp()
