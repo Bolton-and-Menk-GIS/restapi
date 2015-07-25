@@ -14,6 +14,10 @@
 # help docs can be found @:
 #   http://gis.bolton-menk.com/restapi-documentation/restapi-module.html
 # or by calling restapi.getHelp()
+#
+# ERRORS COULD BE CAUSED BY SERVICES CHANGING URL's OR BEING SHUT OFF, THINK OF THIS
+#  AS A SNAPSHOT IN TIME.  THIS IS MEANT ONLY TO SHOW CODE SAMPLES ON HOW TO ACCESS
+#  DIFFERENT CLASSES!
 #-------------------------------------------------------------------------------
 import sys
 import restapi
@@ -25,97 +29,98 @@ restapi.getHelp()
 
 #----------------------------------------------------------------------------------------------------#
 # Get Service properties
-# connect USGS ArcGIS Server Instance
-##usgs_rest_url = 'http://services.nationalmap.gov/ArcGIS/rest/services'
-##
-### no authentication is required, so no username and password are supplied
-##ags = restapi.ArcServer(usgs_rest_url)
-##
-### get folder and service properties
-##print 'Number of folders: {}'.format(len(ags.folders))
-##print 'Number of services: {}'.format(len(ags.services))
-##
-### walk thru directories
-##for root, folders, services in ags.walk():
-##    print root
-##    print folders
-##    print services
-##    print '\n'
-##
-### access "Structures" service
-##structures = ags.get_MapService('structures')
-##print structures.url #print MapService url
-##
-### print layer names
-##print structures.list_layers()
-##
-### access "College/University" layer
-##col = structures.layer('college/university')
-##
-### list fields from col layer
-##print col.list_fields()
-##
-###----------------------------------------------------------------------------------------------------#
-### search cursor
-### run search cursor for colleges in Nebraska (maximimum limit may be 1000 records)
-##query = "STATE = 'NE'"
-##for row in col.cursor(where=query):
-##    print row
-##
-### Note: can also do this from the MapService level like this:
-### cursor = structures.cursor('college/university', where=query)
-##
-### export Nebraska "College/University" layer to feature class
-### make scratch folder first
+# connect NOAA ArcGIS Server Instance
+rest_url = 'http://gis.srh.noaa.gov/arcgis/rest/services'
+
+# no authentication is required, so no username and password are supplied
+ags = restapi.ArcServer(rest_url)
+
+# get folder and service properties
+print 'Number of folders: {}'.format(len(ags.folders))
+print 'Number of services: {}'.format(len(ags.services))
+
+# walk thru directories
+for root, folders, services in ags.walk():
+    print root
+    print folders
+    print services
+    print '\n'
+
+# access "ahps_gauges" service (stream gauges)
+gauges = ags.get_MapService('ahps_gauges')
+print gauges.url #print MapService url
+
+# print layer names
+print gauges.list_layers()
+
+# access "observed river stages" layer
+lyr = gauges.layer('observed_river_stages') #not case sensitive, also supports wildcard search (*)
+
+# list fields from col layer
+print lyr.list_fields()
+
+#----------------------------------------------------------------------------------------------------#
+# search cursor
+# run search cursor for gauges in California
+# (maximimum limit may be 1000 records, can use get_all=True to exceed transfer limit)
+query = "state = 'CA'"
+for row in lyr.cursor(where=query):
+    print row
+
+# Note: can also do this from the MapService level like this:
+# cursor = gauges.cursor('observed_river_stages', where=query)
+
+# export Nebraska "College/University" layer to feature class
+# make scratch folder first
 folder = os.path.join(os.environ['USERPROFILE'], r'Desktop\restapi_test_data')
 if not os.path.exists(folder):
     os.makedirs(folder)
 
-### export layer to shapefile
-##output = os.path.join(folder, 'Nebraska_Universities.shp')
-##col.layer_to_fc(output, where=query)
-##
-### export to KMZ
-##kmz = os.path.join(folder, 'Nebraska_Universities.kmz')
-##col.layer_to_kmz(kmz)
-##
-### clip col layer by polygon (Sacramento area)
-##esri_json = {"rings":[[[-121.5,38.6],[-121.4,38.6],
-##                      [-121.3,38.6],[-121.2,38.6],
-##                      [-121.2,38.3],[-121.5,38.3],
-##                      [-121.5,38.6]]],
-##            "spatialReference":
-##                {"wkid":4326,"latestWkid":4326}}
-##
-### clip by polygon (can use polygon shapefile or feature class as well)
-##cali = os.path.join(folder, 'Sacramento_Universities.shp')
-##col.clip(esri_json, cali)
+# export layer to shapefile (can also call from Map Service)
+output = os.path.join(folder, 'California_Stream_Gauges.shp')
+##lyr.layer_to_fc(output, where=query)
+
+# export to KMZ
+kmz = output.replace('.shp', '.kmz')
+lyr.layer_to_kmz(kmz, where=query)
+
+# clip lyr by polygon (Sacramento area)
+esri_json = {"rings":[[[-121.5,38.6],[-121.4,38.6],
+                      [-121.3,38.6],[-121.2,38.6],
+                      [-121.2,38.3],[-121.5,38.3],
+                      [-121.5,38.6]]],
+            "spatialReference":
+                {"wkid":4326,"latestWkid":4326}}
+
+# clip by polygon (can use polygon shapefile or feature class as well)
+sac = os.path.join(folder, 'Sacramento_gauges.shp')
+lyr.clip(esri_json, sac)
 
 #----------------------------------------------------------------------------------------------------#
-### Geocoding examples
-### hennepin county, MN geocoder
-##henn = 'http://gis.hennepin.us/arcgis/rest/services/Locators/HC_COMPOSITE/GeocodeServer'
-##geocoder = restapi.Geocoder(henn)
-### find target field, use the SingleLine address field by default
-##geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
-##
-### export results to shapefile
-##print 'found {} candidates'.format(len(geoResult))
-##geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
-##
-### geocoder
-##esri_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer'
-##esri_geocoder = restapi.Geocoder(esri_url)
-##
-### find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
-##candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
-##print 'Number of address candidates: {}'.format(len(candidates))
-##for candidate in candidates:
-##    print candidate.location
-##
-### export results to shapefile
-##out_shp = os.path.join(folder, 'Esri_headquarters.shp')
-##geocoder.exportResults(candidates, out_shp)
+# Geocoding examples
+# hennepin county, MN geocoder
+henn = 'http://gis.hennepin.us/arcgis/rest/services/Locators/HC_COMPOSITE/GeocodeServer'
+geocoder = restapi.Geocoder(henn)
+# find target field, use the SingleLine address field by default
+geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
+
+# export results to shapefile
+print 'found {} candidates'.format(len(geoResult))
+geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
+
+# Esri geocoder
+esri_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer'
+esri_geocoder = restapi.Geocoder(esri_url)
+
+# find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
+candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
+print 'Number of address candidates: {}'.format(len(candidates))
+for candidate in candidates:
+    print candidate.location
+
+# export results to shapefile
+out_shp = os.path.join(folder, 'Esri_headquarters.shp')
+geocoder.exportResults(candidates, out_shp)
 
 #----------------------------------------------------------------------------------------------------#
 # feature service with attachment testing
@@ -152,9 +157,11 @@ oid = result.addResults[0]
 # download python image
 url = 'http://www.cis.upenn.edu/~lhuang3/cse399-python/images/pslytherin.png'
 im = urllib.urlopen(url).read()
-tmp = os.path.join(os.path.dirname(sys.argv[0]), 'python.png') 
+tmp = os.path.join(os.path.dirname(sys.argv[0]), 'python.png')
 with open(tmp, 'wb') as f:
     f.write(im)
+
+# add attachment
 incidents.addAttachment(oid, tmp)
 os.remove(tmp)
 
@@ -163,6 +170,7 @@ attachments = incidents.attachments(oid)
 
 for attachment in attachments:
     print attachment
+    print attachment.contentType, attachment.size
     attachment.download(folder) # download attachment into restapi_test_data folder on Desktop
 
 # update the feature we just added
@@ -173,7 +181,7 @@ incidents.updateFeatures(adds)
 # now delete feature
 incidents.deleteFeatures(oid)
 
-# if sync enabled, we could create a replica like this:
+# if sync were enabled, we could create a replica like this:
 # can pass in layer ID (0) or name ('incidents', not case sensative)
 #replica = fs.createReplica(0, 'test_replica', geometry=adds[0]['geometry'], geometryType='esriGeometryPoint', inSR=4326)
 
