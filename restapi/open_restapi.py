@@ -87,6 +87,70 @@ def poly_to_json(poly, wkid=3857, envelope=False):
         ring_dict = {"rings": rings, "spatialReference":{"wkid":wkid}}
         return ring_dict
 
+def exportFeatureSet(out_fc, feature_set, outSR=None):
+    """export features (JSON result) to shapefile or feature class
+
+    Required:
+        out_fc -- output feature class or shapefile
+        feature_set -- JSON response (feature set) obtained from a query
+
+    Optional:
+        outSR -- optional output spatial reference.  If none set, will default
+            to SR of result_query feature set.
+    """
+    # validate features input (should be list or dict, preferably list)
+    if isinstance(feature_set, basestring):
+        try:
+            feature_set = json.loads(feature_set)
+        except:
+            raise IOError('Not a valid input for "features" parameter!')
+
+    if not isinstance(feature_set, dict) or not 'features' in feature_set:
+        raise IOError('Not a valid input for "features" parameter!')
+
+    # make new shapefile
+    fields = [Field(f) for f in feature_set['fields']]
+
+    if not outSR:
+        sr_dict = feature_set['spatialReference']
+        if 'latestWkid' in sr_dict:
+            outSR = int(sr_dict['latestWkid'])
+        else:
+            outSR = int(sr_dict['wkid'])
+
+    g_type = feature_set['geometryType']
+
+    # add all fields
+    w = shp_helper.shp(G_DICT[g_type].upper(), out_fc)
+    field_map = []
+    for fld in fields:
+        if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+            if not any(['shape_area' in fld.name.lower(),
+                        'shape_length' in fld.name.lower(),
+                        'shape.' in fld.name.lower(),
+                        '(shape)' in fld.name.lower(),
+                        'ojbectid' in fld.name.lower(),
+                        fld.name.lower() == 'fid']):
+
+                field_name = fld.name.split('.')[-1][:10]
+                field_type = SHP_FTYPES[fld.type]
+                field_length = str(fld.length) if fld.length else "50"
+                w.add_field(field_name, field_type, field_length)
+                field_map.append((fld.name, field_name))
+
+    # search cursor to write rows
+    s_fields = [fl for fl in fields if fl.name in [f[0] for f in field_map]]
+    for feat in feature_set['features']:
+        row = Row(feat, s_fields, outSR, g_type).values
+        w.add_row(row[0], row[1:])
+
+    w.save()
+    print 'Created: "{0}"'.format(out_fc)
+
+    # write projection file
+    project(out_fc, outSR)
+    return out_fc
+
 def exportReplica(replica, out_folder):
     """converts a restapi.Replica() to a Shapefiles
 
@@ -201,7 +265,7 @@ class Cursor(BaseCursor):
     def rows(self):
         """returns row values as tuple"""
         for feature in self.features[:self.records]:
-            yield Row(feature, self.field_objects, self.geometryType).values
+            yield Row(feature, self.field_objects, self.spatialReference, self.geometryType).values
 
     def __iter__(self):
         """returns Cursor.rows() generator"""
@@ -209,32 +273,31 @@ class Cursor(BaseCursor):
 
 class Row(BaseRow):
     """Class to handle Row object"""
-    def __init__(self, features={}, fields=[], g_type=''):
+    def __init__(self, features={}, fields=[], spatialReference=None, g_type=''):
         """Row object for Cursor
 
         Required:
             features -- features JSON object
             fields -- fields participating in cursor
+            spatialReference -- spatial reference for geometry (ignored in this source version)
+            g_type -- geometry type
         """
-        super(Row, self).__init__(features, fields)
+        super(Row, self).__init__(features, fields, spatialReference)
         self.geometryType = g_type
 
     @property
     def geometry(self):
-        """returns REST API geometry as esri JSON
-
-        Warning: output is unprojected
-        """
-        if self.shape_field_ob:
+        """returns REST API geometry as esri JSON"""
+        if self.esri_json:
             g_type = G_DICT[self.geometryType]
             if g_type == 'Polygon':
-                return self.features['geometry']['rings']
+                return self.esri_json['rings']
 
             elif g_type == 'Polyline':
-                return self.features['geometry']['paths']
+                return self.esri_json['paths']
 
             elif g_type == 'Point':
-                return [self.features['geometry']['x'], self.features['geometry']['y']]
+                return [self.esri_json['x'], self.esri_json['y']]
 
             else:
                 # multipoint - to do
@@ -254,7 +317,7 @@ class Row(BaseRow):
         _values = [self.atts[f.name] for f in self.fields
                    if f.type != SHAPE]
         if self.geometry:
-            _values.insert(self.fields.index(self.shape_field_ob), self.geometry)
+            _values.insert(0, self.geometry)
         return tuple(_values)
 
 class GeocodeHandler(object):
@@ -443,7 +506,7 @@ class MapServiceLayer(BaseMapServiceLayer):
         """Run Cursor on layer, helper method that calls Cursor Object"""
         return Cursor(self.url, fields, where, records, self.token, add_params, get_all)
 
-    def layer_to_fc(self, out_fc, sr=None, where='1=1', params={}, flds='*', records=None, get_all=False):
+    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, get_all=False, sr=None):
         """Method to export a feature class from a service layer
 
         Required:
@@ -460,17 +523,14 @@ class MapServiceLayer(BaseMapServiceLayer):
                 until all records have been gathered. Default is False.
         """
         if self.type == 'Feature Layer':
-            if not flds:
-                flds = '*'
-            if flds:
-                if flds == '*':
-                    fields = self.fields
-                else:
-                    if isinstance(flds, list):
-                        pass
-                    elif isinstance(flds, basestring):
-                        flds = flds.split(',')
-                    fields = [f for f in self.fields if f.name in flds]
+            if not fields:
+                fields = '*'
+            if fields == '*':
+                _fields = self.fields
+            else:
+                if isinstance(fields, basestring):
+                    fields = fields.split(',')
+                _fields = [f for f in self.fields if f.name in fields]
 
             # make new feature class
             if not sr:
@@ -480,9 +540,14 @@ class MapServiceLayer(BaseMapServiceLayer):
             # add all fields
             w = shp_helper.shp(g_type, out_fc)
             field_map = []
-            for fld in fields:
+            for fld in _fields:
                 if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
-                    if not 'shape' in fld.name.lower():
+                    if not any(['shape_' in fld.name.lower(),
+                                'shape.' in fld.name.lower(),
+                                '(shape)' in fld.name.lower(),
+                                'ojbectid' in fld.name.lower(),
+                                fld.name.lower() == 'fid']):
+
                         field_name = fld.name.split('.')[-1][:10]
                         field_type = SHP_FTYPES[fld.type]
                         field_length = str(fld.length) if fld.length else "50"
@@ -490,21 +555,13 @@ class MapServiceLayer(BaseMapServiceLayer):
                         field_map.append((fld.name, field_name))
 
             # search cursor to write rows
-            s_fields = ['SHAPE@'] + [f[0] for f in field_map]
-            cursor = self.cursor(s_fields, where, records, params, get_all)
-            for row in cursor.rows():
-                w.add_row(row[0], row[1:])
-
-            w.save()
-            print 'Created: "{0}"'.format(out_fc)
-
-            # write projection file
-            project(out_fc, sr)
-            return out_fc
+            s_fields = [f[0] for f in field_map]
+            query_resp = cursor = self.cursor(s_fields, where, records, params, get_all).response
+            return exportFeatureSet(out_fc, query_resp, sr)
         else:
             print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
 
-    def clip(self, poly, output, flds='*', out_sr='', where='', envelope=False):
+    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
         envelope features.
 
@@ -526,7 +583,7 @@ class MapServiceLayer(BaseMapServiceLayer):
         geojson = poly_to_json(poly, out_sr, envelope=envelope)
         d = {'geometryType' : 'esriGeometryPolygon',
              'geometry': str(geojson), 'inSR' : out_sr, 'outSR': out_sr}
-        return self.layer_to_fc(output, out_sr, where, d, flds, get_all=True)
+        return self.layer_to_fc(output, fields, where, params=d, get_all=True, sr=out_sr)
 
 class ImageService(BaseImageService):
     """Class to handle map service and requests"""
