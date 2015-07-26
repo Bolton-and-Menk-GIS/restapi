@@ -67,8 +67,8 @@ def Field(f_dict={}, name='Field'):
 
     f_dict -- dictionary containing Field properties
     name -- name for Field object"""
-    # make sure always has at least name, length, type
-    for attr in ('name', 'length', 'type'):
+    # make sure always has at least (name, length, type, domain)
+    for attr in ('name', 'length', 'type', 'domain'):
         if not attr in f_dict:
             f_dict[attr] = None
 
@@ -111,8 +111,8 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     if r.status_code != 200:
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
     else:
-        RequestError(r.json())
         if ret_json:
+            RequestError(r.json())
             return r.json()
         else:
             return r
@@ -120,7 +120,7 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
 def validate_name(file_name):
     """validates an output name by removing special characters"""
     import string
-    path = os.sep.join(file_name.split(os.sep)[:-1]) #forward slash messes up os.path.split()
+    path = os.sep.join(file_name.split(os.sep)[:-1]) #forward slash in name messes up os.path.split()
     name = file_name.split(os.sep)[-1]
     root, ext = os.path.splitext(name)
     d = {s: '_' for s in string.punctuation}
@@ -209,7 +209,7 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
     if ret_form == 'kmz':
         import codecs
         r = POST(endpoint, params, ret_json=False, token=token)
-        name = POST(service_lyr)['name']
+        name = POST(service_lyr, token=token)['name']
         r.encoding = 'zlib_codec'
 
         # write kmz using codecs
@@ -518,10 +518,12 @@ def _print_info(obj):
     return
 
 def walk(url, filterer=True, token=''):
-    """method to walk through ArcGIS REST Services
+    """method to walk through ArcGIS REST Services. ArcGIS Server only supports single
+    folder heiarchy, meaning that there cannot be subdirectories within folders.
 
     Required:
-        url -- url to ArcGIS REST Services directory or folder
+        url -- url to ArcGIS REST Services directory or folder.
+
 
     Optional:
         filterer -- will filter Utilities, default is True. If
@@ -645,20 +647,26 @@ class Table(object):
 class GPResult(object):
     """class to handle GP Result"""
     __slots__ = ['response', 'results', 'messages', 'print_messages', 'elapsed']
-    def __init__(self, raw_response):
+    def __init__(self, response):
         """handler for GP result
 
         res_dict -- JSON response from GP Task execution
         """
-        self.response = raw_response.json()
-        self.elapsed = raw_response.elapsed
+        self.response = response
         RequestError(self.response)
 
     @property
     def results(self):
         if 'results' in self.response:
-           return self.response['results']
+           return [namedTuple('Result', r) for r in self.response['results']]
         return []
+
+    @property
+    def value(self):
+        """returns a value (if any) from results"""
+        if 'value' in self.response:
+            return self.response['value']
+        return None
 
     @property
     def messages(self):
@@ -672,6 +680,14 @@ class GPResult(object):
         for msg in self.messages:
             print 'Message Type: {}'.format(msg.type)
             print '\tDescription: {}\n'.format(msg.description)
+
+    def __len__(self):
+        """return length of results"""
+        return len(self.results)
+
+    def __nonzero__(self):
+        """return True if results"""
+        return bool(len(self))
 
 class GeocodeResult(object):
     """class to handle Reverse Geocode Result"""
@@ -915,7 +931,7 @@ class BaseCursor(object):
 
 class BaseRow(object):
     """Class to handle Row object"""
-    def __init__(self, features, fields):
+    def __init__(self, features, fields, spatialReference):
         """Row object for Cursor
 
         Required:
@@ -924,18 +940,18 @@ class BaseRow(object):
         """
         self.fields = fields
         self.features = features
+        self.spatialReference = spatialReference
         self.atts = self.features['attributes']
-        self.esri_json = ''
+        self.esri_json = {}
         self.oid_field_ob = None
-        self.shape_field_ob = None
         esri_fields = [f for f in self.fields if f.type in EXTRA.keys()]
         if esri_fields:
             FIELD_TYPES = [f.type for f in esri_fields]
             if OID in FIELD_TYPES:
                 self.oid_field_ob = [f for f in self.fields if f.type == OID][0]
-            if SHAPE in FIELD_TYPES:
-                self.esri_json = self.features['geometry']
-                self.shape_field_ob = [f for f in self.fields if f.type == SHAPE][0]
+        if 'geometry' in self.features:
+            self.esri_json = self.features['geometry']
+            self.esri_json['spatialReference'] = {"wkid": self.spatialReference}
 
         # set attributes by field name access
         for field, value in self.atts.iteritems():
@@ -1191,7 +1207,7 @@ class BaseMapServiceLayer(RESTEndpoint):
         """method to list field names"""
         return [f.name for f in self.fields]
 
-    def Query(self, flds='*', where='1=1', add_params={}, **kwargs):
+    def query(self, flds='*', where='1=1', add_params={}, **kwargs):
         """query layer and get response as JSON
 
         Optional:
@@ -1220,6 +1236,75 @@ class BaseMapServiceLayer(RESTEndpoint):
             params -- dictionary of parameters for query
         """
         return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
+
+    def getOIDs(self, where='1=1', max_recs=None):
+        """return a list of OIDs from feature layer
+
+        Optional:
+            where -- where clause for OID selection
+            max_recs -- maximimum number of records to return (maxRecordCount does not apply)
+        """
+        p = {'returnIdsOnly':'true',
+             'returnGeometry': 'false',
+             'outFields': ''}
+        return sorted(query(self.url, where=where, add_params=p,token=self.token)['objectIds'])[:max_recs]
+
+    def attachments(self, oid, gdbVersion=''):
+        """query attachments for an OBJECTDID
+
+        Required:
+            oid -- object ID
+
+        Optional:
+            gdbVersion -- Geodatabase version to query, only supported if self.isDataVersioned is true
+        """
+        if self.hasAttachments:
+            query_url = '{0}/{1}/attachments'.format(self.url, oid)
+            r = POST(query_url, token=self.token)
+
+            add_tok = ''
+            if self.token:
+                add_tok = '?token={}'.format(self.token.token if isinstance(self.token, Token) else self.token)
+
+            if 'attachmentInfos' in r:
+                for attInfo in r['attachmentInfos']:
+                    attInfo['attachmentURL'] = '{}/{}{}'.format(query_url, attInfo['id'], add_tok)
+
+                class Attachment(namedtuple('Attachment', 'id name size contentType attachmentURL')):
+                    """class to handle Attachment object"""
+                    __slots__ = ()
+                    def __new__(cls,  **kwargs):
+                        return super(Attachment, cls).__new__(cls, **kwargs)
+
+                    def __str__(self):
+                        if hasattr(self, 'id') and hasattr(self, 'name'):
+                            return '<Attachment ID: {} ({})>'.format(self.id, self.name)
+                        else:
+                            return '<Attachment> ?'
+
+                    def download(self, out_path, verbose=True):
+                        """download the attachment to specified path
+
+                        out_path -- output path for attachment
+
+                        optional:
+                            verbose -- if true will print sucessful download message
+                        """
+                        out_file = os.path.join(out_path, self.name)
+
+                        with open(out_file, 'wb') as f:
+                            f.write(urllib.urlopen(self.attachmentURL).read())
+
+                        if verbose:
+                            print 'downloaded attachment "{}" to "{}"'.format(self.name, out_path)
+                        return out_file
+
+                return [Attachment(**a) for a in r['attachmentInfos']]
+
+            return []
+
+        else:
+            raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
 class FeatureService(BaseMapService):
     """class to handle FeatureService"""
@@ -1375,7 +1460,7 @@ class FeatureService(BaseMapService):
         rep_dict['layers'] = repLayers
         return namedTuple('Replica', rep_dict)
 
-class FeatureLayer(RESTEndpoint):
+class FeatureLayer(BaseMapServiceLayer):
     """class to handle FeatureLayer"""
     def __init__(self, url, usr='', pw='', token=''):
         """class to handle Feature Service Layer
@@ -1396,37 +1481,6 @@ class FeatureLayer(RESTEndpoint):
             else:
                 if key != 'spatialReference':
                     setattr(self, key, value)
-
-    @property
-    def OID(self):
-        """OID field object"""
-        try:
-            return [f for f in self.fields if f.type == OID][0]
-        except:
-            return None
-
-    @property
-    def SHAPE(self):
-        """SHAPE field object"""
-        try:
-            return [f for f in self.fields if f.type == SHAPE][0]
-        except:
-            return None
-
-    @property
-    def spatialReference(self):
-        """return the spatial reference"""
-        try:
-            if 'latestWkid' in self.response['spatialReference']:
-                return self.response['spatialReference']['latestWkid']
-            else:
-                return self.response['spatialReference']['wkid']
-        except:
-            return None
-
-    def list_fields(self):
-        """method to list field names"""
-        return [f.name for f in self.fields]
 
     def addFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """add new features to feature service layer
@@ -1574,63 +1628,6 @@ class FeatureLayer(RESTEndpoint):
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
-    def attachments(self, oid, gdbVersion=''):
-        """query attachments for an OBJECTDID
-
-        Required:
-            oid -- object ID
-
-        Optional:
-            gdbVersion -- Geodatabase version to query, only supported if self.isDataVersioned is true
-        """
-        if self.hasAttachments:
-            query_url = '{0}/{1}/attachments'.format(self.url, oid)
-            r = POST(query_url, token=self.token)
-
-            add_tok = ''
-            if self.token:
-                add_tok = '?token={}'.format(self.token.token if isinstance(self.token, Token) else self.token)
-
-            if 'attachmentInfos' in r:
-                for attInfo in r['attachmentInfos']:
-                    attInfo['attachmentURL'] = '{}/{}{}'.format(query_url, attInfo['id'], add_tok)
-
-                class Attachment(namedtuple('Attachment', 'id name size contentType attachmentURL')):
-                    """class to handle Attachment object"""
-                    __slots__ = ()
-                    def __new__(cls,  **kwargs):
-                        return super(Attachment, cls).__new__(cls, **kwargs)
-
-                    def __str__(self):
-                        if hasattr(self, 'id') and hasattr(self, 'name'):
-                            return '<Attachment ID: {} ({})>'.format(self.id, self.name)
-                        else:
-                            return '<Attachment> ?'
-
-                    def download(self, out_path, verbose=True):
-                        """download the attachment to specified path
-
-                        out_path -- output path for attachment
-
-                        optional:
-                            verbose -- if true will print sucessful download message
-                        """
-                        out_file = os.path.join(out_path, self.name)
-
-                        with open(out_file, 'wb') as f:
-                            f.write(urllib.urlopen(self.attachmentURL).read())
-
-                        if verbose:
-                            print 'downloaded attachment "{}" to "{}"'.format(self.name, out_path)
-                        return out_file
-
-                return [Attachment(**a) for a in r['attachmentInfos']]
-
-            return []
-
-        else:
-            raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
-
     def calculate(self, exp, where='1=1', sqlFormat='standard'):
         """calculate a field in a Feature Layer
 
@@ -1657,49 +1654,6 @@ class FeatureLayer(RESTEndpoint):
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support field calculations!'.format(self.name))
-
-    def Query(self, flds='*', where='1=1', add_params={}, **kwargs):
-        """query layer and get response as JSON
-
-        Optional:
-            flds -- fields to return. Default is "*" to return all fields
-            where -- where clause
-            add_params -- extra parameters to add to query string passed as dict
-            kwargs -- extra parameters to add to query string passed as key word arguments,
-                will override add_params***
-
-        # default params for all queries
-        params = {'returnGeometry' : 'true', 'outFields' : fields,
-                  'where': where, 'f' : 'json'}
-        """
-        for k,v in kwargs.iteritems():
-            add_params[k] = v
-        return query(self.url, flds, where, add_params, token=self.token)
-
-
-    def getOIDs(self, where='1=1', max_recs=None):
-        """return a list of OIDs from feature layer
-
-        Optional:
-            where -- where clause for OID selection
-            max_recs -- maximimum number of records to return (maxRecordCount does not apply)
-        """
-        p = {'returnIdsOnly':'true',
-             'returnGeometry': 'false',
-             'outFields': ''}
-        return sorted(query(self.url, where=where, add_params=p,token=self.token)['objectIds'])[:max_recs]
-
-    def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
-
-        Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
-        """
-        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
 
 class BaseImageService(RESTEndpoint):
     """Class to handle Image service and requests"""
@@ -1966,6 +1920,14 @@ class GPTask(RESTEndpoint):
         """returns list of GPParam objects"""
         return [GPParam(pd) for pd in self.response['parameters']]
 
+    @property
+    def outputParameter(self):
+        """returns the output parameter (if there is one)"""
+        try:
+            return [p for p in self.parameters if p.direction == 'esriGPParameterDirectionOutput'][0]
+        except IndexError:
+            return None
+
     def list_parameters(self):
         """lists the parameter names"""
         return [p.name for p in self.parameters]
@@ -2000,6 +1962,24 @@ class GPTask(RESTEndpoint):
         params_json['returnM'] = returnZ
         params_json['f'] = 'json'
         r = requests.post(gp_exe_url, params_json, cookies=self._cookie)
+        gp_elapsed = r.elapsed
 
-        # return result object
-        return GPResult(r)
+
+        # get result object as JSON
+        res = r.json()
+
+        # determine if there's an output parameter: if feature set, push result value into defaultValue
+        if self.outputParameter and self.outputParameter.dataType == 'GPFeatureRecordSetLayer':
+            try:
+                default = self.outputParameter.defaultValue
+                feature_set = default
+                feature_set['features'] = res['results'][0]['value']['features']
+                feature_set['fields'] = default['Fields'] if 'Fields' in default else default['fields']
+                res['value'] = feature_set
+            except:
+                pass
+        else:
+            res['value'] = res['results'][0]['value'] if 'value' in res['results'][0] else None
+
+        print 'GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed)
+        return GPResult(res)
