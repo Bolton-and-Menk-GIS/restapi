@@ -6,6 +6,7 @@ import time
 import json
 from rest_utils import *
 arcpy.env.overwriteOutput = True
+arcpy.env.addOutputsToMap = False
 
 def poly_to_json(poly, envelope=False):
     """Converts a features to JSON
@@ -26,6 +27,137 @@ def poly_to_json(poly, envelope=False):
     with arcpy.da.SearchCursor(poly, ['SHAPE@JSON']) as rows:
         for row in rows:
             return row[0].encode('utf-8')
+
+def exportFeatureSet(out_fc, feature_set, outSR=None):
+    """export features (JSON result) to shapefile or feature class
+
+    Required:
+        out_fc -- output feature class or shapefile
+        feature_set -- JSON response (feature set) obtained from a query
+
+    Optional:
+        outSR -- optional output spatial reference.  If none set, will default
+            to SR of result_query feature set.
+
+    at minimum, feature set must contain these keys:
+        [u'features', u'fields', u'spatialReference', u'geometryType']
+    """
+    # validate features input (should be list or dict, preferably list)
+    if isinstance(feature_set, basestring):
+        try:
+            feature_set = json.loads(feature_set)
+        except:
+            raise IOError('Not a valid input for "features" parameter!')
+
+    if not isinstance(feature_set, dict) or not 'features' in feature_set:
+        raise IOError('Not a valid input for "features" parameter!')
+
+    def find_ws_type(path):
+        """determine output workspace (feature class if not FileSystem)
+        returns a tuple of workspace path and type
+        """
+        # try original path first
+        if not arcpy.Exists(path):
+            path = os.path.dirname(path)
+
+        desc = arcpy.Describe(path)
+        if hasattr(desc, 'workspaceType'):
+            return path, desc.workspaceType
+
+        # search until finding a valid workspace
+        SPLIT = filter(None, path.split(os.sep))
+        if path.startswith('\\\\'):
+            SPLIT[0] = r'\\{0}'.format(SPLIT[0])
+
+        # find valid workspace
+        for i in xrange(1, len(SPLIT)):
+            sub_dir = os.sep.join(SPLIT[:-i])
+            desc = arcpy.Describe(sub_dir)
+            if hasattr(desc, 'workspaceType'):
+                return sub_dir, desc.workspaceType
+
+    # find workspace type and path
+    ws, wsType = find_ws_type(out_fc)
+    if wsType == 'FileSystem':
+        isShp = True
+        shp_name = out_fc
+        out_fc = r'in_memory\temp_xxx'
+    else:
+        isShp = False
+
+    # make new feature class
+    fields = [Field(f) for f in feature_set['fields']]
+
+    if not outSR:
+        sr_dict = feature_set['spatialReference']
+        if 'latestWkid' in sr_dict:
+            outSR = int(sr_dict['latestWkid'])
+        else:
+            outSR = int(sr_dict['wkid'])
+
+    g_type = G_DICT[feature_set['geometryType']]
+    path, fc_name = os.path.split(out_fc)
+    arcpy.CreateFeatureclass_management(path, fc_name, g_type,
+                                        spatial_reference=outSR)
+
+    # add all fields
+    cur_fields = ['SHAPE@']
+    fMap = []
+    if not isShp:
+        gdb_domains = arcpy.Describe(ws).domains
+    for field in fields:
+        if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+            field_name = field.name.split('.')[-1]
+            if field.domain and not isShp:
+                if field.domain['name'] not in gdb_domains:
+                    if 'codedValues' in field.domain:
+                        dType = 'CODED'
+                    else:
+                        dType = 'RANGE'
+
+                    arcpy.management.CreateDomain(ws, field.domain['name'],
+                                                  field.domain['name'],
+                                                  FTYPES[field.type],
+                                                  dType)
+                    if dType == 'CODED':
+                        for cv in field.domain['codedValues']:
+                            arcpy.management.AddCodedValueToDomain(ws, field.domain['name'], cv['code'], cv['name'])
+                    else:
+                        _min, _max = field.domain['range']
+                        arcpy.management.SetValueForRangeDomain(ws, field.domain['name'], _min, _max)
+
+                    gdb_domains.append(field.domain['name'])
+                    print 'added domain "{}" to geodatabase: "{}"'.format(field.domain['name'], ws)
+
+                field_domain = field.domain['name']
+            else:
+                field_domain = ''
+
+            # need to filter even more as SDE sometimes yields weird field names...sigh
+            if not any(['shape_area' in field.name.lower(),
+                        'shape_length' in field.name.lower(),
+                        'shape.' in field.name.lower(),
+                        '(shape)' in field.name.lower(),
+                        'ojbectid' in field.name.lower(),
+                        field.name.lower() == 'fid']):
+
+                arcpy.management.AddField(out_fc, field_name, FTYPES[field.type],
+                                            field_length=field.length,
+                                            field_alias=field.alias,
+                                            field_domain=field_domain)
+                cur_fields.append(field_name)
+                fMap.append(field)
+
+    # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
+    with arcpy.da.InsertCursor(out_fc, cur_fields) as irows:
+        for feat in feature_set['features']:
+            irows.insertRow(Row(feat, fMap, outSR).values)
+
+    # if output is a shapefile
+    if isShp:
+        out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
+    print 'Created: "{0}"'.format(out_fc)
+    return out_fc
 
 def exportReplica(replica, out_folder):
     """converts a restapi.Replica() to a File Geodatabase
@@ -115,7 +247,8 @@ def exportReplica(replica, out_folder):
             with arcpy.da.InsertCursor(fc, fld_names) as irows:
                 for rowD in layer.features:
                     row = [rowD['attributes'][f] if f in rowD['attributes']
-                           else rowD['attributes'][guidFieldName] for f in fld_names[1:]]
+                           else rowD['attributes'][guidFieldName]
+                           for f in fld_names[1:]]
 
                     for i in date_indices:
                         row[i] = mil_to_date(row[i])
@@ -176,7 +309,7 @@ class Cursor(BaseCursor):
     def rows(self):
         """returns Cursor.rows() as generator"""
         for feature in self.features[:self.records]:
-            yield Row(feature, self.field_objects).values
+            yield Row(feature, self.field_objects, self.spatialReference).values
 
     def __iter__(self):
         """returns Cursor.rows()"""
@@ -184,14 +317,15 @@ class Cursor(BaseCursor):
 
 class Row(BaseRow):
     """Class to handle Row object"""
-    def __init__(self, features, fields):
+    def __init__(self, features, fields, spatialReference):
         """Row object for Cursor
 
         Required:
             features -- features JSON object
             fields -- fields participating in cursor
+            spatialReference -- spatial reference WKID for geometry
         """
-        super(Row, self).__init__(features, fields)
+        super(Row, self).__init__(features, fields, spatialReference)
 
     @property
     def geometry(self):
@@ -200,7 +334,7 @@ class Row(BaseRow):
             use the projectAs(wkid, {transformation_name})
             method to project geometry
         """
-        if self.shape_field_ob:
+        if self.esri_json:
             return arcpy.AsShape(self.esri_json, True)
         return None
 
@@ -217,7 +351,7 @@ class Row(BaseRow):
         _values = [self.atts[f.name] for f in self.fields
                    if f.type != SHAPE]
         if self.geometry:
-            _values.insert(self.fields.index(self.shape_field_ob), self.geometry)
+            _values.insert(0, self.geometry)
         return tuple(_values)
 
 class GeocodeHandler(object):
@@ -414,89 +548,59 @@ class MapServiceLayer(BaseMapServiceLayer):
         """Run Cursor on layer, helper method that calls Cursor Object"""
         return Cursor(self.url, fields, where, records, self.token, add_params, get_all)
 
-    def layer_to_fc(self, out_fc, sr=None, where='1=1', params={}, flds='*', records=None, get_all=False):
+    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, get_all=False, sr=None):
         """Method to export a feature class from a service layer
 
         Required:
             out_fc -- full path to output feature class
 
         Optional:
-            sr -- output spatial refrence (WKID)
             where -- optional where clause
             params -- dictionary of parameters for query
-            flds -- list of fields for fc. If none specified, all fields are returned.
+            fields -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             records -- number of records to return. Default is none, will return maxRecordCount
             get_all -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
+            sr -- output spatial refrence (WKID)
         """
-        try:
-            # having issues if ran from Python Window in ArcMap
-            arcpy.env.addOutputsToMap = False
-        except:
-            pass
         if self.type == 'Feature Layer':
-            isShp = False
-            # dump to in_memory if output is shape to handle field truncation
-            if out_fc.endswith('.shp'):
-                isShp = True
-                shp_name = out_fc
-                out_fc = r'in_memory\temp_xxx'
-
-            arcpy.env.overwriteOutput = True
-            if not flds:
-                flds = '*'
-            if flds:
-                if flds == '*':
-                    fields = self.fields
-                else:
-                    if isinstance(flds, list):
-                        pass
-                    elif isinstance(flds, basestring):
-                        flds = flds.split(',')
-                    fields = [f for f in self.fields if f.name in flds]
-
-            # make new feature class
-            if not sr:
-                sr = self.spatialReference
+            if not fields:
+                fields = '*'
+            if fields == '*':
+                _fields = self.fields
             else:
-                params['outSR'] = sr
-            g_type = G_DICT[self.geometryType]
-            path, fc_name = os.path.split(out_fc)
-            arcpy.CreateFeatureclass_management(path, fc_name, g_type,
-                                                spatial_reference=sr)
+                if isinstance(fields, basestring):
+                    fields = fields.split(',')
+                _fields = [f for f in self.fields if f.name in fields]
 
-            # add all fields
-            cur_fields = ['SHAPE@']
-            for fld in fields:
+            # filter fields for cusor object
+            cur_fields = []
+            for fld in _fields:
                 if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
                     if not any(['shape_' in fld.name.lower(),
                                 'shape.' in fld.name.lower(),
                                 '(shape)' in fld.name.lower(),
                                 'ojbectid' in fld.name.lower(),
                                 fld.name.lower() == 'fid']):
-                        arcpy.AddField_management(out_fc, fld.name.split('.')[-1],
-                                                  FTYPES[fld.type],
-                                                  field_length=fld.length,
-                                                  field_alias=fld.alias)
                         cur_fields.append(fld.name)
 
+            # make new feature class
+            if not sr:
+                sr = self.spatialReference
+            else:
+                params['outSR'] = sr
+
             # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
-            with arcpy.da.InsertCursor(out_fc, [f.split('.')[-1] for f in cur_fields]) as irows:
-                for row in self.cursor(cur_fields, where, records, params, get_all).rows():
-                    irows.insertRow(row)
+            query_resp = self.cursor(cur_fields, where, records, params, get_all).response
+            # have to override here to get domains (why are they excluded!? in feature set response!?)
+            query_resp['fields'] = [f.asJSON() for f in _fields]
+            return exportFeatureSet(out_fc, query_resp, sr)
 
-            del irows
-
-            # if output is a shapefile
-            if isShp:
-                out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
-            print 'Created: "{0}"'.format(out_fc)
-            return out_fc
         else:
             print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
 
-    def clip(self, poly, output, flds='*', out_sr='', where='', envelope=False):
+    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
         envelope features.
 
@@ -505,7 +609,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             output -- full path to output feature class
 
         Optional:
-             flds -- list of fields for fc. If none specified, all fields are returned.
+             fields -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             out_sr -- output spatial refrence (WKID)
             where -- optional where clause
@@ -532,7 +636,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             out_sr = sr
         d = {'geometryType' : 'esriGeometry{0}'.format(shape),
              'geometry': geojson, 'inSR' : sr, 'outSR': out_sr}
-        return self.layer_to_fc(output, out_sr, where, d, flds, get_all=True)
+        return self.layer_to_fc(output, fields, where, params=d, get_all=True, sr=out_sr)
 
 class ImageService(BaseImageService):
     """Class to handle map service and requests"""
