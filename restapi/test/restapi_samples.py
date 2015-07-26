@@ -64,8 +64,8 @@ print lyr.list_fields()
 # run search cursor for gauges in California
 # (maximimum limit may be 1000 records, can use get_all=True to exceed transfer limit)
 query = "state = 'CA'"
-for row in lyr.cursor(where=query):
-    print row
+##for row in lyr.cursor(where=query):
+##    print row
 
 # Note: can also do this from the MapService level like this:
 # cursor = gauges.cursor('observed_river_stages', where=query)
@@ -78,7 +78,7 @@ if not os.path.exists(folder):
 
 # export layer to shapefile (can also call from Map Service)
 output = os.path.join(folder, 'California_Stream_Gauges.shp')
-##lyr.layer_to_fc(output, where=query)
+lyr.layer_to_fc(output, where=query, sr=102100) #override spatial reference with web mercator
 
 # export to KMZ
 kmz = output.replace('.shp', '.kmz')
@@ -92,9 +92,9 @@ esri_json = {"rings":[[[-121.5,38.6],[-121.4,38.6],
             "spatialReference":
                 {"wkid":4326,"latestWkid":4326}}
 
-# clip by polygon (can use polygon shapefile or feature class as well)
+# clip by polygon and filter fields (can use polygon shapefile or feature class as well)
 sac = os.path.join(folder, 'Sacramento_gauges.shp')
-lyr.clip(esri_json, sac)
+lyr.clip(esri_json, sac, fields=['gaugelid', 'location'])
 
 #----------------------------------------------------------------------------------------------------#
 # Geocoding examples
@@ -215,6 +215,11 @@ print elevation
 gp_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Network/ESRI_DriveTime_US/GPServer/CreateDriveTimePolygons'
 gp = restapi.GPTask(gp_url)
 
+# get a list of gp parameters (so we know what to pass in as kwargs)
+print '\nGP Task "{}" parameters:\n'.format(gp.name)
+for p in gp.parameters:
+    print '\t', p.name, p.dataType
+
 point = {"geometryType":"esriGeometryPoint",
          "features":[
              {"geometry":{"x":-10603050.16225853,"y":4715351.1473399615,
@@ -222,6 +227,16 @@ point = {"geometryType":"esriGeometryPoint",
          "sr":{"wkid":102100,"latestWkid":3857}}
 
 # run task, passing in gp parameters as keyword arguments (**kwargs)
-res = gp.run(Input_Location=str(point), Drive_Times = '1 2 3', inSR = 102100)
-print res.results[0]['dataType']
+gp_res = gp.run(Input_Location=str(point), Drive_Times = '1 2 3', inSR = 102100)
 
+# returns a GPResult() object, can get at the first result by indexing (usually only one result)
+# can test if there are results by __nonzero__()
+if gp_res:
+    result = gp_res.results[0]
+    
+    # this returned a GPFeatureRecordSetLayer as an outputParameter, so we can export this to polygons
+    print '\nOutput Result: "{}", data type: {}\n'.format(result.paramName, result.dataType)
+
+    # now export the result value to fc (use the value property of the GPResult object from run())
+    drive_times = os.path.join(folder, 'drive_times.shp')
+    restapi.exportFeatureSet(drive_times, gp_res.value)
