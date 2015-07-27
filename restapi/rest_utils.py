@@ -84,7 +84,7 @@ def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
 
-def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
+def POST(service, params={'f': 'json'}, ret_json=True, token=''):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -92,11 +92,10 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
     service -- full path to REST endpoint of service
 
     Optional:
-    _params -- parameters for posting a request
+    params -- parameters for posting a request
     ret_json -- return the response as JSON.  Default is True.
     token -- token to handle security (only required if security is enabled)
     """
-    h = {"content-type":"text"}
     if not token and RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
         token = RESTAPI_TOKEN
     if token:
@@ -105,13 +104,13 @@ def POST(service, _params={'f': 'json'}, ret_json=True, token=''):
         cookie = {'agstoken': token.token if isinstance(token, Token) else token}
     else:
         cookie = ''
-    r = requests.post(service, params=_params, headers=h, cookies=cookie, verify=False)
+    r = requests.post(service, params, cookies=cookie, verify=False)
 
     # make sure return
     if r.status_code != 200:
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
     else:
-        if ret_json:
+        if ret_json is True:
             RequestError(r.json())
             return r.json()
         else:
@@ -761,12 +760,16 @@ class GeocodeResult(object):
             results.append(self.Result(*[v for k,v in sorted(res.items())]))
         return results
 
+    def __getitem__(self, index):
+        """allows for indexing of results"""
+        return self.results[index]
+
     def __len__(self):
         """get count of results"""
         return len(self.results)
 
     def __iter__(self):
-        """return an iterator (as generator)"""
+        """return an iterator for results (as generator)"""
         for r in self.results:
             yield r
 
@@ -863,7 +866,7 @@ class BaseCursor(object):
 
         else:
             self.response = query(self.url, self.field_objects_string, where,
-                                   add_params=add_params, token=token)
+                                   add_params=add_params, token=self.token)
 
         # check for errors
         if 'error' in self.response:
@@ -998,7 +1001,7 @@ class RESTEndpoint(object):
 
         if self.token:
             self._cookie = self.token._cookie if isinstance(self.token, Token) else {'agstoken': self.token}
-        self.raw_response = requests.post(self.url, params, cookies=self._cookie)
+        self.raw_response = POST(self.url, params, ret_json=False, token=self.token)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
@@ -1430,12 +1433,12 @@ class FeatureService(BaseMapService):
             options['syncModel'] = 'perLayer'
 
         if options['async'] in ('true', True) and self.syncCapabilities.supportsAsync:
-            st = requests.post(self.url + '/createReplica', options, cookies=self._cookie).json()
+            st = POST(self.url + '/createReplica', options, token=self.token)
             while 'statusUrl' not in st:
                 time.sleep(1)
         else:
             options['async'] = 'false'
-            st = requests.post(self.url + '/createReplica', options, cookies=self._cookie).json()
+            st = POST(self.url + '/createReplica', options, token=self.token)
 
         RequestError(st)
         js = POST(st['URL'] if 'URL' in st else st['statusUrl'], token=self.token)
@@ -1503,7 +1506,7 @@ class FeatureLayer(BaseMapServiceLayer):
                   'f': 'pjson'}
 
         # update features
-        result = EditResult(requests.post(add_url, params, cookies=self._cookie).json())
+        result = EditResult(POST(add_url, params, token=self.token))
         result.summary()
         return result
 
@@ -1620,7 +1623,7 @@ class FeatureLayer(BaseMapServiceLayer):
             params = {'f': 'json'}
             if gdbVersion:
                 params['gdbVersion'] = gdbVersion
-            r = requests.post(att_url, params, files=files, cookies=self._cookie).json()
+            r = requests.post(att_url, params, files=files, cookies=self._cookie, verify=False).json()
             if 'addAttachmentResult' in r:
                 print r['addAttachmentResult']
             return r
@@ -1961,7 +1964,7 @@ class GPTask(RESTEndpoint):
         params_json['returnZ'] = returnZ
         params_json['returnM'] = returnZ
         params_json['f'] = 'json'
-        r = requests.post(gp_exe_url, params_json, cookies=self._cookie)
+        r = POST(gp_exe_url, params_json, ret_json=False, token=self.token)
         gp_elapsed = r.elapsed
 
 
