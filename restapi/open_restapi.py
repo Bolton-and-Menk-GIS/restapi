@@ -260,7 +260,7 @@ class Cursor(BaseCursor):
     def get_rows(self):
         """returns row objects"""
         for feature in self.features[:self.records]:
-            yield Row(feature, self.field_objects, self.geometryType)
+            yield Row(feature, self.field_objects, self.spatialReference, self.geometryType)
 
     def rows(self):
         """returns row values as tuple"""
