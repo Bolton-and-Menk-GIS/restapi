@@ -852,16 +852,30 @@ class BaseCursor(object):
                     if fld.name == field and fld.type not in SKIP_FIELDS.keys():
                         self.field_objects.append(fld)
 
+        # handle shape and oid fields
+        try:
+            self.oid = [f for f in self._all_fields if f.type == OID][0]
+            oid_name = self.oid.name
+        except:
+            self.oid = None
+            oid_name = 'OBJECTID'
+
+        try:
+            self.shape = [f for f in self.field_objects if f.type == SHAPE][0]
+            add_params['returnGeometry'] = 'true'
+        except IndexError:
+            self.shape = None
+            add_params['returnGeometry'] = 'false'
+
         if get_all:
             self.records = None
-            oid = [f.name for f in self._all_fields if f.type == OID][0]
             if 'maxRecordCount' in layer_info:
                 max_recs = layer_info['maxRecordCount']
             else:
                 # guess at 500 (default 1000 limit cut in half at 10.0 if returning geometry)
                 max_recs = 500
 
-            for i, where2 in enumerate(query_all(self.url, oid, max_recs, where, add_params, self.token)):
+            for i, where2 in enumerate(query_all(self.url, oid_name, max_recs, where, add_params, self.token)):
                 sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
                 resp = query(self.url, self.field_objects_string, sql,
                              add_params=add_params, token=self.token)
