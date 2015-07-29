@@ -104,6 +104,14 @@ def POST(service, params={'f': 'json'}, ret_json=True, token=''):
         cookie = {'agstoken': token.token if isinstance(token, Token) else token}
     else:
         cookie = ''
+
+    for pName, p in params.iteritems():
+        if isinstance(p, dict):
+            params[pName] = json.dumps(p)
+
+    if not 'f' in params:
+        params['f'] = 'json'
+
     r = requests.post(service, params, cookies=cookie, verify=False)
 
     # make sure return
@@ -561,7 +569,6 @@ def walk(url, filterer=True, token=''):
 
 class Token(object):
     """class to handle token authentication"""
-    __slots__ = ['token', 'expires', 'isExpired', '_cookie']
     def __init__(self, response):
         """response JSON object from generate_token"""
         RequestError(response)
@@ -645,7 +652,6 @@ class Table(object):
 
 class GPResult(object):
     """class to handle GP Result"""
-    __slots__ = ['response', 'results', 'messages', 'print_messages', 'elapsed']
     def __init__(self, response):
         """handler for GP result
 
@@ -947,11 +953,15 @@ class BaseRow(object):
         self.atts = self.features['attributes']
         self.esri_json = {}
         self.oid_field_ob = None
+        self.shape_field_ob = None
         esri_fields = [f for f in self.fields if f.type in EXTRA.keys()]
         if esri_fields:
             FIELD_TYPES = [f.type for f in esri_fields]
             if OID in FIELD_TYPES:
                 self.oid_field_ob = [f for f in self.fields if f.type == OID][0]
+            if SHAPE in FIELD_TYPES:
+                self.shape_field_ob = [f for f in self.fields if f.type == SHAPE][0]
+
         if 'geometry' in self.features:
             self.esri_json = self.features['geometry']
             self.esri_json['spatialReference'] = {"wkid": self.spatialReference}
