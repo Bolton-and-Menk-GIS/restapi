@@ -142,7 +142,7 @@ def exportFeatureSet(out_fc, feature_set, outSR=None):
     s_fields = [fl for fl in fields if fl.name in [f[0] for f in field_map]]
     for feat in feature_set['features']:
         row = Row(feat, s_fields, outSR, g_type).values
-        w.add_row(row[0], row[1:])
+        w.add_row(row[-1], row[:-1])
 
     w.save()
     print 'Created: "{0}"'.format(out_fc)
@@ -316,8 +316,13 @@ class Row(BaseRow):
         """returns values as tuple"""
         _values = [self.atts[f.name] for f in self.fields
                    if f.type != SHAPE]
-        if self.geometry:
-            _values.insert(0, self.geometry)
+
+        if self.geometry and self.shape_field_ob:
+            _values.insert(self.fields.index(self.shape_field_ob), self.geometry)
+
+        elif self.geometry:
+            _values.append(self.geometry)
+
         return tuple(_values)
 
 class GeocodeHandler(object):
