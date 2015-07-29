@@ -561,7 +561,10 @@ class MapServiceLayer(BaseMapServiceLayer):
 
             # search cursor to write rows
             s_fields = [f[0] for f in field_map]
-            query_resp = cursor = self.cursor(s_fields, where, records, params, get_all).response
+            if not self.SHAPE.name in s_fields and 'SHAPE@' not in s_fields:
+                s_fields.append('SHAPE@')
+
+            query_resp = self.cursor(s_fields, where, records, params, get_all).response
             return exportFeatureSet(out_fc, query_resp, sr)
         else:
             print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
