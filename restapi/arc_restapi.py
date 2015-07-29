@@ -585,7 +585,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             # filter fields for cusor object
             cur_fields = []
             for fld in _fields:
-                if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+                if fld.type not in [OID] + SKIP_FIELDS.keys():
                     if not any(['shape_' in fld.name.lower(),
                                 'shape.' in fld.name.lower(),
                                 '(shape)' in fld.name.lower(),
@@ -600,6 +600,8 @@ class MapServiceLayer(BaseMapServiceLayer):
                 params['outSR'] = sr
 
             # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
+            if not self.SHAPE.name in cur_fields and 'SHAPE@' not in cur_fields:
+                cur_fields.append('SHAPE@')
             query_resp = self.cursor(cur_fields, where, records, params, get_all).response
 
             # have to override here to get domains (why are they excluded in feature set response!?)
@@ -643,8 +645,13 @@ class MapServiceLayer(BaseMapServiceLayer):
         geojson = poly_to_json(poly, envelope=envelope)
         if not out_sr:
             out_sr = sr
-        d = {'geometryType' : 'esriGeometry{0}'.format(shape),
-             'geometry': geojson, 'inSR' : sr, 'outSR': out_sr}
+
+        d = {'geometryType': 'esriGeometry{0}'.format(shape),
+             'returnGeometry': 'true',
+             'geometry': geojson,
+             'inSR' : sr,
+             'outSR': out_sr}
+
         return self.layer_to_fc(output, fields, where, params=d, get_all=True, sr=out_sr)
 
 class ImageService(BaseImageService):
