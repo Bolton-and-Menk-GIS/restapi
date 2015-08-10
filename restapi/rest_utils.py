@@ -15,6 +15,7 @@ from collections import namedtuple
 # esri fields
 OID = 'esriFieldTypeOID'
 SHAPE = 'esriFieldTypeGeometry'
+GLOBALID = 'esriFieldTypeGlobalID'
 
 # dictionaries
 FTYPES = {'esriFieldTypeDate':'DATE',
@@ -134,6 +135,23 @@ def validate_name(file_name):
     for f,r in d.iteritems():
         root = root.replace(f,r)
     return os.path.join(path, '_'.join(root.split()) + ext)
+
+def assignUniqueName(fl):
+    """assigns a unique file name
+
+    Required:
+        fl -- file name
+    """
+    if not os.path.exists(fl):
+        return fl
+
+    i = 1
+    head, tail = os.path.splitext(fl)
+    new_name = '{}_{}{}'.format(head, i, tail)
+    while os.path.exists(new_name):
+        i += 1
+        new_name = '{}_{}{}'.format(head, i, tail)
+    return new_name
 
 def mil_to_date(mil):
     """date items from REST services are reported in milliseconds,
@@ -489,8 +507,8 @@ def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
     oids = sorted(query(layer_url, where=where, add_params=add_params, token=token)['objectIds'])
     print 'total records: {0}'.format(len(oids))
 
-    # remove returnIdsOnly from dict
-    del add_params['returnIdsOnly']
+    # set returnIdsOnly to False
+    add_params['returnIdsOnly'] = 'false'
 
     # iterate through groups to form queries
     for each in izip_longest(*(iter(oids),) * max_recs):
@@ -937,12 +955,12 @@ class BaseCursor(object):
     @property
     def features(self):
         """returns json features"""
-        return self.response['features']
+        return self.response['features'][:self.records]
 
     @property
     def count(self):
         """returns total number of records in Cursor (user queried)"""
-        return len(self.features[:self.records])
+        return len(self.features)
 
     def __len__(self):
         """return the count"""
@@ -1264,16 +1282,23 @@ class BaseMapServiceLayer(RESTEndpoint):
         """
         return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
 
-    def getOIDs(self, where='1=1', max_recs=None):
+    def getOIDs(self, where='1=1', max_recs=None, **kwargs):
         """return a list of OIDs from feature layer
 
         Optional:
             where -- where clause for OID selection
             max_recs -- maximimum number of records to return (maxRecordCount does not apply)
+            **kwargs -- optional key word arguments to further limit query (i.e. add geometry interesect)
         """
         p = {'returnIdsOnly':'true',
              'returnGeometry': 'false',
              'outFields': ''}
+
+        # add kwargs if specified
+        for k,v in kwargs.iteritems():
+            if k not in p.keys():
+                p[k] = v
+
         return sorted(query(self.url, where=where, add_params=p,token=self.token)['objectIds'])[:max_recs]
 
     def attachments(self, oid, gdbVersion=''):
@@ -1317,7 +1342,7 @@ class BaseMapServiceLayer(RESTEndpoint):
                         optional:
                             verbose -- if true will print sucessful download message
                         """
-                        out_file = os.path.join(out_path, self.name)
+                        out_file = assignUniqueName(os.path.join(out_path, self.name))
 
                         with open(out_file, 'wb') as f:
                             f.write(urllib.urlopen(self.attachmentURL).read())
@@ -1347,6 +1372,15 @@ class FeatureService(BaseMapService):
             token -- token to handle security (alternative to usr and pw)
         """
         super(FeatureService, self).__init__(url, usr, pw, token)
+
+    @property
+    def replicas(self):
+        """returns a list of replica objects"""
+        if self.syncEnabled:
+            reps = POST(self.url + '/replicas', token=self.token)
+            return [namedTuple('Replica', r) for r in reps]
+        else:
+            return []
 
     def layer(self, name):
         """Method to return a layer object with advanced properties by name
@@ -1486,6 +1520,54 @@ class FeatureService(BaseMapService):
         rep_dict = js
         rep_dict['layers'] = repLayers
         return namedTuple('Replica', rep_dict)
+
+    def replicaInfo(self, replicaID):
+        """get replica information
+
+        Required:
+            replicaID -- ID of replica
+        """
+        query_url = self.url + '/replicas/{}'.format(replicaID)
+        return namedTuple('ReplicaInfo', POST(query_url, token=self.token))
+
+    def syncReplica(self, replicaID, **kwargs):
+        """synchronize a replica.  Must be called to sync edits before a fresh replica
+        can be obtained next time createReplica is called.  Replicas are snapshots in
+        time of the first time the user creates a replica, and will not be reloaded
+        until synchronization has occured.  A new version is created for each subsequent
+        replica, but it is cached data.
+
+        It is also recommended to unregister a replica
+        AFTER sync has occured.  Alternatively, setting the "closeReplica" keyword
+        argument to True will unregister the replica after sync.
+
+        More info can be found here:
+            http://server.arcgis.com/en/server/latest/publish-services/windows/prepare-data-for-offline-use.htm
+
+        and here for key word argument parameters:
+            http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Synchronize_Replica/02r3000000vv000000/
+
+        Required:
+            replicaID -- ID of replica
+        """
+        query_url = self.url + '/synchronizeReplica'
+        params = {'replicaID': replicaID}
+
+        for k,v in kwargs.iteritems():
+            params[k] = v
+
+        return POST(query_url, params, token=self.token)
+
+
+    def unRegisterReplica(self, replicaID):
+        """unregisters a replica on the feature service
+
+        Required:
+            replicaID -- the ID of the replica registered with the service
+        """
+        query_url = self.url + '/unRegisterReplica'
+        params = {'replicaID': replicaID}
+        return POST(query_url, params, token=self.token)
 
 class FeatureLayer(BaseMapServiceLayer):
     """class to handle FeatureLayer"""
