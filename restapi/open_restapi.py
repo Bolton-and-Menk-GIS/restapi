@@ -142,13 +142,83 @@ def exportFeatureSet(out_fc, feature_set, outSR=None):
     s_fields = [fl for fl in fields if fl.name in [f[0] for f in field_map]]
     for feat in feature_set['features']:
         row = Row(feat, s_fields, outSR, g_type).values
-        w.add_row(row[-1], row[:-1])
+        w.add_row(row[-1], [v if v else ' ' for v in row[:-1]])
 
     w.save()
     print 'Created: "{0}"'.format(out_fc)
 
     # write projection file
     project(out_fc, outSR)
+    return out_fc
+
+def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', token='', max_recs=None, get_all=False, **kwargs):
+    """exports a map service layer with attachments.  Output is a shapefile.  New records will be created if there
+    are multiple attachments per feature, thus creating a ONE TO ONE relationship as shapefiles cannot handle a
+    ONE TO MANY relationship.
+
+    Required:
+        out_ws -- output location to put new file gdb
+        lyr_url -- url to map service layer
+
+    Optional:
+        fields -- list of fields or comma separated list of desired fields. Default is all fields ('*')
+        where -- where clause for query
+        token -- token to handle security, only required if service is secured
+        max_recs -- maximum number of records to return. Ignored if get_all is set to True.
+        get_all -- option to exceed transfer limit
+        **kwargs -- key word arguments to further filter query (i.e. geometry or outSR)
+    """
+    lyr = MapServiceLayer(url, token=token)
+
+    # make sure there is an OID field
+    oid_name = lyr.OID.name
+    if isinstance(fields, basestring):
+        if fields != '*':
+            if 'OID@' not in fields or oid_name not in fields:
+                fields += ',{}'.format(oid_name)
+
+    elif isinstance(fields, list):
+        if 'OID@' not in fields or oid_name not in fields:
+            fields.append(oid_name)
+
+    # get feature set
+    cursor = lyr.cursor(fields, where, records=max_recs, add_params=kwargs, get_all=get_all)
+    oid_index = [i for i,f in enumerate(cursor.field_objects) if f.type == OID][0]
+
+    # form feature set and call export feature set
+    fs = {'features': cursor.features,
+          'fields': lyr.response['fields'],
+          'spatialReference': lyr.response['extent']['spatialReference'],
+          'geometryType': lyr.geometryType}
+
+    # create new shapefile
+    out_fc = validate_name(os.path.join(out_ws, lyr.name + '.shp'))
+    exportFeatureSet(out_fc, fs)
+
+    # get attachments (OID will start at 1)
+    att_folder = os.path.join(out_ws, '{}_Attachments'.format(os.path.basename(out_fc).split('.')[0]))
+    if not os.path.exists(att_folder):
+        os.makedirs(att_folder)
+
+    att_dict = {}
+    for i,row in enumerate(cursor.get_rows()):
+        att_dict[i] = []
+        for att in lyr.attachments(row.oid):
+            out_att = att.download(att_folder, verbose=False)
+            att_dict[i].append(out_att)
+
+    # write attachment field for hyperlinks (duplicate features with multiple attachments)
+    e = shp_helper.shpEditor(out_fc)
+    e.add_field('PHO_LINK', 'C', '254')
+    for i, attachments in att_dict.iteritems():
+        for ac, att in enumerate(attachments):
+            if ac >= 1:
+                recs = list(e.records[i])
+                recs[-1] = att
+                e.add_row(e.shapes[i], recs)
+            else:
+                e.update_row(i, PHO_LINK=att)
+    e.save()
     return out_fc
 
 def exportReplica(replica, out_folder):
@@ -172,7 +242,7 @@ def exportReplica(replica, out_folder):
         # download attachments
         att_dict = {}
         for attInfo in layer.attachments:
-            out_file = os.path.join(att_loc, attInfo['name'])
+            out_file = assignUniqueName(os.path.join(att_loc, attInfo['name']))
             with open(out_file, 'wb') as f:
                 f.write(urllib.urlopen(attInfo['url']).read())
             att_dict[attInfo['parentGlobalId']] = out_file.strip()
@@ -226,7 +296,7 @@ def exportReplica(replica, out_folder):
                     # multipoint - to do
                     pass
 
-                w.add_row(geom, row)
+                w.add_row(geom, [v if v else ' ' for v in row])
 
             w.save()
             print 'Created: "{0}"'.format(out_fc)
@@ -433,9 +503,8 @@ class MapService(BaseMapService):
         lyr = get_layer_url(self.url, layer_name, self.token)
         return Cursor(lyr, fields, where, records, self.token, add_params, get_all)
 
-    def layer_to_fc(self, layer_name, out_fc, sr=None,
-                    where='1=1', params={}, flds='*',
-                    records=None, get_all=False):
+    def layer_to_fc(self, layer_name,  out_fc, fields='*', where='1=1',
+                    records=None, params={}, get_all=False, sr=None):
         """Method to export a feature class from a service layer
 
         Required:
@@ -443,17 +512,17 @@ class MapService(BaseMapService):
             out_fc -- full path to output feature class
 
         Optional:
-            sr -- output spatial refrence (WKID)
             where -- optional where clause
             params -- dictionary of parameters for query
-            flds -- list of fields for fc. If none specified, all fields are returned.
+            fields -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             records -- number of records to return. Default is none, will return maxRecordCount
             get_all -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
+            sr -- output spatial refrence (WKID)
         """
         lyr = self.layer(layer_name)
-        lyr.layer_to_fc(out_fc, sr, where, params, flds, records, get_all)
+        lyr.layer_to_fc(out_fc, fields, where,records, params, get_all, sr)
 
     def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
