@@ -923,6 +923,8 @@ class Writer:
                                 value = DATE_EXP.findall(value)[0].replace('/','').replace('-','')[:size].ljust(size)
                             except IndexError:
                                 value = str(value)[:size].ljust(size)
+                        else:
+                            value = str(value)[:size].ljust(size)
                     else:
                         value = str(value)[:size].ljust(size)
                 else:
