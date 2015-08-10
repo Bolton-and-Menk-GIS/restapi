@@ -28,16 +28,12 @@ def poly_to_json(poly, envelope=False):
         for row in rows:
             return row[0].encode('utf-8')
 
-def exportFeatureSet(out_fc, feature_set, outSR=None):
+def exportFeatureSet(out_fc, feature_set):
     """export features (JSON result) to shapefile or feature class
 
     Required:
         out_fc -- output feature class or shapefile
         feature_set -- JSON response (feature set) obtained from a query
-
-    Optional:
-        outSR -- optional output spatial reference.  If none set, will default
-            to SR of result_query feature set.
 
     at minimum, feature set must contain these keys:
         [u'features', u'fields', u'spatialReference', u'geometryType']
@@ -88,12 +84,11 @@ def exportFeatureSet(out_fc, feature_set, outSR=None):
     # make new feature class
     fields = [Field(f) for f in feature_set['fields']]
 
-    if not outSR:
-        sr_dict = feature_set['spatialReference']
-        if 'latestWkid' in sr_dict:
-            outSR = int(sr_dict['latestWkid'])
-        else:
-            outSR = int(sr_dict['wkid'])
+    sr_dict = feature_set['spatialReference']
+    if 'latestWkid' in sr_dict:
+        outSR = int(sr_dict['latestWkid'])
+    else:
+        outSR = int(sr_dict['wkid'])
 
     g_type = G_DICT[feature_set['geometryType']]
     path, fc_name = os.path.split(out_fc)
@@ -162,6 +157,93 @@ def exportFeatureSet(out_fc, feature_set, outSR=None):
     print 'Created: "{0}"'.format(out_fc)
     return out_fc
 
+def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', token='', max_recs=None, get_all=False, **kwargs):
+    """exports a map service layer with attachments.  Output is a geodatabase.
+
+    Required:
+        out_ws -- output location to put new file gdb
+        lyr_url -- url to map service layer
+
+    Optional:
+        fields -- list of fields or comma separated list of desired fields. Default is all fields ('*')
+        where -- where clause for query
+        token -- token to handle security, only required if service is secured
+        max_recs -- maximum number of records to return. Ignored if get_all is set to True.
+        get_all -- option to exceed transfer limit
+        **kwargs -- key word arguments to further filter query (i.e. geometry or outSR)
+    """
+    lyr = MapServiceLayer(url, token=token)
+
+    out_gdb_name = arcpy.ValidateTableName(lyr.url.split('/')[-3], out_ws) + '.gdb'
+    gdb = arcpy.management.CreateFileGDB(out_ws, out_gdb_name, 'CURRENT').getOutput(0)
+    out_fc = os.path.join(gdb, arcpy.ValidateTableName(lyr.name, gdb))
+
+    # make sure there is an OID field
+    oid_name = lyr.OID.name
+    if isinstance(fields, basestring):
+        if fields != '*':
+            if 'OID@' not in fields or oid_name not in fields:
+                fields += ',{}'.format(oid_name)
+
+    elif isinstance(fields, list):
+        if 'OID@' not in fields or oid_name not in fields:
+            fields.append(oid_name)
+
+    # get feature set
+    cursor = lyr.cursor(fields, where, records=max_recs, add_params=kwargs, get_all=get_all)
+    oid_index = [i for i,f in enumerate(cursor.field_objects) if f.type == OID][0]
+
+    # form feature set and call export feature set
+    fs = {'features': cursor.features,
+          'fields': lyr.response['fields'],
+          'spatialReference': lyr.response['extent']['spatialReference'],
+          'geometryType': lyr.geometryType}
+
+    exportFeatureSet(out_fc, fs)
+
+    # get attachments (OID will start at 1)
+    att_folder = os.path.join(out_ws, '{}_Attachments'.format(os.path.basename(out_fc)))
+    if not os.path.exists(att_folder):
+        os.makedirs(att_folder)
+
+    att_dict, att_ids = {}, []
+    for i,row in enumerate(cursor.get_rows()):
+        att_id = 'P-{}'.format(i + 1)
+        att_ids.append(att_id)
+        att_dict[att_id] = []
+        for att in lyr.attachments(row.oid):
+            out_att = att.download(att_folder, verbose=False)
+            att_dict[att_id].append(os.path.join(out_att))
+
+    # photo field (hopefully this is a unique field name...)
+    PHOTO_ID = 'PHOTO_ID_X_Y_Z__'
+    arcpy.management.AddField(out_fc, PHOTO_ID, 'TEXT')
+    with arcpy.da.UpdateCursor(out_fc, PHOTO_ID) as rows:
+        for i,row in enumerate(rows):
+            rows.updateRow((att_ids[i],))
+
+    # create temp table
+    arcpy.management.EnableAttachments(out_fc)
+    tmp_tab = r'in_memory\temp_photo_points'
+    arcpy.management.CreateTable('in_memory', 'temp_photo_points')
+    arcpy.management.AddField(tmp_tab, PHOTO_ID, 'TEXT')
+    arcpy.management.AddField(tmp_tab, 'PATH', 'TEXT', field_length=255)
+    arcpy.management.AddField(tmp_tab, 'PHOTO_NAME', 'TEXT', field_length=255)
+
+    with arcpy.da.InsertCursor(tmp_tab, [PHOTO_ID, 'PATH', 'PHOTO_NAME']) as irows:
+        for k, att_list in att_dict.iteritems():
+            for v in att_list:
+                irows.insertRow((k,) + os.path.split(v))
+
+     # add attachments
+    arcpy.management.AddAttachments(out_fc, PHOTO_ID, tmp_tab, PHOTO_ID,
+                                    'PHOTO_NAME', in_working_folder=att_folder)
+    arcpy.management.Delete(tmp_tab)
+    arcpy.management.DeleteField(out_fc, PHOTO_ID)
+
+    print 'Created: "{}"'.format(gdb)
+    return gdb
+
 def exportReplica(replica, out_folder):
     """converts a restapi.Replica() to a File Geodatabase
 
@@ -187,7 +269,7 @@ def exportReplica(replica, out_folder):
         # download attachments
         att_dict = {}
         for attInfo in layer.attachments:
-            out_file = os.path.join(att_loc, attInfo['name'])
+            out_file = assignUniqueName(os.path.join(att_loc, attInfo['name']))
             with open(out_file, 'wb') as f:
                 f.write(urllib.urlopen(attInfo['url']).read())
             att_dict[attInfo['parentGlobalId']] = out_file
@@ -478,9 +560,8 @@ class MapService(BaseMapService):
         lyr = get_layer_url(self.url, layer_name, self.token)
         return Cursor(lyr, fields, where, records, self.token, add_params, get_all)
 
-    def layer_to_fc(self, layer_name, out_fc, sr=None,
-                    where='1=1', params={}, flds='*',
-                    records=None, get_all=False):
+    def layer_to_fc(self, layer_name,  out_fc, fields='*', where='1=1',
+                    records=None, params={}, get_all=False, sr=None):
         """Method to export a feature class from a service layer
 
         Required:
@@ -488,17 +569,17 @@ class MapService(BaseMapService):
             out_fc -- full path to output feature class
 
         Optional:
-            sr -- output spatial refrence (WKID)
             where -- optional where clause
             params -- dictionary of parameters for query
-            flds -- list of fields for fc. If none specified, all fields are returned.
+            fields -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             records -- number of records to return. Default is none, will return maxRecordCount
             get_all -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
+            sr -- output spatial refrence (WKID)
         """
         lyr = self.layer(layer_name)
-        lyr.layer_to_fc(out_fc, sr, where, params, flds, records, get_all)
+        lyr.layer_to_fc(out_fc, fields, where,records, params, get_all, sr)
 
     def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
