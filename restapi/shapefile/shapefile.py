@@ -2,13 +2,13 @@
 shapefile.py
 Provides read and write support for ESRI Shapefiles.
 author: jlawhead<at>geospatialpython.com
-date: 20140507
-version: 1.2.1
+date: 2015/06/22
+version: 1.2.3
 Compatible with Python versions 2.4-3.x
-version changelog: Fixed u() to just return the byte sequence on exception
+version changelog: Reader.iterShapeRecords() bugfix for Python 3
 """
 
-__version__ = "1.2.1"
+__version__ = "1.2.3"
 
 from struct import pack, unpack, calcsize, error
 import os
@@ -17,6 +17,8 @@ import time
 import array
 import tempfile
 import itertools
+import datetime
+import re
 
 #
 # Constants for shape types
@@ -36,9 +38,14 @@ MULTIPOINTM = 28
 MULTIPATCH = 31
 
 PYTHON3 = sys.version_info[0] == 3
+DATE_EXP = re.compile('\d{4}[-/]\d{2}[-/]\d{2}')
 
 if PYTHON3:
     xrange = range
+    izip = zip
+    basestring = str
+else:
+    from itertools import izip
 
 def b(v):
     if PYTHON3:
@@ -206,10 +213,8 @@ class Reader:
     but is not required to read the geometry from the .shp
     file. The "shapefile" argument in the constructor is the
     name of the file you want to open.
-
     You can instantiate a Reader without specifying a shapefile
     and then specify one later with the load() method.
-
     Only the shapefile headers are read upon loading. Content
     within each file is only accessed when required and as
     efficiently as possible. Shapefiles are usually not large
@@ -571,7 +576,7 @@ class Reader:
     def iterShapeRecords(self):
         """Returns a generator of combination geometry/attribute records for
         all records in a shapefile."""
-        for shape, record in itertools.izip(self.iterShapes(), self.iterRecords()):
+        for shape, record in izip(self.iterShapes(), self.iterRecords()):
             yield _ShapeRecord(shape=shape, record=record)
 
 
@@ -909,6 +914,17 @@ class Writer:
                     value = str(value).rjust(size)
                 elif fieldType == 'L':
                     value = str(value)[0].upper()
+                elif fieldType == 'D':
+                    if isinstance(value, datetime.datetime):
+                        value = ''.join([str(v).zfill(2) for v in [value.year, value.month, value.day]])[:size].ljust(size)
+                    elif isinstance(value, basestring):
+                        if DATE_EXP.match(value):
+                            try:
+                                value = DATE_EXP.findall(value)[0].replace('/','').replace('-','')[:size].ljust(size)
+                            except IndexError:
+                                value = str(value)[:size].ljust(size)
+                    else:
+                        value = str(value)[:size].ljust(size)
                 else:
                     value = str(value)[:size].ljust(size)
                 if len(value) != size:
@@ -966,25 +982,7 @@ class Writer:
         self._shapes.append(polyShape)
 
     def field(self, name, fieldType="C", size="50", decimal=0):
-        """Adds a dbf field descriptor to the shapefile.
-
-        Valid types:
-
-        B 	Binary, a string 	10 digits representing a .DBT block number. The number is stored as a string, right justified and padded with blanks.
-        C 	Character 	All OEM code page characters - padded with blanks to the width of the field.
-        D 	Date 	8 bytes - date stored as a string in the format YYYYMMDD.
-        N 	Numeric 	Number stored as a string, right justified, and padded with blanks to the width of the field.
-        L 	Logical 	1 byte - initialized to 0x20 (space) otherwise T or F.
-        M 	Memo, a string 	10 digits (bytes) representing a .DBT block number. The number is stored as a string, right justified and padded with blanks.
-        @ 	Timestamp 	8 bytes - two longs, first for date, second for time.  The date is the number of days since  01/01/4713 BC. Time is hours * 3600000L + minutes * 60000L + Seconds * 1000L
-        I 	Long 	4 bytes. Leftmost bit used to indicate sign, 0 negative.
-        + 	Autoincrement 	Same as a Long
-        F 	Float 	Number stored as a string, right justified, and padded with blanks to the width of the field.
-        O 	Double 	8 bytes - no conversions, stored as a double.
-        G 	OLE 	10 digits (bytes) representing a .DBT block number. The number is stored as a string, right justified and padded with blanks.
-
-        source: http://www.dbase.com/KnowledgeBase/int/db7_file_fmt.htm
-        """
+        """Adds a dbf field descriptor to the shapefile."""
         self.fields.append((name, fieldType, size, decimal))
 
     def record(self, *recordList, **recordDict):
@@ -1208,3 +1206,4 @@ if __name__ == "__main__":
     2.3.
     """
     test()
+
