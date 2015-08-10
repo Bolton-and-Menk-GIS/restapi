@@ -17,10 +17,12 @@ try:
     import imp
     imp.find_module('arcpy')
     from arc_restapi import Cursor, MapService, MapServiceLayer, ArcServer, \
-                            ImageService, Geocoder, exportFeatureSet, exportReplica
+                            ImageService, Geocoder, exportFeatureSet, exportReplica, \
+                            exportFeaturesWithAttachments
 except ImportError:
     from open_restapi import Cursor, MapService, MapServiceLayer, ArcServer, \
-                             ImageService, Geocoder, exportFeatureSet, exportReplica
+                             ImageService, Geocoder, exportFeatureSet, exportReplica, \
+                             exportFeaturesWithAttachments
 
 # package info
 __author__ = 'Caleb Mackey'
