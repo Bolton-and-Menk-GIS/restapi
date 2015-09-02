@@ -515,7 +515,7 @@ def generate_token(url, user='', pw='', expiration=60):
             base += '/generateToken'
 
     resp = requests.post(url=base, data=params).json()
-    resp['domain'] = base.split('//')[1].split('/')[0]
+    resp['domain'] = base.split('/rest')[0] + '/rest/services'
     token = Token(resp)
     setattr(sys.modules[__name__], 'RESTAPI_TOKEN', token)
     return token
