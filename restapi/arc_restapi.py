@@ -8,26 +8,6 @@ from rest_utils import *
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
-def poly_to_json(poly, envelope=False):
-    """Converts a features to JSON
-
-    Required:
-        poly -- input features (does not have to be polygons)
-
-    Optional:
-        envelope -- if True, will use bounding box of input features
-    """
-    if isinstance(poly, dict): #already a JSON object
-        return json.dumps(poly)
-    if envelope:
-        e = arcpy.Describe(poly).extent
-        return ','.join(map(str, [e.XMin, e.YMin, e.XMax, e.YMax]))
-    elif isinstance(poly, arcpy.Polygon):
-        return poly.JSON
-    with arcpy.da.SearchCursor(poly, ['SHAPE@JSON']) as rows:
-        for row in rows:
-            return row[0].encode('utf-8')
-
 def exportFeatureSet(out_fc, feature_set):
     """export features (JSON result) to shapefile or feature class
 
@@ -130,8 +110,8 @@ def exportFeatureSet(out_fc, feature_set):
 
             # need to filter even more as SDE sometimes yields weird field names...sigh
             if not any(['shape_area' in field.name.lower(),
-                        'shape_length' in field.name.lower(),
                         'shape.' in field.name.lower(),
+                        'shape_len' in field.name.lower(),
                         '(shape)' in field.name.lower(),
                         'ojbectid' in field.name.lower(),
                         field.name.lower() == 'fid']):
@@ -364,6 +344,108 @@ def exportReplica(replica, out_folder):
             return gdb
 
     return out_folder
+
+class Geometry(object):
+    """class to handle restapi.Geometry"""
+    def __init__(self, geometry, *args):
+        """converts geometry input to restapi.Geometry object
+
+        Required:
+            geometry -- input geometry.  Can be arcpy.Geometry(), shapefile/feature
+                class, or JSON
+        """
+        self._inputGeometry = geometry
+        self.spatialReference = None
+        self.geometryType = None
+        self.JSON = OrderedDict2()
+        if isinstance(geometry, arcpy.Geometry):
+            self.spatialReference = geometry.spatialReference.factoryCode
+            self.geometryType = 'esriGeometry{}'.format(geometry.type.title())
+            esri_json = json.loads(geometry.JSON)
+            for k,v in sorted(esri_json.iteritems()):
+                if k != 'spatialReference':
+                    self.JSON[k] = v
+            if 'spatialReference' in esri_json:
+                self.JSON['spatialReference'] = esri_json['spatialReference']
+
+        elif isinstance(geometry, basestring):
+            try:
+                geometry = OrderedDict2(**json.loads(geometry))
+            except:
+                # maybe it's a shapefile/feature class?
+                if arcpy.Exists(geometry):
+                    desc = arcpy.Describe(geometry)
+                    self.spatialReference = desc.spatialReference.factoryCode
+                    self.geometryType = 'esriGeometry{}'.format(desc.shapeType.title())
+                    with arcpy.da.SearchCursor(geometry, ['SHAPE@JSON']) as rows:
+                        for row in rows:
+                            esri_json = json.loads(row[0])
+                            break
+
+                    for k,v in sorted(esri_json.iteritems()):
+                        if k != 'spatialReference':
+                            self.JSON[k] = v
+                    if 'spatialReference' in esri_json:
+                        self.JSON['spatialReference'] = esri_json['spatialReference']
+                else:
+                    raise IOError('Not a valid geometry input!')
+
+        if isinstance(geometry, dict):
+            if 'spatialReference' in geometry:
+                sr_json = geometry['spatialReference']
+                if 'latestWkid' in sr_json:
+                    self.spatialReference = sr_json['latestWkid']
+                else:
+                    try:
+                        self.spatialReference = sr_json['wkid']
+                    except:
+                        raise IOError('No spatial reference found in JSON object!')
+                if 'features' in geometry:
+                    d = geometry['features'][0]
+                    if 'geometry' in d:
+                        d = geometry['features'][0]['geometry']
+                    for k,v in d.iteritems():
+                        self.JSON[k] = v
+                elif 'geometry' in geometry:
+                    for k,v in geometry['geometry']:
+                        self.JSON[k] = v
+                if not self.JSON:
+                    if 'rings' in geometry:
+                        self.JSON['rings'] = geometry['rings']
+                        self.geometryType = JSON_DICT['rings']
+                    elif 'paths' in geometry:
+                        self.JSON['paths'] = geometry['paths']
+                        self.geometryType = JSON_DICT['paths']
+                    elif 'points' in geometry:
+                        self.JSON['points'] = geometry['points']
+                        self.geometryType = JSON_DICT['points']
+                    elif 'x' in geometry and 'y' in geometry:
+                        self.JSON['x'] = geometry['x']
+                        self.JSON['y'] = geometry['y']
+                        self.geometryType = 'esriGeometryPoint'
+                    else:
+                        raise IOError('Not a valid JSON object!')
+                if not self.geometryType and 'geometryType' in geometry:
+                    self.geometryType = geometry['geometryType']
+        if not 'spatialReference' in self.JSON and self.spatialReference:
+            self.JSON['spatialReference'] = {'wkid': self.spatialReference}
+
+    def envelope(self):
+        """return an envelope from shape"""
+        e = arcpy.AsShape(self.JSON, True).extent
+        return ','.join(map(str, [e.XMin, e.YMin, e.XMax, e.YMax]))
+
+    def dumps(self):
+        """retuns JSON as a string"""
+        return json.dumps(self.JSON)
+
+    def asShape(self):
+        """returns JSON as arcpy.Geometry() object"""
+        return arcpy.AsShape(self.JSON, True)
+
+    def __str__(self):
+        """dumps JSON to string"""
+        return self.dumps()
 
 class Cursor(BaseCursor):
     """Class to handle Cursor object"""
@@ -687,7 +769,7 @@ class MapServiceLayer(BaseMapServiceLayer):
 
             # have to override here to get domains (why are they excluded in feature set response!?)
             query_resp['fields'] = [f.asJSON() for f in _fields]
-            return exportFeatureSet(out_fc, query_resp, sr)
+            return exportFeatureSet(out_fc, query_resp)
 
         else:
             print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
@@ -709,25 +791,22 @@ class MapServiceLayer(BaseMapServiceLayer):
                 can be used if the feature has many vertices or to check against the full extent
                 of the feature class
         """
-        if isinstance(poly, dict):
-            sr = poly['spatialReference']['wkid']
-            if 'rings' in poly:
-                shape = 'Polygon'
-            elif 'paths' in poly:
-                shape = 'Polyline'
-            else:
-                shape = 'Point'
+        if isinstance(poly, Geometry):
+            in_geom = poly
         else:
-            desc = arcpy.Describe(poly)
-            sr = desc.spatialReference.factoryCode
-            shape = desc.shapeType
+            in_geom = Geometry(poly)
+        sr = in_geom.spatialReference
         if envelope:
-            shape = 'Envelope'
-        geojson = poly_to_json(poly, envelope=envelope)
+            geojson = in_geom.envelope()
+            geometryType = 'esriGeometryEnvelope'
+        else:
+            geojson = in_geom.dumps()
+            geometryType = in_geom.geometryType
+
         if not out_sr:
             out_sr = sr
 
-        d = {'geometryType': 'esriGeometry{0}'.format(shape),
+        d = {'geometryType': geometryType,
              'returnGeometry': 'true',
              'geometry': geojson,
              'inSR' : sr,
@@ -750,7 +829,7 @@ class ImageService(BaseImageService):
         """
         super(ImageService, self).__init__(url, usr, pw, token)
 
-    def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation'):
+    def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation', **kwargs):
         """method to export an AOI from an Image Service
 
         Required:
@@ -760,19 +839,29 @@ class ImageService(BaseImageService):
         Optional:
             envelope -- option to use envelope of polygon
             rendering_rule -- rendering rule to perform raster functions
-
+            kwargs -- optional key word arguments for other parameters
         """
         if not out_raster.endswith('.tif'):
             out_raster = os.path.splitext(out_raster)[0] + '.tif'
         query_url = '/'.join([self.url, 'exportImage'])
-        geojson = poly_to_json(poly, envelope)
-        if isinstance(poly, basestring) and '{' in poly:
-            poly = json.loads(poly)
 
-        polygon = arcpy.AsShape(geojson, True)
+        if isinstance(poly, Geometry):
+            in_geom = poly
+        else:
+            in_geom = Geometry(poly)
+        sr = in_geom.spatialReference
+        if envelope:
+            geojson = in_geom.envelope()
+            geometryType = 'esriGeometryEnvelope'
+        else:
+            geojson = in_geom.dumps()
+            geometryType = in_geom.geometryType
+
+        if sr != self.spatialReference:
+            polyG = in_geom.asShape()
+            polygon = polyG.projectAs(arcpy.SpatialReference(self.spatialReference))
         e = polygon.extent
         bbox = self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax])
-        sr = polygon.spatialReference.factoryCode
 
         # check for raster function availability
         if not self.allowRasterFunction:
@@ -789,12 +878,17 @@ class ImageService(BaseImageService):
              'bbox': bbox,
              'format': 'tiff',
              'imageSR': sr,
-             'bboxSR': sr,
+             'bboxSR': self.spatialReference,
              'size': '{0},{1}'.format(width,height),
              'pixelType': self.pixelType,
              'noDataInterpretation': 'esriNoMatchAny',
              'interpolation': interp
             }
+
+        # overwrite with kwargs
+        for k,v in kwargs.iteritems():
+            if k not in ['size', 'bboxSR']:
+                p[k] = v
 
         # post request
         r = POST(query_url, p, token=self.token)
@@ -814,9 +908,12 @@ class ImageService(BaseImageService):
                 pass
             print 'Created: "{0}"'.format(out_raster)
 
-    def clip(self, poly, out_raster, envelope=False):
+    def clip(self, poly, out_raster, envelope=False, imageSR=''):
         """method to clip a raster"""
-        geojson = poly_to_json(poly, envelope)
+        if envelope:
+            geojson = Geometry(poly).envelope() if not isinstance(poly, Geometry) else poly.envelope()
+        else:
+            geojson = Geometry(poly).dumps() if not isinstance(poly, Geometry) else poly.dumps()
         ren = {
           "rasterFunction" : "Clip",
           "rasterFunctionArguments" : {
@@ -825,7 +922,37 @@ class ImageService(BaseImageService):
             },
           "variableName" : "Raster"
         }
-        self.exportImage(poly, out_raster, rendering_rule=ren)
+        self.exportImage(poly, out_raster, rendering_rule=ren, imageSR=imageSR)
+
+
+
+    def arithmetic(self, poly, out_raster, raster_or_constant, operation=3, envelope=False, imageSR=''):
+        """perform arithmetic operations against a raster
+
+        Required:
+            poly -- input polygon or JSON polygon object
+            out_raster -- full path to output raster
+            raster_or_constant -- raster to perform opertion against or constant value
+
+        Optional:
+            operation -- arithmetic operation to use (1|2|3)
+            envelope -- if true, will use bounding box of input features
+            imageSR -- output image spatial reference
+
+        Operations:
+            1 -- esriRasterPlus
+            2 -- esriRasterMinus
+            3 -- esriRasterMultiply
+        """
+        ren = {
+                  "rasterFunction" : "Arithmetic",
+                  "rasterFunctionArguments" : {
+                       "Raster" : "$$",
+                       "Raster2": raster_or_constant,
+                       "Operation" : operation
+                     }
+                  }
+        self.exportImage(poly, out_raster, rendering_rule=json.dumps(ren), imageSR=imageSR)
 
 class Geocoder(GeocodeService):
     """class to handle Geocoding operations"""
