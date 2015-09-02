@@ -10,7 +10,7 @@ import json
 import os
 import sys
 from itertools import izip_longest
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 
 # esri fields
 OID = 'esriFieldTypeOID'
@@ -40,9 +40,27 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryMultipoint': 'Multipoint',
           'esriGeometryEnvelope':'Envelope'}
 
+JSON_DICT = {'rings': 'esriGeometryPolygon',
+             'paths': 'esriGeometryPolyline',
+             'points': 'esriGeometryMultipoint',
+             'x': 'esriGeometryPoint',
+             'y': 'esriGeometryPoint'}
+
+JSON_CODE = {v:k for k,v in JSON_DICT.iteritems()}
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
-BASE_PATTERN = 'http*://*/arcgis/rest/services*'
+BASE_PATTERN = 'http*://*/rest/services*'
 RESTAPI_TOKEN = None
+
+# WKID json files
+try:
+    JSON_PATH = os.path.dirname(__file__)
+except:
+    import sys
+    JSON_PATH = os.path.abspath(os.path.dirname(sys.argv[0]))
+
+PROJECTIONS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projections.json')).read())
+PRJ_NAMES = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_names.json')).read())
+PRJ_STRINGS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_strings.json')).read())
 
 def namedTuple(name, pdict):
     """creates a named tuple from a dictionary
@@ -99,7 +117,7 @@ def POST(service, params={'f': 'json'}, ret_json=True, token=''):
     """
     if not token and RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
         token = RESTAPI_TOKEN
-    if token:
+    if token and isinstance(token, Token) and token.domain in service:
         if isinstance(token, Token) and token.isExpired:
             raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
         cookie = {'agstoken': token.token if isinstance(token, Token) else token}
@@ -135,6 +153,23 @@ def validate_name(file_name):
     for f,r in d.iteritems():
         root = root.replace(f,r)
     return os.path.join(path, '_'.join(root.split()) + ext)
+
+def guessWKID(wkt):
+    """attempts to guess a well-known ID from a well-known text imput (WKT)
+
+    Required:
+        wkt -- well known text spatial reference
+    """
+    if wkt in PRJ_STRINGS:
+        return PRJ_STRINGS[wkt]
+    if 'PROJCS' in wkt:
+        name = wkt.split('PROJCS["')[1].split('"')[0]
+    elif 'GEOGCS' in wkt:
+        name = wkt.split('GEOGCS["')[1].split('"')[0]
+    if name in PRJ_NAMES:
+        return PRJ_NAMES[name]
+    return 0
+
 
 def assignUniqueName(fl):
     """assigns a unique file name
@@ -479,7 +514,9 @@ def generate_token(url, user='', pw='', expiration=60):
             use_body = True
             base += '/generateToken'
 
-    token = Token(requests.post(url=base, data=params).json())
+    resp = requests.post(url=base, data=params).json()
+    resp['domain'] = base.split('//')[1].split('/')[0]
+    token = Token(resp)
     setattr(sys.modules[__name__], 'RESTAPI_TOKEN', token)
     return token
 
@@ -585,6 +622,19 @@ def walk(url, filterer=True, token=''):
            services.append('/'.join([serv['name'], serv['type']]))
         yield (f, endpt['folders'], services)
 
+class OrderedDict2(OrderedDict):
+    """wrapper for OrderedDict"""
+    def __init__(self, *args, **kwargs):
+        super(OrderedDict2, self).__init__(*args, **kwargs)
+
+    def __repr__(self):
+        """we want it to look like a dictionary"""
+        string = '{'
+        for k,v in self.iteritems():
+            string += '\n  %s: %s' %(k,v)
+        string += '\n}'
+        return string
+
 class Token(object):
     """class to handle token authentication"""
     def __init__(self, response):
@@ -593,6 +643,7 @@ class Token(object):
         self.token = response['token']
         self.expires = mil_to_date(response['expires'])
         self._cookie = {'agstoken': self.token}
+        self.domain = response['domain']
 
     @property
     def isExpired(self):
@@ -1032,17 +1083,22 @@ class RESTEndpoint(object):
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
             else:
-                if RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
-                    self.token = RESTAPI_TOKEN
-                elif RESTAPI_TOKEN and RESTAPI_TOKEN.isExpired:
+                if RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and RESTAPI_TOKEN.isExpired:
                     raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-
+                elif RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and not RESTAPI_TOKEN.isExpired \
+                    and RESTAPI_TOKEN.domain in url:
+                    self.token = RESTAPI_TOKEN
+                else:
+                    self.token = None
         else:
-            if isinstance(token, Token) and token.isExpired:
+            if isinstance(token, Token) and token.isExpired and token.domain in url:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
 
         if self.token:
-            self._cookie = self.token._cookie if isinstance(self.token, Token) else {'agstoken': self.token}
+            if isinstance(token, Token) and token.domain in url:
+                self._cookie = self.token._cookie
+            else:
+                self._cookie = {'agstoken': self.token}
         self.raw_response = POST(self.url, params, ret_json=False, token=self.token)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
@@ -1179,13 +1235,17 @@ class BaseMapService(RESTEndpoint):
     @property
     def spatialReference(self):
         """return the spatial reference"""
-        try:
-            if 'latestWkid' in self.response['spatialReference']:
-                return self.response['spatialReference']['latestWkid']
-            else:
-                return self.response['spatialReference']['wkid']
-        except:
-            return None
+        resp_d = {}
+        if 'spatialReference' in self.response:
+            resp_d = self.response['spatialReference']
+        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
+            resp_d = self.response['extent']['spatialReference']
+
+        for key in ['latestWkid', 'wkid', 'wkt']:
+            if key in resp_d:
+                return resp_d[key]
+
+        return resp_d if resp_d != {} else ''
 
     def list_layers(self):
         """Method to return a list of layer names in a MapService"""
@@ -1240,13 +1300,18 @@ class BaseMapServiceLayer(RESTEndpoint):
     @property
     def spatialReference(self):
         """return the spatial reference"""
-        try:
-            if 'latestWkid' in self.response['spatialReference']:
-                return self.response['spatialReference']['latestWkid']
-            else:
-                return self.response['spatialReference']['wkid']
-        except:
-            return None
+        resp_d = {}
+        if 'spatialReference' in self.response:
+            resp_d = self.response['spatialReference']
+        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
+            resp_d = self.response['extent']['spatialReference']
+
+        for key in ['latestWkid', 'wkid', 'wkt']:
+            if key in resp_d:
+                return resp_d[key]
+
+        return resp_d if resp_d != {} else ''
+
 
     def list_fields(self):
         """method to list field names"""
@@ -1650,28 +1715,31 @@ class FeatureLayer(BaseMapServiceLayer):
                        spatialRel='', inSR='', gdbVersion='', rollbackOnFailure=True):
         """deletes features based on list of OIDs
 
-        oids -- list of oids or comma separated values
-        where -- where clause for features to be deleted.  All selected features will be deleted
-        geometry -- geometry JSON object used to delete features.
-        geometryType -- type of geometry
-        spatialRel -- spatial relationship.  Default is "esriSpatialRelationshipIntersects"
-        inSR -- input spatial reference for geometry
-        gdbVersion -- geodatabase version to apply edits
-        rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+        Optional:
+            oids -- list of oids or comma separated values
+            where -- where clause for features to be deleted.  All selected features will be deleted
+            geometry -- geometry JSON object used to delete features.
+            geometryType -- type of geometry
+            spatialRel -- spatial relationship.  Default is "esriSpatialRelationshipIntersects"
+            inSR -- input spatial reference for geometry
+            gdbVersion -- geodatabase version to apply edits
+            rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
 
         oids format example:
             oids = [1, 2, 3] # list
-            oids = "1, 2, 4" # as string"""
+            oids = "1, 2, 4" # as string
+        """
         if not geometryType:
             geometryType = 'esriGeometryEnvelope'
         if not spatialRel:
             spatialRel = 'esriSpatialRelIntersects'
+
         del_url = self.url + '/deleteFeatures'
         if isinstance(oids, (list, tuple)):
             oids = ', '.join(map(str, oids))
         params = {'objectIds': oids,
                   'where': where,
-                  'geometry': json.dumps(geometry),
+                  'geometry': geometry,
                   'geometryType': geometryType,
                   'spatialRel': spatialRel,
                   'gdbVersion': gdbVersion,
