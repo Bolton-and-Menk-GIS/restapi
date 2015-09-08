@@ -500,7 +500,7 @@ def generate_token(url, user='', pw='', expiration=60):
     ref = ''
     use_body = False
     base = url.split('/rest')[0] + '/tokens'
-    version = POST(url.split('arcgis')[0] + 'arcgis/rest/services')
+    version = POST(url.split('rest')[0] + 'rest/services')
     params = {'f': 'json',
               'username': user,
               'password': pw,
@@ -1084,18 +1084,18 @@ class RESTEndpoint(object):
                 self.token = generate_token(self.url, usr, pw)
             else:
                 if RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and RESTAPI_TOKEN.isExpired:
-                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
                 elif RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and not RESTAPI_TOKEN.isExpired \
                     and RESTAPI_TOKEN.domain in url:
                     self.token = RESTAPI_TOKEN
                 else:
                     self.token = None
         else:
-            if isinstance(token, Token) and token.isExpired and token.domain in url:
-                raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+            if isinstance(self.token, Token) and self.token.isExpired and self.token.domain in url:
+                raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
 
         if self.token:
-            if isinstance(token, Token) and token.domain in url:
+            if isinstance(self.token, Token) and self.token.domain in url:
                 self._cookie = self.token._cookie
             else:
                 self._cookie = {'agstoken': self.token}
