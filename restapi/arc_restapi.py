@@ -860,7 +860,7 @@ class ImageService(BaseImageService):
         if sr != self.spatialReference:
             polyG = in_geom.asShape()
             polygon = polyG.projectAs(arcpy.SpatialReference(self.spatialReference))
-        e = polygon.extent
+        e = in_geom.asShape().extent
         bbox = self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax])
 
         # check for raster function availability
