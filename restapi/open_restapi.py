@@ -75,11 +75,10 @@ def exportFeatureSet(out_fc, feature_set, outSR=None):
     field_map = []
     for fld in fields:
         if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
-            if not any(['shape_area' in fld.name.lower(),
-                        'shape_len' in fld.name.lower(),
+            if not any(['shape_' in fld.name.lower(),
                         'shape.' in fld.name.lower(),
                         '(shape)' in fld.name.lower(),
-                        'ojbectid' in fld.name.lower(),
+                        'objectid' in fld.name.lower(),
                         fld.name.lower() == 'fid']):
 
                 field_name = fld.name.split('.')[-1][:10]
@@ -777,7 +776,7 @@ class MapServiceLayer(BaseMapServiceLayer):
                     if not any(['shape_' in fld.name.lower(),
                                 'shape.' in fld.name.lower(),
                                 '(shape)' in fld.name.lower(),
-                                'ojbectid' in fld.name.lower(),
+                                'objectid' in fld.name.lower(),
                                 fld.name.lower() == 'fid']):
 
                         field_name = fld.name.split('.')[-1][:10]
