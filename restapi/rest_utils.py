@@ -264,7 +264,7 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
     if add_params:
         for k,v in add_params.iteritems():
             params[k] = v
-
+    print params
     # create kmz file if requested
     if ret_form == 'kmz':
         import codecs
@@ -463,7 +463,10 @@ def objectize(obj, filterer=[]):
         atts = obj.__dict__.keys()
     elif hasattr(obj, '__slots__'):
         atts = obj.__slots__
-    setattr(obj, 'JSON', {})
+    try:
+        setattr(obj, 'JSON', {})
+    except:
+        pass
     for prop in atts:
         p = getattr(obj, prop)
         try:
@@ -497,22 +500,20 @@ def generate_token(url, user='', pw='', expiration=60):
     """
     if not pw:
         pw = getpass.getpass('Type password and hit Enter:\n')
-    ref = ''
-    use_body = False
-    base = url.split('/rest')[0] + '/tokens'
-    version = POST(url.split('rest')[0] + 'rest/services')
+    infoUrl = url.split('/rest')[0] + '/rest/info'
+    infoResp = POST(infoUrl)
+    if 'authInfo' in infoResp and 'tokenServicesUrl' in infoResp['authInfo']:
+        base = infoResp['authInfo']['tokenServicesUrl']
+        shortLived = infoResp['authInfo']['shortLivedTokenValidity']
+    else:
+        base = url.split('/rest')[0] + '/tokens'
+        shortLived = 100
+
     params = {'f': 'json',
               'username': user,
               'password': pw,
               'client': 'requestip',
-              'referer': ref,
-              'expiration': min([expiration, 100])} #set max at 100
-
-    # changed at 10.3, must pass credentials through body now and differnt URL
-    if 'currentVersion' in version:
-        if float('.'.join(str(version['currentVersion']).split('.')[:2])) >= 10.3:
-            use_body = True
-            base += '/generateToken'
+              'expiration': min([expiration, shortLived])}
 
     resp = requests.post(url=base, data=params).json()
     resp['domain'] = base.split('/tokens')[0] + '/rest/services'
@@ -644,6 +645,7 @@ class Token(object):
         self.expires = mil_to_date(response['expires'])
         self._cookie = {'agstoken': self.token}
         self.domain = response['domain']
+        self._response = response
 
     @property
     def isExpired(self):
@@ -652,6 +654,10 @@ class Token(object):
             return True
         else:
             return False
+
+    def asJSON(self):
+        """return original server response as JSON"""
+        return self._response
 
     def __str__(self):
         """return token as string representation"""
@@ -1363,8 +1369,8 @@ class BaseMapServiceLayer(RESTEndpoint):
         for k,v in kwargs.iteritems():
             if k not in p.keys():
                 p[k] = v
-
-        return sorted(query(self.url, where=where, add_params=p,token=self.token)['objectIds'])[:max_recs]
+        print p
+        return sorted(self.query(where=where, add_params=p)['objectIds'])[:max_recs]
 
     def attachments(self, oid, gdbVersion=''):
         """query attachments for an OBJECTDID
