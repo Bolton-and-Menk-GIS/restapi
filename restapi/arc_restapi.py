@@ -109,11 +109,10 @@ def exportFeatureSet(out_fc, feature_set):
                 field_domain = ''
 
             # need to filter even more as SDE sometimes yields weird field names...sigh
-            if not any(['shape_area' in field.name.lower(),
+            if not any(['shape_' in field.name.lower(),
                         'shape.' in field.name.lower(),
-                        'shape_len' in field.name.lower(),
                         '(shape)' in field.name.lower(),
-                        'ojbectid' in field.name.lower(),
+                        'objectid' in field.name.lower(),
                         field.name.lower() == 'fid']):
 
                 arcpy.management.AddField(out_fc, field_name, FTYPES[field.type],
@@ -358,6 +357,8 @@ class Geometry(object):
         self.spatialReference = None
         self.geometryType = None
         self.JSON = OrderedDict2()
+        if isinstance(geometry, arcpy.mapping.Layer) and geometry.supports('DATASOURCE'):
+            geometry = geometry.dataSource
         if isinstance(geometry, arcpy.Geometry):
             self.spatialReference = geometry.spatialReference.factoryCode
             self.geometryType = 'esriGeometry{}'.format(geometry.type.title())
@@ -752,7 +753,7 @@ class MapServiceLayer(BaseMapServiceLayer):
                     if not any(['shape_' in fld.name.lower(),
                                 'shape.' in fld.name.lower(),
                                 '(shape)' in fld.name.lower(),
-                                'ojbectid' in fld.name.lower(),
+                                'objectid' in fld.name.lower(),
                                 fld.name.lower() == 'fid']):
                         cur_fields.append(fld.name)
 
