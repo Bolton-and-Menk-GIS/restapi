@@ -20,8 +20,10 @@
 #  DIFFERENT CLASSES!
 #-------------------------------------------------------------------------------
 import sys
-import restapi
 import os
+sys.path.append(os.path.dirname(sys.path[0]))
+sys.path.append(os.path.dirname(os.path.dirname(sys.path[0])))
+import restapi
 import urllib
 
 # open help documentation
@@ -63,9 +65,11 @@ print lyr.list_fields()
 # search cursor
 # run search cursor for gauges in California
 # (maximimum limit may be 1000 records, can use get_all=True to exceed transfer limit)
+# can filter fields by putting a field list, can use actual shape field name to get
+#  geometry or use the ArcGIS-like token "SHAPE@"
 query = "state = 'CA'"
-##for row in lyr.cursor(where=query):
-##    print row
+for row in lyr.cursor(where=query, fields=['SHAPE@', u'gaugelid', u'status', u'location']):
+    print row
 
 # Note: can also do this from the MapService level like this:
 # cursor = gauges.cursor('observed_river_stages', where=query)
@@ -82,7 +86,7 @@ lyr.layer_to_fc(output, where=query, sr=102100) #override spatial reference with
 
 # export to KMZ
 kmz = output.replace('.shp', '.kmz')
-lyr.layer_to_kmz(kmz, where=query)
+##lyr.layer_to_kmz(kmz, where=query)
 
 # clip lyr by polygon (Sacramento area)
 esri_json = {"rings":[[[-121.5,38.6],[-121.4,38.6],
@@ -240,3 +244,4 @@ if gp_res:
     # now export the result value to fc (use the value property of the GPResult object from run())
     drive_times = os.path.join(folder, 'drive_times.shp')
     restapi.exportFeatureSet(drive_times, gp_res.value)
+

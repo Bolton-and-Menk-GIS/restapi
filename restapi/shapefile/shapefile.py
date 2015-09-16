@@ -1194,18 +1194,3 @@ class Editor(Writer):
         fieldName = fieldName.upper()
         fieldName.replace(' ', '_')
 
-# Begin Testing
-def test():
-    import doctest
-    doctest.NORMALIZE_WHITESPACE = 1
-    doctest.testfile("README.txt", verbose=1)
-
-if __name__ == "__main__":
-    """
-    Doctests are contained in the file 'README.txt'. This library was originally developed
-    using Python 2.3. Python 2.4 and above have some excellent improvements in the built-in
-    testing libraries but for now unit testing is done using what's available in
-    2.3.
-    """
-    test()
-

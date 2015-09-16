@@ -264,7 +264,7 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
     if add_params:
         for k,v in add_params.iteritems():
             params[k] = v
-    print params
+
     # create kmz file if requested
     if ret_form == 'kmz':
         import codecs
@@ -1369,7 +1369,7 @@ class BaseMapServiceLayer(RESTEndpoint):
         for k,v in kwargs.iteritems():
             if k not in p.keys():
                 p[k] = v
-        print p
+
         return sorted(self.query(where=where, add_params=p)['objectIds'])[:max_recs]
 
     def attachments(self, oid, gdbVersion=''):

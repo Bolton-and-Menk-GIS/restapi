@@ -10,6 +10,7 @@ from __future__ import print_function
 import shapefile
 import itertools
 import datetime
+import json
 
 # constants (from shapefile)
 shp_dict = {
@@ -28,6 +29,8 @@ shp_dict = {
     'MULTIPOINTM' : 28,
     'MULTIPATCH' : 31
     }
+
+shp_code = {v:k for k,v in shp_dict.iteritems()}
 
 class shp(object):
     def __init__(self, shapeType='NULL', path=''):

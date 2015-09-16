@@ -9,7 +9,8 @@
 # Copyright:   (c) calebma 2014
 # Licence:     BMI
 #-------------------------------------------------------------------------------
-from rest_utils import FeatureService, FeatureLayer, GeocodeService, GPService, GPTask, POST, generate_token
+from rest_utils import FeatureService, FeatureLayer, GeocodeService, GPService, GPTask, POST, \
+    generate_token, mil_to_date, date_to_mil, guessWKID
 
 # look for arcpy access, otherwise use open source version
 # open source version may be faster.
@@ -18,11 +19,11 @@ try:
     imp.find_module('arcpy')
     from arc_restapi import Cursor, MapService, MapServiceLayer, ArcServer, \
                             ImageService, Geocoder, exportFeatureSet, exportReplica, \
-                            exportFeaturesWithAttachments
+                            exportFeaturesWithAttachments, Geometry
 except ImportError:
     from open_restapi import Cursor, MapService, MapServiceLayer, ArcServer, \
                              ImageService, Geocoder, exportFeatureSet, exportReplica, \
-                             exportFeaturesWithAttachments
+                             exportFeaturesWithAttachments, Geometry
 
 # package info
 __author__ = 'Caleb Mackey'
