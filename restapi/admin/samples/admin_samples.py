@@ -70,7 +70,7 @@ def main(url, usr, pw, folder_name, service_name):
     #-----------------------------------------------------------------------------------------------#
     # query log files (within last 3 days), need to convert to milliseconds
     threeDaysAgo = restapi.date_to_mil(datetime.datetime.now() - relativedelta(days=3))
-    for log in arcserver.queryLogs(startTime=threeDaysAgo, pageSize=25):
+    for log in arcserver.queryLogs(endTime=threeDaysAgo, pageSize=25):
         print log.time
         for message in log:
             print message
