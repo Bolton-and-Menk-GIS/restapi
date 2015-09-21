@@ -899,7 +899,7 @@ class ImageService(BaseImageService):
                 p[k] = v
 
         # post request
-        r = POST(query_url, p, token=self.token)
+        r = POST(query_url, p, cookie=self._cookie)
 
                # check for errors
         if 'error' in r:
