@@ -103,7 +103,7 @@ def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
 
-def POST(service, params={'f': 'json'}, ret_json=True, token='', cookie=None):
+def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -114,17 +114,17 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookie=None):
         params -- parameters for posting a request
         ret_json -- return the response as JSON.  Default is True.
         token -- token to handle security (only required if security is enabled)
-        cookie -- cookie object {'agstoken': 'your_token'}
+        cookies -- cookie object {'agstoken': 'your_token'}
     """
-    if not cookie:
+    if not cookies:
         if not token and RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
             token = RESTAPI_TOKEN
-        if token and isinstance(token, Token) and token.domain in service:
+        if token and isinstance(token, Token) and token.domain.lower() in service.lower():
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-            cookie = {'agstoken': token.token if isinstance(token, Token) else token}
+            cookies = {'agstoken': token.token if isinstance(token, Token) else token}
         elif token:
-            cookie = {'agstoken': token}
+            cookies = {'agstoken': token}
 
     for pName, p in params.iteritems():
         if isinstance(p, dict):
@@ -133,7 +133,7 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookie=None):
     if not 'f' in params:
         params['f'] = 'json'
 
-    r = requests.post(service, params, cookies=cookie, verify=False)
+    r = requests.post(service, params, cookies=cookies, verify=False)
 
     # make sure return
     if r.status_code != 200:
@@ -1094,7 +1094,7 @@ class RESTEndpoint(object):
                 if RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and RESTAPI_TOKEN.isExpired:
                     raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
                 elif RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and not RESTAPI_TOKEN.isExpired \
-                    and RESTAPI_TOKEN.domain in url:
+                    and RESTAPI_TOKEN.domain.lower() in url.lower():
                     self.token = RESTAPI_TOKEN
                 else:
                     self.token = None
@@ -1103,12 +1103,11 @@ class RESTEndpoint(object):
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
 
         if self.token:
-            if isinstance(self.token, Token) and self.token.domain in url:
+            if isinstance(self.token, Token) and self.token.domain.lower() in url.lower():
                 self._cookie = self.token._cookie
             else:
-                self._cookie = {'agstoken': self.token}
-
-        self.raw_response = POST(self.url, params, ret_json=False, cookie=self._cookie)
+                self._cookie = {'agstoken': self.token.token if isinstance(self.token, Token) else self.token}
+        self.raw_response = POST(self.url, params, ret_json=False, cookies=self._cookie)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
@@ -1386,7 +1385,7 @@ class BaseMapServiceLayer(RESTEndpoint):
         """
         if self.hasAttachments:
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
-            r = POST(query_url, cookie=self._cookie)
+            r = POST(query_url, cookies=self._cookie)
 
             add_tok = ''
             if self.token:
@@ -1451,7 +1450,7 @@ class FeatureService(BaseMapService):
     def replicas(self):
         """returns a list of replica objects"""
         if self.syncEnabled:
-            reps = POST(self.url + '/replicas', cookie=self._cookie)
+            reps = POST(self.url + '/replicas', cookies=self._cookie)
             return [namedTuple('Replica', r) for r in reps]
         else:
             return []
@@ -1565,15 +1564,15 @@ class FeatureService(BaseMapService):
             options['syncModel'] = 'perLayer'
 
         if options['async'] in ('true', True) and self.syncCapabilities.supportsAsync:
-            st = POST(self.url + '/createReplica', options, cookie=self._cookie)
+            st = POST(self.url + '/createReplica', options, cookies=self._cookie)
             while 'statusUrl' not in st:
                 time.sleep(1)
         else:
             options['async'] = 'false'
-            st = POST(self.url + '/createReplica', options, cookie=self._cookie)
+            st = POST(self.url + '/createReplica', options, cookies=self._cookie)
 
         RequestError(st)
-        js = POST(st['URL'] if 'URL' in st else st['statusUrl'], cookie=self._cookie)
+        js = POST(st['URL'] if 'URL' in st else st['statusUrl'], cookies=self._cookie)
         RequestError(js)
 
         if not replicaSR:
@@ -1602,7 +1601,7 @@ class FeatureService(BaseMapService):
             replicaID -- ID of replica
         """
         query_url = self.url + '/replicas/{}'.format(replicaID)
-        return namedTuple('ReplicaInfo', POST(query_url, cookie=self._cookie))
+        return namedTuple('ReplicaInfo', POST(query_url, cookies=self._cookie))
 
     def syncReplica(self, replicaID, **kwargs):
         """synchronize a replica.  Must be called to sync edits before a fresh replica
@@ -1630,7 +1629,7 @@ class FeatureService(BaseMapService):
         for k,v in kwargs.iteritems():
             params[k] = v
 
-        return POST(query_url, params, cookie=self._cookie)
+        return POST(query_url, params, cookies=self._cookie)
 
 
     def unRegisterReplica(self, replicaID):
@@ -1641,7 +1640,7 @@ class FeatureService(BaseMapService):
         """
         query_url = self.url + '/unRegisterReplica'
         params = {'replicaID': replicaID}
-        return POST(query_url, params, cookie=self._cookie)
+        return POST(query_url, params, cookies=self._cookie)
 
 class FeatureLayer(BaseMapServiceLayer):
     """class to handle FeatureLayer"""
@@ -1686,7 +1685,7 @@ class FeatureLayer(BaseMapServiceLayer):
                   'f': 'pjson'}
 
         # update features
-        result = EditResult(POST(add_url, params, cookie=self._cookie))
+        result = EditResult(POST(add_url, params, cookies=self._cookie))
         result.summary()
         return result
 
@@ -1716,7 +1715,7 @@ class FeatureLayer(BaseMapServiceLayer):
                   'f': 'json'}
 
         # update features
-        result = EditResult(POST(update_url, params, cookie=self._cookie))
+        result = EditResult(POST(update_url, params, cookies=self._cookie))
         result.summary()
         return result
 
@@ -1756,7 +1755,7 @@ class FeatureLayer(BaseMapServiceLayer):
                   'f': 'json'}
 
         # delete features
-        result = EditResult(POST(del_url, params, cookie=self._cookie))
+        result = EditResult(POST(del_url, params, cookies=self._cookie))
         result.summary()
         return result
 
@@ -1836,7 +1835,7 @@ class FeatureLayer(BaseMapServiceLayer):
                 'calcExpression': json.dumps(exp),
                 'sqlFormat': sqlFormat}
 
-            return POST(calc_url, where=where, add_params=p, cookie=self._cookie)
+            return POST(calc_url, where=where, add_params=p, cookies=self._cookie)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support field calculations!'.format(self.name))
@@ -1907,7 +1906,7 @@ class BaseImageService(RESTEndpoint):
                   'geometryType':'esriGeometryPoint',
                   'f':'json'}
 
-        j = POST(IDurl, params, cookie=self._cookie)
+        j = POST(IDurl, params, cookies=self._cookie)
         if 'value' in j:
             return j['value']
 
@@ -2004,7 +2003,7 @@ class GeocodeService(RESTEndpoint):
                       'outSR': outSR,
                       'f': 'json'}
 
-        return GeocodeResult(POST(geo_url, params, cookie=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
     def reverseGeocode(self, x, y, distance=100, outSR=4326, returnIntersection=False):
         """reverse geocodes an address by x, y coordinates
@@ -2022,7 +2021,7 @@ class GeocodeService(RESTEndpoint):
                   'returnIntersection': str(returnIntersection).lower(),
                   'f': 'json'}
 
-        return GeocodeResult(POST(geo_url, params, cookie=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
     def findAddressCandidates(self, address='', outSR=4326, outFields='*', returnIntersection=False, **kwargs):
         """finds address candidates for an anddress
@@ -2048,7 +2047,7 @@ class GeocodeService(RESTEndpoint):
             for fld_name, fld_query in kwargs.iteritems():
                 params[fld_name] = fld_query
 
-        return GeocodeResult(POST(geo_url, params, cookie=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
 class GPService(RESTEndpoint):
     """ Class to handle GP Service Object"""
@@ -2070,7 +2069,7 @@ class GPService(RESTEndpoint):
 
     def task(self, name):
         """returns a GP Task object"""
-        return GPTask('/'.join([self.url, name]), cookie=self._cookie)
+        return GPTask('/'.join([self.url, name]), cookies=self._cookie)
 
 class GPTask(RESTEndpoint):
     """class to handle GP Task"""
@@ -2147,7 +2146,7 @@ class GPTask(RESTEndpoint):
         params_json['returnZ'] = returnZ
         params_json['returnM'] = returnZ
         params_json['f'] = 'json'
-        r = POST(gp_exe_url, params_json, ret_json=False, cookie=self._cookie)
+        r = POST(gp_exe_url, params_json, ret_json=False, cookies=self._cookie)
         gp_elapsed = r.elapsed
 
 
