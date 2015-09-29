@@ -136,7 +136,7 @@ def exportFeatureSet(out_fc, feature_set):
     print 'Created: "{0}"'.format(out_fc)
     return out_fc
 
-def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', token='', max_recs=None, get_all=False, **kwargs):
+def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', token='', max_recs=None, get_all=False, out_gdb_name='', **kwargs):
     """exports a map service layer with attachments.  Output is a geodatabase.
 
     Required:
@@ -149,12 +149,17 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
         token -- token to handle security, only required if service is secured
         max_recs -- maximum number of records to return. Ignored if get_all is set to True.
         get_all -- option to exceed transfer limit
+        out_gdb_name -- optional output geodatabase name, can also reference an existing gdb within the "out_ws" folder
         **kwargs -- key word arguments to further filter query (i.e. geometry or outSR)
     """
-    lyr = MapServiceLayer(url, token=token)
+    lyr = MapServiceLayer(lyr_url, token=token)
 
-    out_gdb_name = arcpy.ValidateTableName(lyr.url.split('/')[-3], out_ws) + '.gdb'
-    gdb = arcpy.management.CreateFileGDB(out_ws, out_gdb_name, 'CURRENT').getOutput(0)
+    if not out_gdb_name:
+        out_gdb_name = arcpy.ValidateTableName(lyr.url.split('/')[-3], out_ws) + '.gdb'
+    if not arcpy.Exists(os.path.join(out_ws, out_gdb_name)):
+        gdb = arcpy.management.CreateFileGDB(out_ws, out_gdb_name, 'CURRENT').getOutput(0)
+    else:
+        gdb = os.path.join(out_ws, out_gdb_name)
     out_fc = os.path.join(gdb, arcpy.ValidateTableName(lyr.name, gdb))
 
     # make sure there is an OID field
@@ -169,6 +174,7 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
             fields.append(oid_name)
 
     # get feature set
+    kwargs['returnGeometry'] = 'true'
     cursor = lyr.cursor(fields, where, records=max_recs, add_params=kwargs, get_all=get_all)
     oid_index = [i for i,f in enumerate(cursor.field_objects) if f.type == OID][0]
 
