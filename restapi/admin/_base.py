@@ -138,7 +138,7 @@ class AdminRESTEndpoint(object):
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
             else:
-                if RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired and self.token.domain in url:
+                if RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired and self.token.domain.lower() in url.lower():
                     self.token = RESTAPI_TOKEN
                 elif RESTAPI_TOKEN and RESTAPI_TOKEN.isExpired:
                     raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
@@ -148,10 +148,11 @@ class AdminRESTEndpoint(object):
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
 
         if self.token:
-            if isinstance(self.token, Token) and self.token.domain in url:
+            if isinstance(self.token, Token) and self.token.domain.lower() in url.lower():
                 params['token'] = self.token.token
         elif isinstance(self.token, basestring):
             params['token'] = self.token
+
         self.raw_response = requests.post(self.url, params, verify=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
@@ -1251,8 +1252,10 @@ class Site(AdminRESTEndpoint):
 class ArcServerAdmin(AdminRESTEndpoint):
     """Class to handle internal ArcGIS Server instance"""
     def __init__(self, url, usr='', pw='', token=''):
+        #possibly redundant validation...
         if not 'arcgis' in url.lower():
-            url += '/arcgis/admin/services'
+            url += '/arcgis'
+        url = url.split('/arcgis')[0] + '/arcgis/admin/services'
         super(ArcServerAdmin, self).__init__(url, usr, pw, token)
         self._adminURL = self.url.split('/arcgis')[0] + '/arcgis/admin'
         self._clusterURL = self._adminURL + '/clusters'
