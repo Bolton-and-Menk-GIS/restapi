@@ -49,7 +49,6 @@ JSON_DICT = {'rings': 'esriGeometryPolygon',
 JSON_CODE = {v:k for k,v in JSON_DICT.iteritems()}
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 BASE_PATTERN = 'http*://*/rest/services*'
-RESTAPI_TOKEN = None
 
 # WKID json files
 try:
@@ -61,6 +60,31 @@ except:
 PROJECTIONS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projections.json')).read())
 PRJ_NAMES = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_names.json')).read())
 PRJ_STRINGS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_strings.json')).read())
+
+class IdentityManager(object):
+    """Identity Manager for secured services.  This will allow the user to only have
+    to sign in once (until the token expires) when accessing a services directory or
+    individual service on an ArcGIS Server Site"""
+    tokens = {}
+
+    def findToken(self, url):
+        """returns a token for a specific domain from token store if one has been
+        generated for the ArcGIS Server site
+
+        Required:
+            url -- url for secured resource
+        """
+        url = url.lower().split('/rest/services')[0] + '/rest/services'
+        if url in self.tokens:
+            if not self.tokens[url].isExpired:
+                return self.tokens[url]
+            else:
+                raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+        else:
+            return None
+
+# initialize Identity Manager
+ID_MANAGER = IdentityManager()
 
 def namedTuple(name, pdict):
     """creates a named tuple from a dictionary
@@ -117,8 +141,8 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None):
         cookies -- cookie object {'agstoken': 'your_token'}
     """
     if not cookies:
-        if not token and RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
-            token = RESTAPI_TOKEN
+        if not token:
+                token = ID_MANAGER.findToken(service)
         if token and isinstance(token, Token) and token.domain.lower() in service.lower():
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
@@ -518,9 +542,9 @@ def generate_token(url, user='', pw='', expiration=60):
               'expiration': min([expiration, shortLived])}
 
     resp = requests.post(url=base, data=params).json()
-    resp['domain'] = base.split('/tokens')[0] + '/rest/services'
+    resp['domain'] = base.split('/tokens')[0].lower() + '/rest/services'
     token = Token(resp)
-    setattr(sys.modules[__name__], 'RESTAPI_TOKEN', token)
+    ID_MANAGER.tokens[token.domain] = token
     return token
 
 
@@ -1091,15 +1115,15 @@ class RESTEndpoint(object):
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
             else:
-                if RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and RESTAPI_TOKEN.isExpired:
+                self.token = ID_MANAGER.findToken(self.url)
+                if isinstance(self.token, Token) and self.token.isExpired:
                     raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
-                elif RESTAPI_TOKEN and isinstance(RESTAPI_TOKEN, Token) and not RESTAPI_TOKEN.isExpired \
-                    and RESTAPI_TOKEN.domain.lower() in url.lower():
-                    self.token = RESTAPI_TOKEN
+                elif isinstance(self.token, Token) and not self.token.isExpired:
+                    pass
                 else:
                     self.token = None
         else:
-            if isinstance(self.token, Token) and self.token.isExpired and self.token.domain in url:
+            if isinstance(self.token, Token) and self.token.isExpired and self.token.domain in self.url.lower():
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
 
         if self.token:
@@ -1222,6 +1246,10 @@ class BaseArcServer(RESTEndpoint):
     def __iter__(self):
         """returns an generator for services"""
         return self.list_services()
+
+    def __len__(self):
+        """returns number of services"""
+        return len(self.services)
 
 class BaseMapService(RESTEndpoint):
     """Class to handle map service and requests"""

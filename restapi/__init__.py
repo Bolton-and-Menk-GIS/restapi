@@ -10,7 +10,7 @@
 # Licence:     BMI
 #-------------------------------------------------------------------------------
 from rest_utils import FeatureService, FeatureLayer, GeocodeService, GPService, GPTask, POST, \
-    generate_token, mil_to_date, date_to_mil, guessWKID
+    generate_token, mil_to_date, date_to_mil, guessWKID, validate_name
 
 # look for arcpy access, otherwise use open source version
 # open source version may be faster.
