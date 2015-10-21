@@ -1122,7 +1122,7 @@ class Folder(BaseDirectory):
 
 class Service(BaseDirectory):
     """Class to handle inernal ArcGIS Service instance"""
-    def __init__(self, url, usr='', pw='', token=RESTAPI_TOKEN):
+    def __init__(self, url, usr='', pw='', token=None):
         super(Service, self).__init__(url, usr, pw, token)
 
         for k,v in self.response.iteritems():
@@ -1270,7 +1270,7 @@ class Service(BaseDirectory):
         return ServiceStatistics(**POST(self.url + '/statistics', token=self.token))
 
 class Site(AdminRESTEndpoint):
-    def __init__(self, url, usr='', pw='', token=RESTAPI_TOKEN):
+    def __init__(self, url, usr='', pw='', token=None):
         super(Site, self).__init__(url, usr, pw, token)
         pass
 
