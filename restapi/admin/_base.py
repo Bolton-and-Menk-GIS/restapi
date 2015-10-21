@@ -15,7 +15,6 @@ from dateutil.relativedelta import relativedelta
 from decorator import decorator
 
 # Globals
-RESTAPI_TOKEN = None
 BASE_PATTERN = '*:*/arcgis/admin*'
 VERBOSE = True
 
