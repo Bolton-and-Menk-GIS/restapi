@@ -9,7 +9,7 @@ import json
 import pprint
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import requests
-from rest_utils import Token, mil_to_date, date_to_mil, namedTuple, RequestError, objectize
+from rest_utils import Token, mil_to_date, date_to_mil, namedTuple, RequestError, objectize, IdentityManager
 from collections import namedtuple
 from dateutil.relativedelta import relativedelta
 from decorator import decorator
@@ -25,6 +25,27 @@ VERBOSE = True
 #    VERBOSE = False #because you get this with importing the admin module
 #  or:
 #    restapi.admin.VERBOSE = False
+
+class IdentityManagerAdmin(IdentityManager):
+    """Administrative Identity Manager"""
+    def findToken(self, url):
+        """override find token to fix url appropriately. Returns a token for a specific
+        domain from token store if one has been generated for the ArcGIS Server site
+
+        Required:
+            url -- url for secured resource
+        """
+        url = url.lower().split('/arcgis')[0] + '/arcgis/admin'
+        if url in self.tokens:
+            if not self.tokens[url].isExpired:
+                return self.tokens[url]
+            else:
+                raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+        else:
+            return None
+
+# initialize Identity Manager
+ID_MANAGER = IdentityManagerAdmin()
 
 @decorator
 def passthrough(f, *args, **kwargs):
@@ -59,12 +80,13 @@ def POST(service, params={'f': 'json'}, token='', ret_json=True):
         if isinstance(p, dict):
             params[pName] = json.dumps(p)
 
-    if not token and RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired:
-        token = RESTAPI_TOKEN
-    if token:
+    if not token:
+        token = ID_MANAGER.findToken(service)
+    if token and isinstance(token, Token) and token.domain.lower() in service.lower():
         if isinstance(token, Token) and token.isExpired:
             raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-        params['token'] = token.token if isinstance(token, Token) else token
+        else:
+            params['token'] = token.token if isinstance(token, Token) else token
 
     if not 'f' in params:
         params['f'] = 'json'
@@ -104,9 +126,9 @@ def generate_token(server='', usr='', pw='', expiration=60):
 
     url = server + '/arcgis/admin/generateToken'.format(server)
     resp = POST(url, params)
-    resp['domain'] = url.split('/generateToken')[0]
+    resp['domain'] = url.split('/generateToken')[0].lower()
     token = Token(resp)
-    setattr(sys.modules[__name__], 'RESTAPI_TOKEN', token)
+    ID_MANAGER.tokens[token.domain] = token
     return token
 
 class AdminRESTEndpoint(object):
@@ -125,11 +147,12 @@ class AdminRESTEndpoint(object):
         may need to append an 'ARRAffinity' cookie to the self._cookie or the self.token attribute.
     """
     def __init__(self, url, usr='', pw='', token=''):
-        self.url = 'http://' + url.rstrip('/') if not url.startswith('http') and 'localhost' not in url.lower() else url.rstrip('/')
+        self.url = 'http://' + url.rstrip('/') if not url.startswith('http') \
+                    and 'localhost' not in url.lower() else url.rstrip('/')
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _fixer = self.url.split('/arcgis')[0] + '/arcgis/admin'
             if fnmatch.fnmatch(_fixer, BASE_PATTERN):
-                self.url = _fixer
+                self.url = _fixer.lower()
             else:
                 RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
         params = {'f': 'json'}
@@ -138,20 +161,23 @@ class AdminRESTEndpoint(object):
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
             else:
-                if RESTAPI_TOKEN and not RESTAPI_TOKEN.isExpired and self.token.domain.lower() in url.lower():
-                    self.token = RESTAPI_TOKEN
-                elif RESTAPI_TOKEN and RESTAPI_TOKEN.isExpired:
+                self.token = ID_MANAGER.findToken(self.url)
+                if self.token and self.token.isExpired:
                     raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+                elif self.token is None:
+                    raise RuntimeError('No token found, please try again with credentials')
 
         else:
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
 
         if self.token:
-            if isinstance(self.token, Token) and self.token.domain.lower() in url.lower():
+            if isinstance(self.token, Token):
                 params['token'] = self.token.token
-        elif isinstance(self.token, basestring):
-            params['token'] = self.token
+            elif isinstance(self.token, basestring):
+                params['token'] = self.token
+            else:
+                raise IOError('Token <{}> of {} must be Token object or String!'.format(self.token, type(self.token)))
 
         self.raw_response = requests.post(self.url, params, verify=False)
         self.elapsed = self.raw_response.elapsed
