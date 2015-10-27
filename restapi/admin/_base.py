@@ -405,10 +405,10 @@ class PrimarySiteAdministrator(AdminRESTEndpoint):
         """returns True if PSA is enabled"""
         return not self.disabled
 
-class RoleStore(object):
+class RoleStore(AdminRESTEndpoint):
     """Role Store object"""
     def __init__(self, url, usr='', pw='', token=''):
-        super(UserStore, self).__init__(url, usr, pw, token)
+        super(RoleStore, self).__init__(url, usr, pw, token)
         for k,v in self.response.iteritems():
             setattr(self, k, v)
 
@@ -495,7 +495,9 @@ class RoleStore(object):
         """returns the privilege associated with a user
 
         Required:
-            privilege -- name of privilege (ADMINISTER | PUBLISH)
+            username -- name of user
+            filter -- optional filter to applied to resultant role set
+            maxCount -- max number of roles to return
         """
         query_url = self.url + '/getRolesForUser'
         params = {'username': username,
@@ -516,7 +518,7 @@ class RoleStore(object):
             maxCount -- maximum number of results to return
         """
         query_url = self.url + '/getUsersWithinRole'
-        params = {'rolename': username,
+        params = {'rolename': rolename,
                   'filter': filter,
                   'maxCount': maxCount}
 
@@ -751,7 +753,8 @@ class UserStore(AdminRESTEndpoint):
             username -- name of user
         """
         query_url = self.url + '/getPrivilege'
-        return POST(query_url, {'username': username}, token=self.token)
+        params = {'username': username}
+        return POST(query_url, params, token=self.token)
 
     def __len__(self):
         """return number of Users"""
