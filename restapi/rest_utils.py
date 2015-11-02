@@ -66,22 +66,38 @@ class IdentityManager(object):
     to sign in once (until the token expires) when accessing a services directory or
     individual service on an ArcGIS Server Site"""
     tokens = {}
+    proxies = {}
 
     def findToken(self, url):
         """returns a token for a specific domain from token store if one has been
-        generated for the ArcGIS Server site
+        generated for the ArcGIS Server resource
 
         Required:
             url -- url for secured resource
         """
-        url = url.lower().split('/rest/services')[0] + '/rest/services'
-        if url in self.tokens:
-            if not self.tokens[url].isExpired:
-                return self.tokens[url]
-            else:
-                raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-        else:
-            return None
+        if self.tokens:
+            url = url.lower().split('/rest/services')[0] + '/rest/services'
+            if url in self.tokens:
+                if not self.tokens[url].isExpired:
+                    return self.tokens[url]
+                else:
+                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+
+        return None
+
+    def findProxy(self, url):
+        """returns a proxy url for a specific domain from token store if one has been
+        used to access the ArcGIS Server resource
+
+        Required:
+            url -- url for secured resource
+        """
+        if self.proxies:
+            url = url.lower().split('/rest/services')[0] + '/rest/services'
+            if url in self.proxies:
+                return self.proxies[url]
+
+        return None
 
 # initialize Identity Manager
 ID_MANAGER = IdentityManager()
@@ -127,7 +143,7 @@ def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
 
-def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None):
+def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, proxy=None):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -139,10 +155,12 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None):
         ret_json -- return the response as JSON.  Default is True.
         token -- token to handle security (only required if security is enabled)
         cookies -- cookie object {'agstoken': 'your_token'}
+        proxy -- option to use proxy page to handle security, need to provide
+            full path to proxy url.
     """
-    if not cookies:
+    if not cookies and not proxy:
         if not token:
-                token = ID_MANAGER.findToken(service)
+            token = ID_MANAGER.findToken(service)
         if token and isinstance(token, Token) and token.domain.lower() in service.lower():
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
@@ -157,7 +175,14 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None):
     if not 'f' in params:
         params['f'] = 'json'
 
-    r = requests.post(service, params, cookies=cookies, verify=False)
+    if not proxy:
+        proxy = ID_MANAGER.findProxy(service)
+
+    if proxy:
+        r = do_proxy_request(proxy, service, params)
+        ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
+    else:
+        r = requests.post(service, params, cookies=cookies, verify=False)
 
     # make sure return
     if r.status_code != 200:
@@ -168,6 +193,26 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None):
             return r.json()
         else:
             return r
+
+def do_proxy_request(proxy, url, params={}):
+    """make request against ArcGIS service through a proxy.  This is designed for a
+    proxy page that stores access credentials in the configuration to handle authentication.
+    It is also assumed that the proxy is a standard Esri proxy (i.e. retrieved from their
+    repo on GitHub)
+
+    Required:
+        proxy -- full url to proxy
+        url -- service url to make request against
+    Optional:
+        params -- query parameters, user is responsible for passing in the
+            proper paramaters
+    """
+    if not 'f' in params:
+        params['f'] = 'json'
+    p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems() if k != 'f')
+
+    # probably a better way to do this, but I couldn't figure out how to use the "proxies" kwarg
+    return requests.post('{}?{}?f={}&{}'.format(proxy, url, params['f'], p).rstrip('&'))
 
 def validate_name(file_name):
     """validates an output name by removing special characters"""
@@ -1085,6 +1130,18 @@ class BaseRow(object):
         for field, value in self.atts.iteritems():
             setattr(self, field, value)
 
+    def asJSON(self, geometry=True, oid=True):
+        """return row as JSON object"""
+        if not oid and not geometry:
+            return {'attributes': {k:v for k,v in self.features['attributes'].iteritems() if k != self.oid_field_ob.name}}
+        elif oid and not geometry:
+            return {'attributes': self.features['attributes']}
+        elif geometry and not oid:
+            return {'geometry': self.features['geometry'],
+                    'attributes': {k:v for k,v in self.features['attributes'].iteritems() if k != self.oid_field_ob.name}}
+        else:
+            return self.features
+
 class RESTEndpoint(object):
     """Base REST Endpoint Object to handle credentials and get JSON response
 
@@ -1095,12 +1152,10 @@ class RESTEndpoint(object):
         usr -- username credentials for ArcGIS Server
         pw -- password credentials for ArcGIS Server
         token -- token to handle security (alternative to usr and pw)
-
-    Note:
-        If using Microsft ARR (Application Request Routing) as a load balancer for services,you
-        may need to append an 'ARRAffinity' cookie to the self._cookie or the self.token attribute.
+        proxy -- option to use proxy page to handle security, need to provide
+            full path to proxy url.
     """
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _plus_services = self.url + '/arcgis/rest/services'
@@ -1111,7 +1166,8 @@ class RESTEndpoint(object):
         params = {'f': 'json'}
         self.token = token
         self._cookie = None
-        if not self.token:
+        self._proxy = proxy
+        if not self.token and not self._proxy:
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
             else:
@@ -1131,7 +1187,10 @@ class RESTEndpoint(object):
                 self._cookie = self.token._cookie
             else:
                 self._cookie = {'agstoken': self.token.token if isinstance(self.token, Token) else self.token}
-        self.raw_response = POST(self.url, params, ret_json=False, cookies=self._cookie)
+        if (not self.token or not self._cookie) and not self._proxy:
+            if self.url in ID_MANAGER.proxies:
+                self._proxy = ID_MANAGER.proxies[self.url]
+        self.raw_response = POST(self.url, params, ret_json=False, cookies=self._cookie, proxy=self._proxy)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         if 'error' in self.response:
@@ -1147,8 +1206,8 @@ class RESTEndpoint(object):
 
 class BaseArcServer(RESTEndpoint):
     """Class to handle ArcGIS Server Connection"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(BaseArcServer, self).__init__(url, usr, pw, token)
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
+        super(BaseArcServer, self).__init__(url, usr, pw, token, proxy)
 
         for key, value in self.response.iteritems():
             if key.lower() not in ('services', 'folders'):
@@ -1253,8 +1312,8 @@ class BaseArcServer(RESTEndpoint):
 
 class BaseMapService(RESTEndpoint):
     """Class to handle map service and requests"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(BaseMapService, self).__init__(url, usr, pw, token)
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
+        super(BaseMapService, self).__init__(url, usr, pw, token, proxy)
 
         self.layers = []
         self.tables = []
@@ -1303,8 +1362,8 @@ class BaseMapService(RESTEndpoint):
 
 class BaseMapServiceLayer(RESTEndpoint):
     """Class to handle advanced layer properties"""
-    def __init__(self, url='', usr='', pw='', token=''):
-        super(BaseMapServiceLayer, self).__init__(url, usr, pw, token)
+    def __init__(self, url='', usr='', pw='', token='', proxy=None):
+        super(BaseMapServiceLayer, self).__init__(url, usr, pw, token, proxy)
 
         for key, value in self.response.iteritems():
             if key != 'spatialReference':
@@ -1461,7 +1520,7 @@ class BaseMapServiceLayer(RESTEndpoint):
 
 class FeatureService(BaseMapService):
     """class to handle FeatureService"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """class to handle Feature Service
 
         Required:
@@ -1471,8 +1530,10 @@ class FeatureService(BaseMapService):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(FeatureService, self).__init__(url, usr, pw, token)
+        super(FeatureService, self).__init__(url, usr, pw, token, proxy)
 
     @property
     def replicas(self):
@@ -1672,7 +1733,7 @@ class FeatureService(BaseMapService):
 
 class FeatureLayer(BaseMapServiceLayer):
     """class to handle FeatureLayer"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """class to handle Feature Service Layer
 
         Required:
@@ -1682,8 +1743,10 @@ class FeatureLayer(BaseMapServiceLayer):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(FeatureLayer, self).__init__(url, usr, pw, token)
+        super(FeatureLayer, self).__init__(url, usr, pw, token, proxy)
 
         for key, value in self.response.iteritems():
             if key == 'fields':
@@ -1718,10 +1781,10 @@ class FeatureLayer(BaseMapServiceLayer):
         return result
 
     def updateFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
-        """add new features to feature service layer
+        """update features in feature service layer
 
         Required:
-            features -- features to be added (JSON)
+            features -- features to be updated (JSON)
 
         Optional:
             gdbVersion -- geodatabase version to apply edits
@@ -1870,8 +1933,8 @@ class FeatureLayer(BaseMapServiceLayer):
 
 class BaseImageService(RESTEndpoint):
     """Class to handle Image service and requests"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(BaseImageService, self).__init__(url, usr, pw, token)
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
+        super(BaseImageService, self).__init__(url, usr, pw, token, proxy)
 
         for k, v in self.response.iteritems():
             if k != 'spatialReference':
@@ -1940,7 +2003,7 @@ class BaseImageService(RESTEndpoint):
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """Geocode Service object
 
         Required:
@@ -1950,8 +2013,10 @@ class GeocodeService(RESTEndpoint):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(GeocodeService, self).__init__(url, usr, pw, token)
+        super(GeocodeService, self).__init__(url, usr, pw, token, proxy)
 
         self.locators = []
         for key, value in self.response.iteritems():
@@ -2079,7 +2144,7 @@ class GeocodeService(RESTEndpoint):
 
 class GPService(RESTEndpoint):
     """ Class to handle GP Service Object"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """GP Service object
 
         Required:
@@ -2089,8 +2154,10 @@ class GPService(RESTEndpoint):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(GPService, self).__init__(url, usr, pw, token)
+        super(GPService, self).__init__(url, usr, pw, token, proxy)
 
         for key, value in self.response.iteritems():
             setattr(self, key, value)
@@ -2101,7 +2168,7 @@ class GPService(RESTEndpoint):
 
 class GPTask(RESTEndpoint):
     """class to handle GP Task"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """GP Task object
 
         Required:
@@ -2111,8 +2178,10 @@ class GPTask(RESTEndpoint):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(GPTask, self).__init__(url, usr, pw, token)
+        super(GPTask, self).__init__(url, usr, pw, token, proxy)
 
         for key,value in self.response.iteritems():
             if key != 'parameters':

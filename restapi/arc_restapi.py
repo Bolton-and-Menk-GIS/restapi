@@ -485,9 +485,17 @@ class Cursor(BaseCursor):
         for feature in self.features[:self.records]:
             yield Row(feature, self.field_objects, self.spatialReference).values
 
+    def getRow(self, index):
+        """returns row object at index"""
+        return [r for r in self.get_rows()][index]
+
     def __iter__(self):
         """returns Cursor.rows()"""
         return self.rows()
+
+    def __getitem__(self, index):
+        """allows for indexing"""
+        return self.rows()[index]
 
 class Row(BaseRow):
     """Class to handle Row object"""
@@ -579,7 +587,7 @@ class GeocodeHandler(object):
 
 class ArcServer(BaseArcServer):
     """class to handle ArcServer connection"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """Base REST Endpoint Object to handle credentials and get JSON response
 
         Required:
@@ -589,8 +597,10 @@ class ArcServer(BaseArcServer):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(ArcServer, self).__init__(url, usr, pw, token)
+        super(ArcServer, self).__init__(url, usr, pw, token, proxy)
 
 
     def get_MapService(self, name_or_wildcard):
@@ -605,7 +615,7 @@ class ArcServer(BaseArcServer):
             return MapService(full_path, token=self.token)
 
 class MapService(BaseMapService):
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """MapService object
 
     Required:
@@ -615,8 +625,10 @@ class MapService(BaseMapService):
         usr -- username credentials for ArcGIS Server
         pw -- password credentials for ArcGIS Server
         token -- token to handle security (alternative to usr and pw)
+        proxy -- option to use proxy page to handle security, need to provide
+            full path to proxy url.
     """
-        super(MapService, self).__init__(url, usr, pw, token)
+        super(MapService, self).__init__(url, usr, pw, token, proxy)
 
     def layer(self, name):
         """Method to return a layer object with advanced properties by name
@@ -709,7 +721,7 @@ class MapService(BaseMapService):
 
 class MapServiceLayer(BaseMapServiceLayer):
     """Class to handle advanced layer properties"""
-    def __init__(self, url='', usr='', pw='', token=''):
+    def __init__(self, url='', usr='', pw='', token='', proxy=None):
         """MapService Layer object
 
         Required:
@@ -719,8 +731,10 @@ class MapServiceLayer(BaseMapServiceLayer):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(MapServiceLayer, self).__init__(url, usr, pw, token)
+        super(MapServiceLayer, self).__init__(url, usr, pw, token, proxy)
 
     def cursor(self, fields='*', where='1=1', records=None, add_params={}, get_all=False):
         """Run Cursor on layer, helper method that calls Cursor Object"""
@@ -823,7 +837,7 @@ class MapServiceLayer(BaseMapServiceLayer):
 
 class ImageService(BaseImageService):
     """Class to handle map service and requests"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """Image Service object
 
         Required:
@@ -833,8 +847,10 @@ class ImageService(BaseImageService):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(ImageService, self).__init__(url, usr, pw, token)
+        super(ImageService, self).__init__(url, usr, pw, token, proxy)
 
     def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation', **kwargs):
         """method to export an AOI from an Image Service
@@ -963,7 +979,7 @@ class ImageService(BaseImageService):
 
 class Geocoder(GeocodeService):
     """class to handle Geocoding operations"""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
         """Geocoder object, created from GeocodeService
 
         Required:
@@ -973,8 +989,10 @@ class Geocoder(GeocodeService):
             usr -- username credentials for ArcGIS Server
             pw -- password credentials for ArcGIS Server
             token -- token to handle security (alternative to usr and pw)
+            proxy -- option to use proxy page to handle security, need to provide
+                full path to proxy url.
         """
-        super(Geocoder, self).__init__(url, usr, pw, token)
+        super(Geocoder, self).__init__(url, usr, pw, token, proxy)
 
     def exportResults(self, geocodeResultObject, out_fc):
         """exports the geocode results to feature class
