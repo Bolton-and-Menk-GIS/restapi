@@ -178,7 +178,7 @@ incidents.updateFeatures(adds)
 
 # now delete feature
 incidents.deleteFeatures(oid)
-````py
+````
 
 Offline capabilities (Sync)
 
@@ -304,11 +304,11 @@ IdentityManager().
 There are 3 ways to authticate:
 
 ````py
-**kwargs for all accessing all ArcGIS resources are
-usr   -- username
-pw    -- password
-token -- token (as string or restapi.Token object)
-proxy -- url to proxy
+# **kwargs for all accessing all ArcGIS resources are
+# usr   -- username
+# pw    -- password
+# token -- token (as string or restapi.Token object)
+# proxy -- url to proxy
 
 # secured url
 secured_url = 'http://some-domain.com/arcgis/rest/services'
