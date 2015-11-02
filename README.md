@@ -294,10 +294,32 @@ It also supports arcpy Geometries and shapefile._Shape() objects
 -121.5,38.3000000007,-121.199999999,38.6000000015
 ````
 
+Token Based Security
+--------------------
 
+restapi also supports secured services.  This is also session based, so if you sign in once to an
+ArcGIS Server Resource (on the same ArcGIS Site), the token will automatically persist via the 
+IdentityManager().
 
+There are 3 ways to authticate:
 
+````py
+**kwargs for all accessing all ArcGIS resources are
+usr   -- username
+pw    -- password
+token -- token (as string or restapi.Token object)
+proxy -- url to proxy
 
+# secured url
+secured_url = 'http://some-domain.com/arcgis/rest/services'
 
+# 1. username and password
+ags = restapi.ArcServer(url, 'username', 'password')  # token is generated and persists
 
+# 2. a token that has already been requested
+ags = restapi.ArcServer(url, token=token)  # uses a token that is already active
 
+# 3. via a proxy (assuming using the standard esri proxy)
+#   this will forward all subsequent requests through the proxy
+ags = restapi.ArcServer(url, proxy='http://some-domain.com/proxy.ashx')
+````
