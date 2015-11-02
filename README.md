@@ -57,7 +57,7 @@ print lyr.list_fields()
 ````
 
 You can also query the layer and get back arcpy.da Cursor like access
----------------------------------------------------------------------
+
 ````py
 # run search cursor for gauges in California
 # (maximimum limit may be 1000 records, can use get_all=True to exceed transfer limit)
