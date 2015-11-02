@@ -27,6 +27,7 @@ VERBOSE = True
 
 class IdentityManagerAdmin(IdentityManager):
     """Administrative Identity Manager"""
+
     def findToken(self, url):
         """override find token to fix url appropriately. Returns a token for a specific
         domain from token store if one has been generated for the ArcGIS Server site
@@ -260,7 +261,7 @@ class BaseDirectory(AdminRESTEndpoint):
 class Report(object):
     """Report Object"""
     def __init__(self, kwargs):
-        """kwargs = JSON report response"""
+        """kwargs -- JSON report response"""
         for k,v in kwargs.iteritems():
             setattr(self, k, v)
         objectize(self, '_json')
@@ -273,6 +274,7 @@ class Report(object):
 class ClusterMachine(object):
     """Machine object"""
     def __init__(self, **kwargs):
+        """kwargs -- JSON report response"""
         for k,v in kwargs.iteritems():
             setattr(self, k, v)
 
@@ -290,7 +292,7 @@ class SSLCertificate(AdminRESTEndpoint):
         for k,v in self.response:
             setattr(self, k, v)
 
-def Machine(AdminRESTEndpoint):
+class Machine(AdminRESTEndpoint):
     """class to handle ArcGIS Server Machine"""
     def __init__(self, url, usr='', pw='', token=''):
         super(Machine, self).__init__(url, usr, pw, token)
