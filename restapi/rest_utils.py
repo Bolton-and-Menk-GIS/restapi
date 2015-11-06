@@ -175,7 +175,7 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, p
     if not 'f' in params:
         params['f'] = 'json'
 
-    if not proxy:
+    if token and not proxy:
         proxy = ID_MANAGER.findProxy(service)
 
     if proxy:
@@ -1360,6 +1360,52 @@ class BaseMapService(RESTEndpoint):
         lyr = get_layer_url(self.url, layer_name, self.token)
         return list_fields(lyr, self.token)
 
+    def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png8', transparent=True, **kwargs):
+        """exports a map image
+
+        """
+        query_url = self.url + '/export'
+
+        # defaults if params not specified
+        if bbox and not size:
+            if isinstance(bbox, (list, tuple)):
+                size = ','.join([abs(int(bbox[0]) - int(bbox[2])), abs(int(bbox[1]) - int(bbox[3]))])
+        if not bbox:
+            ie = self.initialExtent
+            bbox = ','.join(map(str, [ie.xmin, ie.ymin, ie.xmax, ie.ymax]))
+
+            if not size:
+                size = ','.join(map(str, [abs(int(ie.xmin) - int(ie.xmax)), abs(int(ie.ymin) - int(ie.ymax))]))
+
+            bboxSR = self.spatialReference
+
+        if not imageSR:
+            imageSR = self.spatialReference
+
+        # initial params
+        params = {'format': format,
+          'f': 'image',
+          'imageSR': imageSR,
+          'bboxSR': bboxSR,
+          'bbox': bbox,
+          'transparent': transparent,
+          'dpi': dpi,
+          'size': size}
+
+        # add additional params from **kwargs
+        for k,v in kwargs.iteritems():
+            if k not in params:
+                params[k] = v
+
+        # do post
+        r = POST(query_url, params, ret_json=False)
+
+        # save image
+        with open(out_image, 'wb') as f:
+            f.write(r.content)
+
+        return r
+
 class BaseMapServiceLayer(RESTEndpoint):
     """Class to handle advanced layer properties"""
     def __init__(self, url='', usr='', pw='', token='', proxy=None):
@@ -1995,7 +2041,14 @@ class BaseImageService(RESTEndpoint):
 
         params = {'geometry': geometry,
                   'geometryType':'esriGeometryPoint',
-                  'f':'json'}
+                  'f':'json',
+                  'returnGeometry': 'false',
+                  'returnCatalogItems': 'false'
+                  }
+
+        for k,v in kwargs.iteritems():
+            if k not in params:
+                params[k] = v
 
         j = POST(IDurl, params, cookies=self._cookie)
         if 'value' in j:
