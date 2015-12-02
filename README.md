@@ -323,3 +323,201 @@ ags = restapi.ArcServer(url, token=token)  # uses a token that is already active
 #   this will forward all subsequent requests through the proxy
 ags = restapi.ArcServer(url, proxy='http://some-domain.com/proxy.ashx')
 ````
+The admin Subpackage
+--------------------
+
+restapi also contains an administrative subpackage (warning: most functionality has not been tested!).  You can import this module like this:
+
+```py
+from restapi import admin
+```
+
+To connect to an ArcGIS Server instance that you would like to administer you can do the following:
+
+```py
+# test with your own servers
+url = 'localhost:6080/arcgis/admin/services' #server url
+usr = 'username'
+pw = 'password'
+
+# connect to ArcGIS Server instance
+arcserver = admin.ArcServerAdmin(url, usr, pw)
+```
+
+To list services within a folder, you can do this:
+
+```py
+folder = arcserver.folder('SomeFolder')  # supply name of folder as argument
+for service in folder.iter_services():
+    print service.serviceName, service.configuredState
+
+    # can stop a service like this
+    # service.stop()
+
+    # or start like this
+    # service.start()
+
+print '\n' * 3
+
+# show all services and configured state (use iter_services to return restapi.admin.Service() object!)
+for service in arcserver.iter_services():
+    print service.serviceName, service.configuredState
+```
+Security
+--------
+
+You can set security at the folder or service level.  By default, the addPermssion() method used by Folder and Service objects will make the service unavailable to the general public and only those in the administrator role can view the services.  This is done by setting the 'esriEveryone' principal "isAllowed" value to false.  You can also assign permissions based on roles.
+
+```py
+arcserver.addPermission('SomeFolder')  # by default it will make private True 
+
+# now make it publically avaiable (unsecure)
+arcserver.addPermission('SomeFolder', private=False)
+
+# secure based on role, in this case will not allow assessor group to see utility data
+#   assessor is name of assessor group role, Watermain is folder to secure
+arcserver.addPermission('Watermain', 'assessor', False)  
+
+# note, this can also be done at the folder level:
+folder = arcserver.folder('Watermain')
+folder.addPermission('assessor', False)
+```
+
+Stopping and Starting Services
+------------------------------
+
+Services can easily be started and stopped with this module.  This can be done from the ArcServerAdmin() or Folder() object:
+
+```py
+# stop all services in a folder
+arcserver.stopServices(folderName='SomeFolder') # this can take a few minutes
+
+# look thru the folder to check the configured states, should be stopped
+for service in arcserver.folder('SomeFolder').iter_services():
+    print service.serviceName, service.configuredState
+
+# now restart
+arcserver.startServices(folderName='SomeFolder') # this can take a few minutes
+
+# look thru folder, services should be started
+for service in arcserver.folder('SomeFolder').iter_services():
+    print service.serviceName, service.configuredState
+    
+# to do this from a folder, simply get a folder object back
+folder = arcserver.folder('SomeFolder')
+folder.stopServices()
+for service in folder.iter_services():
+    print service.serviceName, service.configuredState
+```
+
+Updating Service Properties
+---------------------------
+
+The admin package can be used to update the service definitions via JSON.  By default, the Service.edit() method will pass in the original service definition as JSON so no changes are made if no arguments are supplied.  The first argument is the service config as JSON, but this method also supports keyword arguments to update single properties (**kwargs).  These represent keys of a the dictionary in Python.
+
+```py
+# connect to an individual service (by wildcard) - do not need to include full name, just
+# enough of the name to make it a unique name query
+service = arcserver.service('SampleWorldCities') #provide name of service here
+
+# get original service description
+description = service.description
+
+# now edit the description only by using description kwarg (must match key exactly to update)
+service.edit(description='This is an updated service description')
+
+# edit description again to set it back to the original description
+service.edit(description=description)
+```
+
+Access the Data Store
+---------------------
+
+You can iterate through the data store items easily to read/update/add items:
+
+```py
+# connect to the server's data store
+ds = arcserver.dataStore
+
+# iterate through all items of data store
+for item in ds:
+    print item.type, item.path
+    # if it is an enterprise database connection, you can get the connection string like this
+    if item.type == 'egdb':
+        print item.info.connectionString
+    # else if a folder, print server path
+    elif item.type == 'folder':
+        print item.info.path
+    print '\n'
+```
+
+User and Role Stores
+--------------------
+
+When viewing usernames/roles you can limit the number of names returned using the "maxCount" keyword argument.  To view and make changes to Role Store:
+
+```py
+# connect to role store
+rs = arcserver.roleStore
+
+# print roles
+for role in rs:
+    print role
+
+# find users within roles
+for role in rs:
+    print role, 'Users: ', rs.getUsersWithinRole(role)
+
+# add a user to role
+rs.addUsersToRole('Administrators', 'your-domain\\someuser')
+
+# remove user from role
+rs.removeUsersFromRole('Administrators', 'your-domain\\someuser')
+
+# remove an entire role
+rs.removeRole('transportation')
+```
+
+To view and make changes to the User Store:
+
+```py
+# connect to user store
+us = arcserver.userStore
+
+# get number of users
+print len(us)
+
+# iterate through first 10 users
+for user in us.searchUsers(maxCount=10):
+    print user
+    
+# add new user
+us.addUser('your-domain\\someuser', 'password')
+
+# assign roles by using comma separated list of role names
+us.assignRoles('your-domain\\someuser', 'Administrators,Publishers')
+
+# get privileges from user
+us.getPrivilegeForUser('your-domain\\someuser')
+
+# remove roles from user 
+us.removeRoles('your-domain\\someuser', 'Administrators,Publishers')
+```
+
+Log Files
+---------
+
+You can easily query server log files like this:
+
+```py
+import restapi
+import datetime
+
+# query log files (within last 3 days), need to convert to milliseconds
+threeDaysAgo = restapi.date_to_mil(datetime.datetime.now() - relativedelta(days=3))
+for log in arcserver.queryLogs(endTime=threeDaysAgo, pageSize=25):
+    print log.time
+    for message in log:
+        print message
+    print '\n'
+```
