@@ -521,3 +521,18 @@ for log in arcserver.queryLogs(endTime=threeDaysAgo, pageSize=25):
         print message
     print '\n'
 ```
+
+A note about verbosity
+----------------------
+
+When using the admin subpackage you will likely be making changes to services/permissions etc.  On operations that change a configuration, the @passthrough decorator will report back if the operation is successful and return results like this:
+
+```py
+{u'status': u'SUCCESS'}
+```
+
+The printing of these messages can be shut off by changing the global "VERBOSE" variable so these messages are not reported.  This can be disabled like this:
+
+```py
+admin.VERBOSE = False 
+```
