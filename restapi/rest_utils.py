@@ -1066,7 +1066,7 @@ class BaseCursor(object):
         if 'spatialReference' in self.response:
             if 'latestWkid' in self.response['spatialReference']:
                 return self.response['spatialReference']['latestWkid']
-            elif 'wkid' in self.repsonse['spatialReference']:
+            elif 'wkid' in self.response['spatialReference']:
                 return self.response['spatialReference']['wkid']
         else:
             try:
@@ -2008,51 +2008,6 @@ class BaseImageService(RESTEndpoint):
         if isinstance(boundingBox, basestring):
             boundingBox = boundingBox.split(',')
         return ','.join(map(str, map(lambda x: Round(x, cell_size), boundingBox)))
-
-    def pointIdentify(self, **kwargs):
-        """method to get pixel value from x,y coordinates or JSON point object
-
-        Recognized key word arguments:
-            geometry -- JSON point object as dictionary
-            x -- x coordinate
-            y -- y coordinate
-            sr -- input spatial reference.  Should be supplied if spatial
-                reference is different from the Image Service's projection
-
-        geometry example:
-            geometry = {"x":3.0,"y":5.0,"spatialReference":{"wkid":102100}}
-        """
-        IDurl = self.url + '/identify'
-
-        if 'geometry' in kwargs:
-            g = kwargs['geometry']
-            if isinstance(g, dict):
-                geometry = json.dumps(g)
-            elif isinstance(g, basestring):
-                geometry = g
-
-        elif 'x' in kwargs and 'y' in kwargs:
-            g = {'x': kwargs['x'], 'y': kwargs['y']}
-            if 'sr' in kwargs:
-                g["spatialReference"] = {"wkid": kwargs['sr']}
-            else:
-                g["spatialReference"] = {"wkid": self.spatialReference}
-            geometry = json.dumps(g)
-
-        params = {'geometry': geometry,
-                  'geometryType':'esriGeometryPoint',
-                  'f':'json',
-                  'returnGeometry': 'false',
-                  'returnCatalogItems': 'false'
-                  }
-
-        for k,v in kwargs.iteritems():
-            if k not in params:
-                params[k] = v
-
-        j = POST(IDurl, params, cookies=self._cookie)
-        if 'value' in j:
-            return j['value']
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""

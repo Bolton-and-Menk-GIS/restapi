@@ -7,12 +7,11 @@ import fnmatch
 import datetime
 import json
 import pprint
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-import requests
-from rest_utils import Token, mil_to_date, date_to_mil, namedTuple, RequestError, objectize, IdentityManager
-from collections import namedtuple
 from dateutil.relativedelta import relativedelta
-from decorator import decorator
+from collections import namedtuple
+from .. import requests
+from ..rest_utils import Token, mil_to_date, date_to_mil, namedTuple, RequestError, objectize, IdentityManager, _print_info
+from .decorator import decorator
 
 # Globals
 BASE_PATTERN = '*:*/arcgis/admin*'
@@ -24,6 +23,9 @@ VERBOSE = True
 #    VERBOSE = False #because you get this with importing the admin module
 #  or:
 #    restapi.admin.VERBOSE = False
+
+__all__ = ['ArcServerAdmin', 'Service', 'Folder', 'Cluster', 'POST',
+           'generate_token', 'VERBOSE', 'mil_to_date', 'date_to_mil']
 
 class IdentityManagerAdmin(IdentityManager):
     """Administrative Identity Manager"""
@@ -828,7 +830,7 @@ class DataStore(AdminRESTEndpoint):
         Required:
             itemPath -- path to data item to unregister (DataItem.path)
         """
-        query_url = self.url + '/registerItem'
+        query_url = self.url + '/unregisterItem'
         return POST(query_url, {'itemPath': itemPath}, token=self.token)
 
     def findItems(self, parentPath, ancestorPath='', types='', id=''):
@@ -1782,8 +1784,8 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         r = POST(query_url, params, token=self.token)
 
-        class Log(object):
-            """class to handle Log Report instance"""
+        class LogQuery(object):
+            """class to handle LogQuery Report instance"""
             def __init__(self, resp):
                 """resp: JSON for log reports request"""
                 for k,v in resp.iteritems():
@@ -1810,7 +1812,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 """returns True if log messages were returned"""
                 return bool(len(self))
 
-        return Log(r)
+        return LogQuery(r)
 
     @passthrough
     def countErrorReports(self, machines='All'):
@@ -2745,3 +2747,16 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'directories': directories,
                   'cluster': cluster}
         return POST(query_url, params, token=self.token)
+
+    def __len__(self):
+        """gets number of services"""
+        return len(self.services)
+
+    def __iter__(self):
+        """generator for service iteration"""
+        for s in self.services:
+            yield s
+
+    def __getitem__(self, i):
+        """allows for service indexing"""
+        return self.services[i]

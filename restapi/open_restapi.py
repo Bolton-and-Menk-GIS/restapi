@@ -8,7 +8,8 @@ import shp_helper
 import os
 import json
 from collections import OrderedDict
-from rest_utils import *
+from rest_utils import BaseArcServer, BaseMapService, BaseMapServiceLayer, \
+     BaseImageService, BaseCursor, BaseRow
 from shapefile import shapefile
 
 # field types for shapefile module
@@ -23,6 +24,11 @@ SHP_FTYPES = {
           'esriFieldTypeRaster':'B',
           'esriFieldTypeGlobalID': 'C'
           }
+
+__all__ = ['Cursor', 'MapService', 'MapServiceLayer', 'ArcServer', 'ImageService', 'Geocoder',
+           'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry',
+           'FeatureService', 'FeatureLayer', 'GeocodeService', 'GPService', 'GPTask', 'POST',
+           'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name']
 
 def project(SHAPEFILE, wkid):
     """creates .prj for shapefile
@@ -861,6 +867,61 @@ class ImageService(BaseImageService):
                 full path to proxy url.
         """
         super(ImageService, self).__init__(url, usr, pw, token, proxy)
+
+    def pointIdentify(self, **kwargs):
+        """method to get pixel value from x,y coordinates or JSON point object
+
+        Recognized key word arguments:
+            geometry -- JSON point object as dictionary
+            x -- x coordinate
+            y -- y coordinate
+            sr -- input spatial reference.  Should be supplied if spatial
+                reference is different from the Image Service's projection
+
+        geometry example:
+            geometry = {"x":3.0,"y":5.0,"spatialReference":{"wkid":102100}}
+        """
+        IDurl = self.url + '/identify'
+
+        geometry = {}
+        if 'inSR' in kwargs:
+            inSR = kwargs['inSR']
+        else:
+            inSR = self.spatialReference
+
+        if 'geometry' in kwargs:
+            g = kwargs['geometry']
+            if isinstance(g, Geometry):
+                g = geometry.dumps()
+                inSR = g.spatialReference
+            elif isinstance(g, dict):
+                geometry = json.dumps(g)
+            elif isinstance(g, basestring):
+                geometry = g
+
+        elif 'x' in kwargs and 'y' in kwargs:
+            g = {'x': kwargs['x'], 'y': kwargs['y']}
+            if 'sr' in kwargs:
+                g["spatialReference"] = {"wkid": kwargs['sr']}
+            else:
+                g["spatialReference"] = {"wkid": self.spatialReference}
+            geometry = json.dumps(g)
+
+        params = {'geometry': geometry,
+                  'inSR': inSR,
+                  'geometryType':'esriGeometryPoint',
+                  'f':'json',
+                  'returnGeometry': 'false',
+                  'returnCatalogItems': 'false'
+                  }
+
+        for k,v in kwargs.iteritems():
+            if k not in params:
+                params[k] = v
+
+        j = POST(IDurl, params, cookies=self._cookie)
+        if 'value' in j:
+            return j['value']
 
     def exportImage(self, poly, out_raster, sr='', envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation', **kwargs):
         """method to export an AOI from an Image Service

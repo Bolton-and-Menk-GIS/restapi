@@ -8,6 +8,11 @@ from rest_utils import *
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
+__all__ = ['Cursor', 'MapService', 'MapServiceLayer', 'ArcServer', 'ImageService', 'Geocoder',
+           'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry',
+           'FeatureService', 'FeatureLayer', 'GeocodeService', 'GPService', 'GPTask', 'POST',
+           'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name']
+
 def exportFeatureSet(out_fc, feature_set):
     """export features (JSON result) to shapefile or feature class
 
@@ -442,6 +447,17 @@ class Geometry(object):
         e = arcpy.AsShape(self.JSON, True).extent
         return ','.join(map(str, [e.XMin, e.YMin, e.XMax, e.YMax]))
 
+    def envelopeAsJSON(self, roundCoordinates=False):
+        """returns an envelope geometry object as JSON"""
+        flds = ['xmin','ymin','xmax','ymax']
+        if roundCoordinates:
+            coords = map(int, [float(i) for i in self.envelope().split(',')])
+        else:
+            coords = self.envelope().split(',')
+        d = dict(zip(flds, coords))
+        d['spatialReference'] = self.JSON['spatialReference']
+        return d
+
     def dumps(self):
         """retuns JSON as a string"""
         return json.dumps(self.JSON)
@@ -852,7 +868,62 @@ class ImageService(BaseImageService):
         """
         super(ImageService, self).__init__(url, usr, pw, token, proxy)
 
-    def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation', **kwargs):
+    def pointIdentify(self, **kwargs):
+        """method to get pixel value from x,y coordinates or JSON point object
+
+        Recognized key word arguments:
+            geometry -- JSON point object as dictionary
+            x -- x coordinate
+            y -- y coordinate
+            sr -- input spatial reference.  Should be supplied if spatial
+                reference is different from the Image Service's projection
+
+        geometry example:
+            geometry = {"x":3.0,"y":5.0,"spatialReference":{"wkid":102100}}
+        """
+        IDurl = self.url + '/identify'
+
+        geometry = {}
+        if 'inSR' in kwargs:
+            inSR = kwargs['inSR']
+        else:
+            inSR = self.spatialReference
+
+        if 'geometry' in kwargs:
+            g = kwargs['geometry']
+            if isinstance(g, Geometry):
+                g = geometry.dumps()
+                inSR = g.spatialReference
+            elif isinstance(g, dict):
+                geometry = json.dumps(g)
+            elif isinstance(g, basestring):
+                geometry = g
+
+        elif 'x' in kwargs and 'y' in kwargs:
+            g = {'x': kwargs['x'], 'y': kwargs['y']}
+            if 'sr' in kwargs:
+                g["spatialReference"] = {"wkid": kwargs['sr']}
+            else:
+                g["spatialReference"] = {"wkid": self.spatialReference}
+            geometry = json.dumps(g)
+
+        params = {'geometry': geometry,
+                  'inSR': inSR,
+                  'geometryType':'esriGeometryPoint',
+                  'f':'json',
+                  'returnGeometry': 'false',
+                  'returnCatalogItems': 'false'
+                  }
+
+        for k,v in kwargs.iteritems():
+            if k not in params:
+                params[k] = v
+
+        j = POST(IDurl, params, cookies=self._cookie)
+        if 'value' in j:
+            return j['value']
+
+    def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation', nodata=None, **kwargs):
         """method to export an AOI from an Image Service
 
         Required:
@@ -886,6 +957,15 @@ class ImageService(BaseImageService):
         e = in_geom.asShape().extent
         bbox = self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax])
 
+        # imageSR
+        if 'imageSR' not in kwargs:
+            imageSR = sr
+        else:
+            imageSR = kwargs['imageSR']
+
+        if 'noData' in kwargs:
+            nodata = kwargs['noData']
+
         # check for raster function availability
         if not self.allowRasterFunction:
             rendering_rule = ''
@@ -895,16 +975,23 @@ class ImageService(BaseImageService):
         width = abs(bbox_int[0] - bbox_int[2])
         height = abs(bbox_int[1] - bbox_int[3])
 
+        matchType = 'esriNoDataMatchAny'
+        if ',' in str(nodata):
+            matchType = 'esriNoDataMatchAll'
+
+
         # set params
         p = {'f':'pjson',
              'renderingRule': rendering_rule,
+             'adjustAspectRatio': 'true',
              'bbox': bbox,
              'format': 'tiff',
-             'imageSR': sr,
+             'imageSR': imageSR,
              'bboxSR': self.spatialReference,
              'size': '{0},{1}'.format(width,height),
              'pixelType': self.pixelType,
-             'noDataInterpretation': 'esriNoMatchAny',
+             'noDataInterpretation': '&'.join(map(str, filter(lambda x: x not in (None, ''),
+                ['noData=' + str(nodata) if nodata != None else '', 'noDataInterpretation=%s' %matchType if nodata != None else matchType]))),
              'interpolation': interp
             }
 
@@ -931,25 +1018,31 @@ class ImageService(BaseImageService):
                 pass
             print 'Created: "{0}"'.format(out_raster)
 
-    def clip(self, poly, out_raster, envelope=False, imageSR=''):
+    def clip(self, poly, out_raster, envelope=True, imageSR='', noData=None):
         """method to clip a raster"""
         if envelope:
-            geojson = Geometry(poly).envelope() if not isinstance(poly, Geometry) else poly.envelope()
+            if not isinstance(poly, Geometry):
+                poly = Geometry(poly)
+            e = poly.asShape().extent
+            bbox = map(int, [float(i) for i in self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax]).split(',')])
+            flds = ['xmin','ymin','xmax','ymax']
+            geojson = dict(zip(flds, bbox))
+            geojson['spatialReference'] = poly.JSON['spatialReference']
         else:
             geojson = Geometry(poly).dumps() if not isinstance(poly, Geometry) else poly.dumps()
         ren = {
           "rasterFunction" : "Clip",
           "rasterFunctionArguments" : {
-            "ClippingGeometry" : json.loads(geojson),
+            "ClippingGeometry" : geojson,
             "ClippingType": 1
             },
           "variableName" : "Raster"
         }
-        self.exportImage(poly, out_raster, rendering_rule=ren, imageSR=imageSR)
+        self.exportImage(poly, out_raster, rendering_rule=ren, noData=noData, imageSR=imageSR)
 
 
 
-    def arithmetic(self, poly, out_raster, raster_or_constant, operation=3, envelope=False, imageSR=''):
+    def arithmetic(self, poly, out_raster, raster_or_constant, operation=3, envelope=False, imageSR='', **kwargs):
         """perform arithmetic operations against a raster
 
         Required:
@@ -975,7 +1068,7 @@ class ImageService(BaseImageService):
                        "Operation" : operation
                      }
                   }
-        self.exportImage(poly, out_raster, rendering_rule=json.dumps(ren), imageSR=imageSR)
+        self.exportImage(poly, out_raster, rendering_rule=json.dumps(ren), imageSR=imageSR, **kwargs)
 
 class Geocoder(GeocodeService):
     """class to handle Geocoding operations"""

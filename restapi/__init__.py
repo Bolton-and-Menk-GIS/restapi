@@ -9,21 +9,16 @@
 # Copyright:   (c) calebma 2014
 # Licence:     BMI
 #-------------------------------------------------------------------------------
-from rest_utils import FeatureService, FeatureLayer, GeocodeService, GPService, GPTask, POST, \
-    generate_token, mil_to_date, date_to_mil, guessWKID, validate_name
+import admin
 
 # look for arcpy access, otherwise use open source version
 # open source version may be faster.
 try:
     import imp
     imp.find_module('arcpy')
-    from arc_restapi import Cursor, MapService, MapServiceLayer, ArcServer, \
-                            ImageService, Geocoder, exportFeatureSet, exportReplica, \
-                            exportFeaturesWithAttachments, Geometry
+    from arc_restapi import *
 except ImportError:
-    from open_restapi import Cursor, MapService, MapServiceLayer, ArcServer, \
-                             ImageService, Geocoder, exportFeatureSet, exportReplica, \
-                             exportFeaturesWithAttachments, Geometry
+    from open_restapi import *
 
 # package info
 __author__ = 'Caleb Mackey'
