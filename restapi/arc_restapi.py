@@ -1,4 +1,5 @@
 # proprietary version (uses arcpy)
+from __future__ import print_function
 import urllib
 import arcpy
 import os
@@ -1087,29 +1088,34 @@ class Geocoder(GeocodeService):
         """
         super(Geocoder, self).__init__(url, usr, pw, token, proxy)
 
-    def exportResults(self, geocodeResultObject, out_fc):
-        """exports the geocode results to feature class
+    @staticmethod
+    def exportResults(geocodeResultObject, out_fc):
+        """exports the geocode results (GeocodeResult object) to feature class
 
         Required:
             geocodeResultObject -- results from geocode operation, must be of type
                 GeocodeResult.
             out_fc -- full path to output feature class
         """
-        handler = GeocodeHandler(geocodeResultObject)
-        if not handler.results:
-            print('Geocoder returned 0 results! Did not create output')
-            return None
+        if isinstance(geocodeResultObject, GeocodeResult):
+            handler = GeocodeHandler(geocodeResultObject)
+            if not handler.results:
+                print('Geocoder returned 0 results! Did not create output')
+                return None
 
-        # make feature class
-        path, name = os.path.split(out_fc)
-        arcpy.management.CreateFeatureclass(path, name, 'POINT', spatial_reference=handler.spatialReference)
-        for field in handler.fields:
-            arcpy.management.AddField(out_fc, field.name, field.type, field_length=254)
+            # make feature class
+            path, name = os.path.split(out_fc)
+            arcpy.management.CreateFeatureclass(path, name, 'POINT', spatial_reference=handler.spatialReference)
+            for field in handler.fields:
+                arcpy.management.AddField(out_fc, field.name, field.type, field_length=254)
 
-        # add records
-        fields = ['SHAPE@'] + [f.name for f in handler.fields]
-        with arcpy.da.InsertCursor(out_fc, fields) as irows:
-            for values in handler.formattedResults:
-                irows.insertRow(values)
-        print('Created: "{}"'.format(out_fc))
-        return out_fc
+            # add records
+            fields = ['SHAPE@'] + [f.name for f in handler.fields]
+            with arcpy.da.InsertCursor(out_fc, fields) as irows:
+                for values in handler.formattedResults:
+                    irows.insertRow(values)
+            print('Created: "{}"'.format(out_fc))
+            return out_fc
+
+        else:
+            raise TypeError('{} is not a {} object!'.format(geocodeResultObject, GeocodeResult))

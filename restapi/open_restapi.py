@@ -2,6 +2,7 @@
 # Open source version
 # special thanks to geospatial python for shapefile module
 #-------------------------------------------------------------------------------
+from __future__ import print_function
 import urllib
 import shapefile
 import shp_helper
@@ -1050,7 +1051,8 @@ class Geocoder(GeocodeService):
         """
         super(Geocoder, self).__init__(url, usr, pw, token, proxy)
 
-    def exportResults(self, geocodeResultObject, out_fc):
+    @staticmethod
+    def exportResults(geocodeResultObject, out_fc):
         """exports the geocode results to feature class
 
         Required:
@@ -1058,22 +1060,26 @@ class Geocoder(GeocodeService):
                 GeocodeResult.
             out_fc -- full path to output shapefile
         """
-        handler = GeocodeHandler(geocodeResultObject)
-        if not handler.results:
-            print('Geocoder returned 0 results! Did not create output')
-            return None
+        if isinstance(geocodeResultObject, GeocodeResult):
+            handler = GeocodeHandler(geocodeResultObject)
+            if not handler.results:
+                print('Geocoder returned 0 results! Did not create output')
+                return None
 
-        # create shapefile
-        w = shp_helper.shp('POINT', out_fc)
-        for field in handler.fields:
-            w.add_field(field.name, field.type, 254)
+            # create shapefile
+            w = shp_helper.shp('POINT', out_fc)
+            for field in handler.fields:
+                w.add_field(field.name, field.type, 254)
 
-        # add values
-        for values in handler.formattedResults:
-            w.add_row(values[0], values[1:])
-        w.save()
+            # add values
+            for values in handler.formattedResults:
+                w.add_row(values[0], values[1:])
+            w.save()
 
-        # project shapefile
-        project(out_fc, handler.spatialReference)
-        print('Created: "{}"'.format(out_fc))
-        return out_fc
+            # project shapefile
+            project(out_fc, handler.spatialReference)
+            print('Created: "{}"'.format(out_fc))
+            return out_fc
+
+        else:
+            raise TypeError('{} is not a {} object!'.format(geocodeResultObject, GeocodeResult))

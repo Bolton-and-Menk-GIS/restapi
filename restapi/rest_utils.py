@@ -1,4 +1,5 @@
 """Helper functions and base classes for restapi module"""
+from __future__ import print_function
 import requests
 import getpass
 import fnmatch
@@ -49,6 +50,7 @@ JSON_DICT = {'rings': 'esriGeometryPolygon',
 JSON_CODE = {v:k for k,v in JSON_DICT.iteritems()}
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 BASE_PATTERN = 'http*://*/rest/services*'
+USER_AGENT = 'restapi (Python)'
 
 # WKID json files
 try:
@@ -182,7 +184,7 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, p
         r = do_proxy_request(proxy, service, params)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
-        r = requests.post(service, params, cookies=cookies, verify=False)
+        r = requests.post(service, params, headers={'User-Agent': USER_AGENT}, cookies=cookies, verify=False)
 
     # make sure return
     if r.status_code != 200:
@@ -212,7 +214,7 @@ def do_proxy_request(proxy, url, params={}):
     p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems() if k != 'f')
 
     # probably a better way to do this, but I couldn't figure out how to use the "proxies" kwarg
-    return requests.post('{}?{}?f={}&{}'.format(proxy, url, params['f'], p).rstrip('&'))
+    return requests.post('{}?{}?f={}&{}'.format(proxy, url, params['f'], p).rstrip('&'), headers={'User-Agent': USER_AGENT})
 
 def validate_name(file_name):
     """validates an output name by removing special characters"""
@@ -413,7 +415,7 @@ def list_fields(service_lyr, token=''):
     example:
     >>> mapservice = 'http://some_domain.com/ArcGIS/rest/services/folder/a_service/MapServer/23'
     >>> for field in get_field_info(mapservice):
-           print field.name, field.alias, field.type, field.length
+           print(field.name, field.alias, field.type, field.length)
 
     Required:
         service_lyr -- full path to rest endpoint of a mapservice layer ID
@@ -835,6 +837,10 @@ class GPResult(object):
     def __len__(self):
         """return length of results"""
         return len(self.results)
+
+    def __getitem__(self, i):
+        """return result at index, usually will only be 1"""
+        return self.results[i]
 
     def __nonzero__(self):
         """return True if results"""
@@ -1540,15 +1546,20 @@ class BaseMapServiceLayer(RESTEndpoint):
                         else:
                             return '<Attachment> ?'
 
-                    def download(self, out_path, verbose=True):
+                    def download(self, out_path, name='', verbose=True):
                         """download the attachment to specified path
 
                         out_path -- output path for attachment
 
                         optional:
+                            name -- name for output file.  If left blank, will be same as attachment.
                             verbose -- if true will print sucessful download message
                         """
-                        out_file = assignUniqueName(os.path.join(out_path, self.name))
+                        if not name:
+                            out_file = assignUniqueName(os.path.join(out_path, self.name))
+                        else:
+                            ext = os.path.splitext(self.name)[-1]
+                            out_file = os.path.join(out_path, name + ext)
 
                         with open(out_file, 'wb') as f:
                             f.write(urllib.urlopen(self.attachmentURL).read())
