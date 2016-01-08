@@ -107,7 +107,7 @@ def exportFeatureSet(out_fc, feature_set):
                         arcpy.management.SetValueForRangeDomain(ws, field.domain['name'], _min, _max)
 
                     gdb_domains.append(field.domain['name'])
-                    print 'added domain "{}" to geodatabase: "{}"'.format(field.domain['name'], ws)
+                    print('added domain "{}" to geodatabase: "{}"'.format(field.domain['name'], ws))
 
                 field_domain = field.domain['name']
             else:
@@ -138,7 +138,7 @@ def exportFeatureSet(out_fc, feature_set):
     if isShp:
         out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
 
-    print 'Created: "{0}"'.format(out_fc)
+    print('Created: "{0}"'.format(out_fc))
     return out_fc
 
 def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', token='', max_recs=None, get_all=False, out_gdb_name='', **kwargs):
@@ -231,7 +231,7 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
     arcpy.management.Delete(tmp_tab)
     arcpy.management.DeleteField(out_fc, PHOTO_ID)
 
-    print 'Created: "{}"'.format(gdb)
+    print('Created: "{}"'.format(gdb))
     return gdb
 
 def exportReplica(replica, out_folder):
@@ -242,7 +242,7 @@ def exportReplica(replica, out_folder):
                 The geodatabase will be named the same as the replica
     """
     if not hasattr(replica, 'replicaName'):
-        print 'Not a valid input!  Must be generated from restapi.FeatureService.createReplica() method!'
+        print('Not a valid input!  Must be generated from restapi.FeatureService.createReplica() method!')
         return
 
     # attachment directory and gdb set up
@@ -350,7 +350,7 @@ def exportReplica(replica, out_folder):
             arcpy.management.AddAttachments(fc, 'ORIG_GlobalID', tmp_tab, 'ORIG_GlobalID', 'PHOTO_NAME', in_working_folder=att_loc)
             arcpy.management.Delete(tmp_tab)
 
-            print 'Created: "{}"'.format(gdb)
+            print('Created: "{}"'.format(gdb))
             return gdb
 
     return out_folder
@@ -656,7 +656,7 @@ class MapService(BaseMapService):
         if layer_path:
             return MapServiceLayer(layer_path, token=self.token)
         else:
-            print 'Layer "{0}" not found!'.format(name)
+            print('Layer "{0}" not found!'.format(name))
 
     def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, get_all=False):
         """Cusor object to handle queries to rest endpoints
@@ -809,7 +809,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             return exportFeatureSet(out_fc, query_resp)
 
         else:
-            print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
+            print('Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name))
 
     def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
@@ -1016,7 +1016,7 @@ class ImageService(BaseImageService):
                 arcpy.management.CalculateStatistics(out_raster)
             except:
                 pass
-            print 'Created: "{0}"'.format(out_raster)
+            print('Created: "{0}"'.format(out_raster))
 
     def clip(self, poly, out_raster, envelope=True, imageSR='', noData=None):
         """method to clip a raster"""
@@ -1097,7 +1097,7 @@ class Geocoder(GeocodeService):
         """
         handler = GeocodeHandler(geocodeResultObject)
         if not handler.results:
-            print 'Geocoder returned 0 results! Did not create output'
+            print('Geocoder returned 0 results! Did not create output')
             return None
 
         # make feature class
@@ -1111,5 +1111,5 @@ class Geocoder(GeocodeService):
         with arcpy.da.InsertCursor(out_fc, fields) as irows:
             for values in handler.formattedResults:
                 irows.insertRow(values)
-        print 'Created: "{}"'.format(out_fc)
+        print('Created: "{}"'.format(out_fc))
         return out_fc
