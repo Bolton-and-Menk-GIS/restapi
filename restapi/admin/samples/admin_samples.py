@@ -16,7 +16,7 @@ def main(url, usr, pw, folder_name, service_name):
     folder_name = name of a folder to test (will only make temp security/configured state changes)
     service_name = full service name or wild card matching a service name, should include just enough for a
         unique query.  Will only temporarily make minor changes.
-        
+
         wild card ex:
             # full service name is "SampleWorldCities.MapServer"
             service_name = "sampleworldcities" # not case sensative, should find the servide
@@ -28,7 +28,7 @@ def main(url, usr, pw, folder_name, service_name):
     # list services and configured state in a single folder
     folder = arcserver.folder(folder_name)
     for service in folder.iter_services():
-        print service.serviceName, service.configuredState
+        print('{0}, {1}').format(service.serviceName, service.configuredState)
 
         # can stop a service like this
         # service.stop()
@@ -36,13 +36,13 @@ def main(url, usr, pw, folder_name, service_name):
         # or start like this
         # service.start()
 
-    print '\n' * 3
+    print('\n') * 3
 
     # show all services and configured state (use iter_services to return restapi.admin.Service() object!)
     for service in arcserver.iter_services():
-        print service.serviceName, service.configuredState
-        
-    print '\n' * 3
+        print('{0}, {1}'.format(service.serviceName, service.configuredState))
+
+    print('\n') * 3
 
     #-----------------------------------------------------------------------------------------------#
     # setting security on a folder
@@ -58,23 +58,23 @@ def main(url, usr, pw, folder_name, service_name):
 
     # look thru the folder to check the configured states, should be stopped
     for service in folder.iter_services():
-        print service.serviceName, service.configuredState
+        print('{0}, {1}'.format(service.serviceName, service.configuredState))
 
     # now restart
     arcserver.startServices(folderName=folder_name) # this can take a few minutes
 
     # look thru folder, services should be started
     for service in folder.iter_services():
-        print service.serviceName, service.configuredState
+        print('{0}, {1}'.format(service.serviceName, service.configuredState))
 
     #-----------------------------------------------------------------------------------------------#
     # query log files (within last 3 days), need to convert to milliseconds
     threeDaysAgo = restapi.date_to_mil(datetime.datetime.now() - relativedelta(days=3))
     for log in arcserver.queryLogs(endTime=threeDaysAgo, pageSize=25):
-        print log.time
+        print('{0}'.format(log.time))
         for message in log:
-            print message
-        print '\n'
+            print('{0}'.format(message))
+        print('\n')
 
     #-----------------------------------------------------------------------------------------------#
     # connect to an individual service (by wildcard) - do not need to include full name, just
@@ -96,14 +96,14 @@ def main(url, usr, pw, folder_name, service_name):
 
     # iterate through all items of data store
     for item in ds:
-        print item.type, item.path
+        print('{0}, {1}'.format(item.type, item.path))
         # if it is an enterprise database connection, you can get the connection string like this
         if item.type == 'egdb':
-            print item.info.connectionString
+            print('{0}'.format(item.info.connectionString))
         # else if a folder, print server path
         elif item.type == 'folder':
-            print item.info.path
-        print '\n'
+            print('{0}'.format(item.info.path))
+        print('\n')
 
 
 if __name__ == '__main__':

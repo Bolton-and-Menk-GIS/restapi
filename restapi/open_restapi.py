@@ -100,7 +100,7 @@ def exportFeatureSet(out_fc, feature_set, outSR=None):
         w.add_row(row[-1], [v if v else ' ' for v in row[:-1]])
 
     w.save()
-    print 'Created: "{0}"'.format(out_fc)
+    print('Created: "{0}"'.format(out_fc))
 
     # write projection file
     project(out_fc, outSR)
@@ -183,7 +183,7 @@ def exportReplica(replica, out_folder):
     out_folder -- full path to folder location where new files will be stored.
     """
     if not hasattr(replica, 'replicaName'):
-        print 'Not a valid input!  Must be generated from restapi.FeatureService.createReplica() method!'
+        print('Not a valid input!  Must be generated from restapi.FeatureService.createReplica() method!')
         return
 
     # attachment directory and gdb set up
@@ -254,7 +254,7 @@ def exportReplica(replica, out_folder):
                 w.add_row(geom, [v if v else ' ' for v in row])
 
             w.save()
-            print 'Created: "{0}"'.format(out_fc)
+            print('Created: "{0}"'.format(out_fc))
 
             # write projection file
             project(out_fc, sr)
@@ -657,7 +657,7 @@ class MapService(BaseMapService):
         if layer_path:
             return MapServiceLayer(layer_path, token=self.token)
         else:
-            print 'Layer "{0}" not found!'.format(name)
+            print('Layer "{0}" not found!'.format(name))
 
     def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, get_all=False):
         """Cusor object to handle queries to rest endpoints
@@ -813,7 +813,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             query_resp = self.cursor(s_fields, where, records, params, get_all).response
             return exportFeatureSet(out_fc, query_resp, outSR=sr)
         else:
-            print 'Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name)
+            print('Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name))
 
     def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
@@ -987,7 +987,7 @@ class ImageService(BaseImageService):
             tiff = urllib.urlopen(r['href'].strip()).read()
             with open(out_raster, 'wb') as f:
                 f.write(tiff)
-            print 'Created: "{0}"'.format(out_raster)
+            print('Created: "{0}"'.format(out_raster))
 
     def clip(self, poly, out_raster, envelope=False):
         """method to clip a raster"""
@@ -1060,7 +1060,7 @@ class Geocoder(GeocodeService):
         """
         handler = GeocodeHandler(geocodeResultObject)
         if not handler.results:
-            print 'Geocoder returned 0 results! Did not create output'
+            print('Geocoder returned 0 results! Did not create output')
             return None
 
         # create shapefile
@@ -1075,5 +1075,5 @@ class Geocoder(GeocodeService):
 
         # project shapefile
         project(out_fc, handler.spatialReference)
-        print 'Created: "{}"'.format(out_fc)
+        print('Created: "{}"'.format(out_fc))
         return out_fc

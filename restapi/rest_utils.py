@@ -348,7 +348,7 @@ def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', 
             kmz = validate_name(r'C:\Users\{0}\Desktop\{1}.kmz'.format(os.environ['USERNAME'], name))
         with codecs.open(kmz, 'wb') as f:
             f.write(r.content)
-        print 'Created: "{0}"'.format(kmz)
+        print('Created: "{0}"'.format(kmz))
         return kmz
     else:
         r = POST(endpoint, params, token=token)
@@ -383,7 +383,7 @@ def get_layerID_by_name(service, name, token='', grp_lyr=False):
     for tab in r['tables']:
         if fnmatch.fnmatch(tab['name'], name):
             return tab['id']
-    print 'No Layer found matching "{0}"'.format(name)
+    print('No Layer found matching "{0}"'.format(name))
     return None
 
 def get_layer_url(service, name, token='', grp_lyr=False):
@@ -614,7 +614,7 @@ def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
 
     # get oids
     oids = sorted(query(layer_url, where=where, add_params=add_params, token=token)['objectIds'])
-    print 'total records: {0}'.format(len(oids))
+    print('total records: {0}'.format(len(oids)))
 
     # set returnIdsOnly to False
     add_params['returnIdsOnly'] = 'false'
@@ -637,18 +637,18 @@ def _print_info(obj):
         for attr, value in sorted(obj.response.iteritems()):
             if attr != 'response':
                 if attr in ('layers', 'tables', 'fields') or 'fields' in attr.lower():
-                    print '\n{0}:'.format(attr.title())
+                    print('\n{0}:'.format(attr.title()))
                     if value:
                         for layer in value:
-                            print '\n'.join('\t{0}: {1}'.format(k,v)
-                                            for k,v in layer.iteritems())
-                            print '\n'
+                            print('\n'.join('\t{0}: {1}'.format(k,v)
+                                            for k,v in layer.iteritems()))
+                            print('\n')
                 elif isinstance(value, dict):
-                    print '{0} Properties:'.format(attr)
+                    print('{0} Properties:'.format(attr))
                     for k,v in value.iteritems():
-                        print '\t{0}: {1}'.format(k,v)
+                        print('\t{0}: {1}'.format(k,v))
                 else:
-                    print '{0}: {1}'.format(attr, value)
+                    print('{0}: {1}'.format(attr, value))
     return
 
 def walk(url, filterer=True, token=''):
@@ -829,8 +829,8 @@ class GPResult(object):
     def print_messages(self):
         """prints all the GP messages"""
         for msg in self.messages:
-            print 'Message Type: {}'.format(msg.type)
-            print '\tDescription: {}\n'.format(msg.description)
+            print('Message Type: {}'.format(msg.type))
+            print('\tDescription: {}\n'.format(msg.description))
 
     def __len__(self):
         """return length of results"""
@@ -952,13 +952,13 @@ class EditResult(object):
         """print summary of edit operation"""
         if self.affectedOIDs:
             if self.addResults:
-                print 'Added {} feature(s)'.format(len(self.addResults))
+                print('Added {} feature(s)'.format(len(self.addResults)))
             if self.updateResults:
-                print 'Updated {} feature(s)'.format(len(self.updateResults))
+                print('Updated {} feature(s)'.format(len(self.updateResults)))
             if self.deleteResults:
-                print 'Deleted {} feature(s)'.format(len(self.deleteResults))
+                print('Deleted {} feature(s)'.format(len(self.deleteResults)))
         if self.failedOIDs:
-            print 'Failed to edit {0} feature(s)!\n{1}'.format(len(self.failedOIDs), self.failedOIDs)
+            print('Failed to edit {0} feature(s)!\n{1}'.format(len(self.failedOIDs), self.failedOIDs))
 
     def __len__(self):
         """return count of affected OIDs"""
@@ -1036,9 +1036,9 @@ class BaseCursor(object):
 
         # check for errors
         if 'error' in self.response:
-            print 'Errors:\n'
+            print('Errors:\n')
             for err,msg in  self.response['error'].iteritems():
-                print '\t{0}: {1}'.format(err, msg)
+                print('\t{0}: {1}'.format(err, msg))
             raise ValueError(self.response['error']['message'])
 
         # fix date format in milliseconds to datetime.datetime()
@@ -1224,7 +1224,7 @@ class BaseArcServer(RESTEndpoint):
         """list of top directory services (unfolderized)"""
         if 'services' in self.response:
             return self.response['services']
-        print 'Services not available!'
+        print('Services not available!')
         return []
 
     @property
@@ -1237,7 +1237,7 @@ class BaseArcServer(RESTEndpoint):
         """list of top directory services (unfolderized)"""
         if 'folders' in self.response:
             return self.response['folders']
-        print 'Folders not available!'
+        print('Folders not available!')
         return []
 
     def list_services(self, exclude_utilities=True):
@@ -1272,7 +1272,7 @@ class BaseArcServer(RESTEndpoint):
             for s in self.services:
                 if wildcard.lower() in s.lower():
                     return s
-        print '"{0}" not found in services'.format(wildcard)
+        print('"{0}" not found in services'.format(wildcard))
         return ''
 
     def get_folders(self):
@@ -1554,7 +1554,7 @@ class BaseMapServiceLayer(RESTEndpoint):
                             f.write(urllib.urlopen(self.attachmentURL).read())
 
                         if verbose:
-                            print 'downloaded attachment "{}" to "{}"'.format(self.name, out_path)
+                            print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
                         return out_file
 
                 return [Attachment(**a) for a in r['attachmentInfos']]
@@ -1600,7 +1600,7 @@ class FeatureService(BaseMapService):
         if layer_path:
             return FeatureLayer(layer_path, token=self.token)
         else:
-            print 'Layer "{0}" not found!'.format(name)
+            print('Layer "{0}" not found!'.format(name))
 
     def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
@@ -1944,7 +1944,7 @@ class FeatureLayer(BaseMapServiceLayer):
                 params['gdbVersion'] = gdbVersion
             r = requests.post(att_url, params, files=files, cookies=self._cookie, verify=False).json()
             if 'addAttachmentResult' in r:
-                print r['addAttachmentResult']
+                print(r['addAttachmentResult'])
             return r
 
         else:
@@ -2086,7 +2086,7 @@ class GeocodeService(RESTEndpoint):
                     address_field = self.singleLineAddressField.name
                 else:
                     address_field = self.addressFields[0].name
-                    print 'Warning, no singleLineAddressField found...Using "{}" field'.format(address_field)
+                    print('Warning, no singleLineAddressField found...Using "{}" field'.format(address_field))
             for i, addr in enumerate(addr_list):
                 recs['records'].append({"attributes": {"OBJECTID": i+1,
                                                        address_field: addr}})
@@ -2271,5 +2271,5 @@ class GPTask(RESTEndpoint):
         else:
             res['value'] = res['results'][0]['value'] if 'value' in res['results'][0] else None
 
-        print 'GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed)
+        print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
         return GPResult(res)
