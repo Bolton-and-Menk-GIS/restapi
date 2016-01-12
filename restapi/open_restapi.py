@@ -9,8 +9,7 @@ import shp_helper
 import os
 import json
 from collections import OrderedDict
-from rest_utils import BaseArcServer, BaseMapService, BaseMapServiceLayer, \
-     BaseImageService, BaseCursor, BaseRow
+from rest_utils import *
 from shapefile import shapefile
 
 # field types for shapefile module
