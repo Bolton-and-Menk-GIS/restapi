@@ -3,4 +3,10 @@ include restapi/shapefile/*.*
 include restapi/test/*.py
 include restapi/admin/*.*
 include restapi/admin/samples/*.*
-recursive-include restapi/requests/*
+include restapi/requests/*
+include restapi/requests/packages/*
+include restapi/requests/packages/chardet/*
+include restapi/requests/packages/urllib3/*
+include restapi/requests/packages/urllib3/contrib/*
+include restapi/requests/packages/urllib3/packages/*
+include restapi/requests/packages/urllib3/packages/ssl_match_hostname/*

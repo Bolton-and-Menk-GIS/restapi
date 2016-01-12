@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name='restapi',
       version='0.1',
@@ -7,7 +7,7 @@ setup(name='restapi',
       author_email='calebma@bolton-menk.com',
       url='https://github.com/Bolton-and-Menk-GIS/restapi',
       license='GPL',
-      packages=['restapi', 'restapi.admin'],
+      packages=find_packages(),
       include_package_data=True,
 ##      install_requires=['requests'],
 ##      dependency_links=[
