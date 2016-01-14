@@ -1412,6 +1412,10 @@ class BaseMapService(RESTEndpoint):
 
         return r
 
+    def __repr__(self):
+        """string representation with service name"""
+        return '<MapService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
+
 class BaseMapServiceLayer(RESTEndpoint):
     """Class to handle advanced layer properties"""
     def __init__(self, url='', usr='', pw='', token='', proxy=None):
@@ -1573,7 +1577,11 @@ class BaseMapServiceLayer(RESTEndpoint):
             return []
 
         else:
-            raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
+            raise NotImplementedError('Layer "{}" does not support attachments!'.format(self.name))
+
+    def __repr__(self):
+        """string representation with service name"""
+        return '<MapServiceLayer: "{}" (id: {})>'.format(self.name, self.id)
 
 class FeatureService(BaseMapService):
     """class to handle FeatureService"""
@@ -1788,6 +1796,10 @@ class FeatureService(BaseMapService):
         params = {'replicaID': replicaID}
         return POST(query_url, params, cookies=self._cookie)
 
+    def __repr__(self):
+        """string representation with service name"""
+        return '<MapService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
+
 class FeatureLayer(BaseMapServiceLayer):
     """class to handle FeatureLayer"""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
@@ -1988,6 +2000,10 @@ class FeatureLayer(BaseMapServiceLayer):
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support field calculations!'.format(self.name))
 
+    def __repr__(self):
+        """string representation with service name"""
+        return '<FeatureLayer: "{}" (id: {})>'.format(self.name, self.id)
+
 class BaseImageService(RESTEndpoint):
     """Class to handle Image service and requests"""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
@@ -2019,6 +2035,10 @@ class BaseImageService(RESTEndpoint):
         if isinstance(boundingBox, basestring):
             boundingBox = boundingBox.split(',')
         return ','.join(map(str, map(lambda x: Round(x, cell_size), boundingBox)))
+
+    def __repr__(self):
+        """string representation with service name"""
+        return '<ImageService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""
@@ -2161,6 +2181,10 @@ class GeocodeService(RESTEndpoint):
 
         return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
+    def __repr__(self):
+        """string representation with service name"""
+        return '<GeocodeService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
+
 class GPService(RESTEndpoint):
     """ Class to handle GP Service Object"""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
@@ -2183,7 +2207,11 @@ class GPService(RESTEndpoint):
 
     def task(self, name):
         """returns a GP Task object"""
-        return GPTask('/'.join([self.url, name]), cookies=self._cookie)
+        return GPTask('/'.join([self.url, name]))
+
+    def __repr__(self):
+        """string representation with service name"""
+        return '<GPService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
 
 class GPTask(RESTEndpoint):
     """class to handle GP Task"""
@@ -2284,3 +2312,7 @@ class GPTask(RESTEndpoint):
 
         print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
         return GPResult(res)
+
+    def __repr__(self):
+        """string representation with service name"""
+        return '<GPTask: "{}">'.format(self.name)

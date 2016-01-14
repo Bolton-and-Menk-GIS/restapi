@@ -1149,6 +1149,40 @@ class Service(BaseDirectory):
         return POST(self._servicesURL + '/status', token=self.token)
 
     @passthrough
+    def enableExtension(self, extension):
+        """enables an extension, this operation is not available through REST API out of the box
+
+        Required:
+            extension -- name of extension.  Valid options are:
+
+        NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
+        """
+        editJson = self.response
+        ext = [e for e in editJson['extensions'] if e['typeName'].lower() == extension.lower()][0]
+        if ext['enabled'] in ('true', True):
+            return {'status': 'Already Enabled!'}
+        else:
+            ext['enabled'] = 'true'
+            return self.edit(editJson)
+
+    @passthrough
+    def disableExtension(self, extension):
+        """disables an extension, this operation is not available through REST API out of the box
+
+        Required:
+            extension -- name of extension.  Valid options are:
+
+        NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
+        """
+        editJson = self.response
+        ext = [e for e in editJson['extensions'] if e['typeName'].lower() == extension.lower()][0]
+        if ext['enabled'] in ('false', False):
+            return {'status': 'Already Disabled!'}
+        else:
+            ext['enabled'] = 'false'
+            return self.edit(editJson)
+
+    @passthrough
     def start(self):
         """starts the service"""
         r = {}
@@ -1275,6 +1309,10 @@ class Service(BaseDirectory):
                 objectize(self)
 
         return ServiceStatistics(**POST(self.url + '/statistics', token=self.token))
+
+    def __repr__(self):
+        """show service name"""
+        return '<Service: {}>'.format(self.url.split('/')[-1])
 
 class Site(AdminRESTEndpoint):
     def __init__(self, url, usr='', pw='', token=None):
