@@ -430,6 +430,18 @@ service.edit(description='This is an updated service description')
 service.edit(description=description)
 ```
 
+There are also some helper methods that aren't available out of the box from the ArcGIS REST API such as enabling or disabling extensions:
+
+```py
+# enable feature editing to our map service (FeatureService)
+# ArcGIS Extensions are: NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
+
+service.enableExtension('FeatureServer')
+
+# disable Feature Access
+service.disableExtension('FeatureServer')
+```
+
 Access the Data Store
 ---------------------
 
