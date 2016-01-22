@@ -436,10 +436,10 @@ There are also some helper methods that aren't available out of the box from the
 # enable feature editing to our map service (FeatureService)
 # ArcGIS Extensions are: NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
 
-service.enableExtension('FeatureServer')
+service.enableExtensions(['FeatureServer'])
 
-# disable Feature Access
-service.disableExtension('FeatureServer')
+# disable Feature Access and kml downloads
+service.disableExtensions(['FeatureServer', 'KmlServer'])
 ```
 
 Access the Data Store
