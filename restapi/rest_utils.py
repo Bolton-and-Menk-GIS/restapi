@@ -177,7 +177,7 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, p
     if not 'f' in params:
         params['f'] = 'json'
 
-    if token and not proxy:
+    if not token and not proxy:
         proxy = ID_MANAGER.findProxy(service)
 
     if proxy:
@@ -215,6 +215,37 @@ def do_proxy_request(proxy, url, params={}):
 
     # probably a better way to do this, but I couldn't figure out how to use the "proxies" kwarg
     return requests.post('{}?{}?f={}&{}'.format(proxy, url, params['f'], p).rstrip('&'), headers={'User-Agent': USER_AGENT})
+
+def guess_proxy_url(domain):
+    """grade school level hack to see if there is a standard esri proxy available for a domain
+
+    Required:
+        domain -- url to domain to check for proxy
+    """
+    domain = domain.lower().split('/arcgis')[0]
+    if not domain.startswith('http'):
+        domain = 'http://' + domain
+    types = ['.ashx', '.jsp', '.php']
+    for ptype in types:
+        proxy_url = '/'.join([domain, 'proxy' + ptype])
+        r = requests.get(proxy_url)
+        # should produce an error in JSON if using esri proxy out of the box
+        try:
+            if r.status_code == 400 or 'error' in r.json():
+                return r.url
+        except:
+            pass
+
+    # try again looking to see if it is in a folder called "proxy"
+    for ptype in types:
+        proxy_url = '/'.join([domain, 'proxy', 'proxy' + ptype])
+        r = requests.get(proxy_url)
+        try:
+            if r.status_code == 400 or r.content:
+                return r.url
+        except:
+            pass
+    return None
 
 def validate_name(file_name):
     """validates an output name by removing special characters"""
@@ -1365,6 +1396,14 @@ class BaseMapService(RESTEndpoint):
         """Method to return field objects from a layer"""
         lyr = get_layer_url(self.url, layer_name, self.token)
         return list_fields(lyr, self.token)
+
+    def getNameFromId(self, lyrID):
+        """method to get layer name from ID
+
+        Required:
+            lyrID -- id of layer for which to get name
+        """
+        return [l.name for l in self.layers if l.id == lyrID][0]
 
     def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png8', transparent=True, **kwargs):
         """exports a map image

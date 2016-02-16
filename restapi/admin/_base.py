@@ -1149,38 +1149,60 @@ class Service(BaseDirectory):
         return POST(self._servicesURL + '/status', token=self.token)
 
     @passthrough
-    def enableExtension(self, extension):
+    def enableExtensions(self, extensions):
         """enables an extension, this operation is not available through REST API out of the box
 
         Required:
-            extension -- name of extension.  Valid options are:
+            extensions -- name of extension(s) to enable.  Valid options are:
 
         NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
         """
+        if not isinstance(extensions, (list, tuple)):
+            extensions = [extensions]
         editJson = self.response
-        ext = [e for e in editJson['extensions'] if e['typeName'].lower() == extension.lower()][0]
-        if ext['enabled'] in ('true', True):
-            return {'status': 'Already Enabled!'}
-        else:
-            ext['enabled'] = 'true'
-            return self.edit(editJson)
+        exts = [e for e in editJson['extensions'] if e['typeName'].lower() in map(lambda x: x.lower(), extensions)]
+        status = {}
+        for ext in exts:
+            if ext['enabled'] in ('true', True):
+                status[ext['typeName']] = 'Already Enabled!'
+            else:
+                ext['enabled'] = 'true'
+                status[ext['typeName']] = 'Enabled'
+
+        if 'Enabled' in status.values():
+            retStatus =  self.edit(editJson)
+            for k,v in retStatus.iteritems():
+                status[k] = v
+
+        return status
 
     @passthrough
-    def disableExtension(self, extension):
+    def disableExtensions(self, extensions):
         """disables an extension, this operation is not available through REST API out of the box
 
         Required:
-            extension -- name of extension.  Valid options are:
+            extensions -- name of extension(s) to disable.  Valid options are:
 
         NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
         """
+        if not isinstance(extensions, (list, tuple)):
+            extensions = [extensions]
         editJson = self.response
-        ext = [e for e in editJson['extensions'] if e['typeName'].lower() == extension.lower()][0]
-        if ext['enabled'] in ('false', False):
-            return {'status': 'Already Disabled!'}
-        else:
-            ext['enabled'] = 'false'
-            return self.edit(editJson)
+        exts = [e for e in editJson['extensions'] if e['typeName'].lower() in map(lambda x: x.lower(), extensions)]
+        status = {}
+        for ext in exts:
+            if ext['enabled'] in ('false', False):
+                status[ext['typeName']] = 'Already Disabled!'
+            else:
+                ext['enabled'] = 'false'
+                status[ext['typeName']] = 'Disabled'
+
+        if 'Disabled' in status.values():
+            retStatus =  self.edit(editJson)
+            for k,v in retStatus.iteritems():
+                status[k] = v
+
+        return status
 
     @passthrough
     def start(self):
@@ -1312,7 +1334,8 @@ class Service(BaseDirectory):
 
     def __repr__(self):
         """show service name"""
-        return '<Service: {}>'.format(self.url.split('/')[-1])
+        if self.url is not None:
+            return '<Service: {}>'.format(self.url.split('/')[-1])
 
 class Site(AdminRESTEndpoint):
     def __init__(self, url, usr='', pw='', token=None):
@@ -1422,6 +1445,10 @@ class ArcServerAdmin(AdminRESTEndpoint):
         for serviceName in self.services:
             yield self.service(serviceName)
 
+    def rehydrateServices(self):
+        """reloads cached response to get updated service list"""
+        self.refresh()
+        return self.list_services()
 
     #----------------------------------------------------------------------
     # clusters
@@ -2405,7 +2432,8 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if service_url:
             return Service(service_url, token=self.token)
         else:
-            raise NameError(service_name_or_wildcard)
+            print('No Service found matching: "{}"'.format(service_name_or_wildcard))
+            return None
 
     def getPermissions(self, resource):
         """return permissions for folder or service

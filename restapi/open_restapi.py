@@ -647,17 +647,21 @@ class MapService(BaseMapService):
         """
         super(MapService, self).__init__(url, usr, pw, token)
 
-    def layer(self, name):
+    def layer(self, name_or_id):
         """Method to return a layer object with advanced properties by name
 
         Required:
-            name -- layer name (supports wildcard syntax*)
+            name -- layer name (supports wildcard syntax*) or id (must be of type <int>)
         """
-        layer_path = get_layer_url(self.url, name, self.token)
+        if isinstance(name_or_id, int):
+            # reference by id directly
+            return MapServiceLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
+
+        layer_path = get_layer_url(self.url, name_or_id, self.token)
         if layer_path:
             return MapServiceLayer(layer_path, token=self.token)
         else:
-            print('Layer "{0}" not found!'.format(name))
+            print('Layer "{0}" not found!'.format(name_or_id))
 
     def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, get_all=False):
         """Cusor object to handle queries to rest endpoints
