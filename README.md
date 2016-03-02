@@ -433,13 +433,75 @@ service.edit(description=description)
 There are also some helper methods that aren't available out of the box from the ArcGIS REST API such as enabling or disabling extensions:
 
 ```py
-# enable feature editing to our map service (FeatureService)
-# ArcGIS Extensions are: NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
-
-service.enableExtensions(['FeatureServer'])
-
 # disable Feature Access and kml downloads
 service.disableExtensions(['FeatureServer', 'KmlServer'])
+
+# you can also list enabled/disabled services
+print service.enabledExtensions
+# [u'KmlServer', u'WFSServer', u'FeatureServer']
+
+service.disabledExtensions
+# [u'NAServer', u'MobileServer', u'SchematicsServer', u'WCSServer', u'WMSServer']
+
+# Edit service extension properites
+# get an extension and view its properties
+fs_extension = service.getExtension('FeatureServer')
+
+print fs_extension # will print as pretty json
+```
+
+For Service objects, all properties are represented as pretty json.  Below is what the FeatureService Extension looks like:
+
+```py
+{
+  "allowedUploadFileTypes": "", 
+  "capabilities": "Query,Create,Update,Delete,Uploads,Editing", 
+  "enabled": "true", 
+  "maxUploadFileSize": 0, 
+  "properties": {
+    "allowGeometryUpdates": "true", 
+    "allowOthersToDelete": "false", 
+    "allowOthersToQuery": "true", 
+    "allowOthersToUpdate": "false", 
+    "allowTrueCurvesUpdates": "false", 
+    "creatorPresent": "false", 
+    "dataInGdb": "true", 
+    "datasetInspected": "true", 
+    "editorTrackingRespectsDayLightSavingTime": "false", 
+    "editorTrackingTimeInUTC": "true", 
+    "editorTrackingTimeZoneID": "UTC", 
+    "enableOwnershipBasedAccessControl": "false", 
+    "enableZDefaults": "false", 
+    "maxRecordCount": "1000", 
+    "realm": "", 
+    "syncEnabled": "false", 
+    "syncVersionCreationRule": "versionPerDownloadedMap", 
+    "versionedData": "false", 
+    "xssPreventionEnabled": "true", 
+    "zDefaultValue": "0"
+  }, 
+  "typeName": "FeatureServer"
+}
+```
+
+Setting properties for extensions is also easy:
+
+```py
+# set properties for an extension using helper method, use **kwargs for setting capabilities
+service.setExtensionProperties('FeatureServer', capabilities='Query,Update,Delete,Editing')
+
+# verify changes were made
+print fs_extension.capabilities
+# 'Query,Update,Delete,Editing'
+
+# alternatively, you can edit the service json directly and call the edit method
+# change it back to original settings
+fs_extension.capabilities = 'Query,Create,Update,Delete,Uploads,Editing'
+service.edit()
+
+# verify one more time...
+print fs_extension.capabilities
+# 'Query,Create,Update,Delete,Uploads,Editing'
 ```
 
 Access the Data Store
