@@ -1144,8 +1144,17 @@ class Service(BaseDirectory):
     are accessed through the service's json property.  To get full list print
     Service.json or Service.print_info().
     """
+    url = None
+    raw_response = None
+    response = None
+    token = None
+    fullName = None
+    elapsed = None
+    _permissionsURL = None
     json = {}
+
     def __init__(self, url, usr='', pw='', token=None):
+        """initialize with json definition plus additional attributes"""
         super(Service, self).__init__(url, usr, pw, token)
         self.json = self.response
         self.fullName = '.'.join([self.serviceName, self.type])
@@ -1409,6 +1418,8 @@ class Service(BaseDirectory):
             # it is in the json definition
             if name in self.json:
                 return self.json[name]
+            else:
+                raise AttributeError(name)
 
     def __setattr__(self, name, value):
         """properly set attributes for class as well as json abstraction"""
@@ -1416,15 +1427,15 @@ class Service(BaseDirectory):
         if isinstance(value, dict) and name != 'response':
             value = bunchify(value)
         try:
-            # set existing class property
+            # set existing class property, check if it exists first
+            object.__getattribute__(self, name)
             object.__setattr__(self, name, value)
         except AttributeError:
             # set in json definition
             if name in self.json:
                 self.json[name] = value
             else:
-                # set as a new attribute
-                object.__setattr__(self, name, value)
+               raise AttributeError(name)
 
 
 class Site(AdminRESTEndpoint):
