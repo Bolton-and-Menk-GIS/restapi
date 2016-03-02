@@ -1,4 +1,4 @@
-# WARNING: much of this module is untested, this module makes permanant server configurations.
+# WARNING: much of this module is untested, this module makes permanent server configurations.
 # Use with caution!
 from __future__ import print_function
 import sys
@@ -6,12 +6,12 @@ import os
 import fnmatch
 import datetime
 import json
-import pprint
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
-from ..rest_utils import Token, mil_to_date, date_to_mil, namedTuple, RequestError, objectize, IdentityManager, _print_info
+from ..rest_utils import Token, mil_to_date, date_to_mil, namedTuple, objectize, RequestError, IdentityManager, _print_info
 from .decorator import decorator
+from .bunch import *
 
 # Globals
 BASE_PATTERN = '*:*/arcgis/admin*'
@@ -78,6 +78,9 @@ def POST(service, params={'f': 'json'}, token='', ret_json=True):
     token -- token to handle security (only required if security is enabled)
     ret_json -- return the response as JSON.  Default is True.
     """
+    if isinstance(params, Bunch):
+        params = params.toDict()
+
     for pName, p in params.iteritems():
         if isinstance(p, dict):
             params[pName] = json.dumps(p)
@@ -867,7 +870,7 @@ class DataStore(AdminRESTEndpoint):
         if 'status' in r and r['status'] == 'success':
             return True
         else:
-            pprint.pprint(r)
+            print(json.dumps(r, indent=2, sort_keys=True))
             return False
 
     @passthrough
@@ -1090,7 +1093,7 @@ class Folder(BaseDirectory):
         return ['.'.join([s.serviceName, s.type]) for s in self.services]
 
     def iter_services(self):
-        """iterate through Service Objects"""
+        """iterate through folder and return Service Objects"""
         for service in self.services:
             serviceUrl = '.'.join(['/'.join([self.url, service.serviceName]), service.type])
             yield Service(serviceUrl, token=self.token)
@@ -1119,6 +1122,15 @@ class Folder(BaseDirectory):
         reps = POST(self.url + '/report', token=self.token)['reports']
         return [Report(rep) for rep in reps]
 
+    def __getitem__(self, i):
+        """get service by index"""
+        return self.services[i]
+
+    def __iter__(self):
+        """iterate through list of services"""
+        for s in self.services:
+            yield s
+
     def __len__(self):
         """return number of services in folder"""
         return len(self.services)
@@ -1128,25 +1140,30 @@ class Folder(BaseDirectory):
         return bool(len(self))
 
 class Service(BaseDirectory):
-    """Class to handle inernal ArcGIS Service instance"""
+    """Class to handle inernal ArcGIS Service instance all service properties
+    are accessed through the service's json property.  To get full list print
+    Service.json or Service.print_info().
+    """
+    json = {}
     def __init__(self, url, usr='', pw='', token=None):
         super(Service, self).__init__(url, usr, pw, token)
-
-        for k,v in self.response.iteritems():
-            if k not in ['extensions', 'status']:
-                setattr(self, k, v)
-        objectize(self, ['extensions'])
+        self.json = self.response
         self.fullName = '.'.join([self.serviceName, self.type])
 
     @property
-    def extensions(self):
-        """return list of custom server object extensions that are registered with the server"""
-        return[namedTuple('Extension', r) for r in POST(self.url, token=self.token)['extensions']]
+    def enabledExtensions(self):
+        """return list of enabled extensions, not available out of the box in the REST API"""
+        return [e.typeName for e in self.extensions if str(e.enabled).lower() == 'true']
+
+    @property
+    def disabledExtensions(self):
+        """return list of disabled extensions, not available out of the box in the REST API"""
+        return [e.typeName for e in self.extensions if str(e.enabled).lower() == 'false']
 
     @property
     def status(self):
         """return status JSON object for service"""
-        return POST(self._servicesURL + '/status', token=self.token)
+        return bunchify(POST(self.url + '/status', token=self.token))
 
     @passthrough
     def enableExtensions(self, extensions):
@@ -1157,8 +1174,8 @@ class Service(BaseDirectory):
 
         NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
         """
-        if not isinstance(extensions, (list, tuple)):
-            extensions = [extensions]
+        if isinstance(extensions, basestring):
+            extensions = extensions.split(';')
         editJson = self.response
         exts = [e for e in editJson['extensions'] if e['typeName'].lower() in map(lambda x: x.lower(), extensions)]
         status = {}
@@ -1185,8 +1202,8 @@ class Service(BaseDirectory):
 
         NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
         """
-        if not isinstance(extensions, (list, tuple)):
-            extensions = [extensions]
+        if isinstance(extensions, basestring):
+            extensions = extensions.split(';')
         editJson = self.response
         exts = [e for e in editJson['extensions'] if e['typeName'].lower() in map(lambda x: x.lower(), extensions)]
         status = {}
@@ -1241,7 +1258,7 @@ class Service(BaseDirectory):
                 the service info by default.
         """
         if not serviceJSON:
-            serviceJSON = self.response
+            serviceJSON = self.json
 
         # update by kwargs
         for k,v in kwargs.iteritems():
@@ -1332,10 +1349,83 @@ class Service(BaseDirectory):
 
         return ServiceStatistics(**POST(self.url + '/statistics', token=self.token))
 
+    def asJSON(self):
+        """override to unbunchify self.json if any changes have been made, call
+        self.response to get last response from server"""
+        return unbunchify(self.json)
+
+    #**********************************************************************************
+    #
+    # helper methods not available out of the box
+    def getExtension(self, extension):
+        """get an extension by name
+
+        Required:
+            extension -- name of extension (not case sensative)
+        """
+        try:
+            return [e for e in self.extensions if e.typeName.lower() == extension.lower()][0]
+        except IndexError:
+            return None
+
+    def setExtensionProperties(self, extension, **kwargs):
+        """helper method to set extension properties by name and keyword arguments
+
+        Required:
+            extension -- name of extension (not case sensative)
+
+        Optional:
+            **kwargs -- keyword arguments to set properties for
+
+        example:
+            # set capabilities for feature service extension
+            Service.setExtensionProperties('featureserver', capabilities='Create,Update,Delete')
+        """
+
+        ext = self.getExtension(extension)
+        if ext is not None:
+            for k,v in kwargs.iteritems():
+                if k in ext:
+                    setattr(ext, k, v)
+
+            self.edit()
+
     def __repr__(self):
         """show service name"""
         if self.url is not None:
             return '<Service: {}>'.format(self.url.split('/')[-1])
+
+    def __getitem__(self, name):
+        """dict like access to json definition"""
+        if name in self.json:
+            return self.json[name]
+
+    def __getattr__(self, name):
+        """get normal class attributes and json abstraction at object level"""
+        try:
+            # it is a class attribute
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            # it is in the json definition
+            if name in self.json:
+                return self.json[name]
+
+    def __setattr__(self, name, value):
+        """properly set attributes for class as well as json abstraction"""
+        # make sure our value is a Bunch if dict
+        if isinstance(value, dict) and name != 'response':
+            value = bunchify(value)
+        try:
+            # set existing class property
+            object.__setattr__(self, name, value)
+        except AttributeError:
+            # set in json definition
+            if name in self.json:
+                self.json[name] = value
+            else:
+                # set as a new attribute
+                object.__setattr__(self, name, value)
+
 
 class Site(AdminRESTEndpoint):
     def __init__(self, url, usr='', pw='', token=None):

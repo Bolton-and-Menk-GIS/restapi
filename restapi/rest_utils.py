@@ -1556,6 +1556,15 @@ class BaseMapServiceLayer(RESTEndpoint):
 
         return sorted(self.query(where=where, add_params=p)['objectIds'])[:max_recs]
 
+    def getCount(self, where='1=1', **kwargs):
+        """get count of features, can use optional query and **kwargs to filter
+
+        Optional:
+            where -- where clause
+            kwargs -- keyword arguments for query operation
+        """
+        return len(self.getOIDs(where,  **kwargs))
+
     def attachments(self, oid, gdbVersion=''):
         """query attachments for an OBJECTDID
 
@@ -1575,15 +1584,16 @@ class BaseMapServiceLayer(RESTEndpoint):
 
             if 'attachmentInfos' in r:
                 for attInfo in r['attachmentInfos']:
-                    attInfo['attachmentURL'] = '{}/{}{}'.format(query_url, attInfo['id'], add_tok)
+                    attInfo['url'] = '{}/{}'.format(query_url, attInfo['id'])
+                    attInfo['urlWithToken'] = '{}/{}{}'.format(query_url, attInfo['id'], add_tok)
 
-                class Attachment(namedtuple('Attachment', 'id name size contentType attachmentURL')):
+                class Attachment(namedtuple('Attachment', 'id name size contentType url urlWithToken')):
                     """class to handle Attachment object"""
                     __slots__ = ()
                     def __new__(cls,  **kwargs):
                         return super(Attachment, cls).__new__(cls, **kwargs)
 
-                    def __str__(self):
+                    def __repr__(self):
                         if hasattr(self, 'id') and hasattr(self, 'name'):
                             return '<Attachment ID: {} ({})>'.format(self.id, self.name)
                         else:
@@ -1602,7 +1612,7 @@ class BaseMapServiceLayer(RESTEndpoint):
                             out_file = assignUniqueName(os.path.join(out_path, self.name))
                         else:
                             ext = os.path.splitext(self.name)[-1]
-                            out_file = os.path.join(out_path, name + ext)
+                            out_file = os.path.join(out_path, name.split('.')[0] + ext)
 
                         with open(out_file, 'wb') as f:
                             f.write(urllib.urlopen(self.attachmentURL).read())
