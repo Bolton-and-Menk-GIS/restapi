@@ -146,12 +146,9 @@ class AdminRESTEndpoint(object):
         usr -- username credentials for ArcGIS Server
         pw -- password credentials for ArcGIS Server
         token -- token to handle security (alternative to usr and pw)
-
-    Note:
-        If using Microsft ARR (Application Request Routing) as a load balancer for services,you
-        may need to append an 'ARRAffinity' cookie to the self._cookie or the self.token attribute.
     """
     def __init__(self, url, usr='', pw='', token=''):
+        # validate url
         self.url = 'http://' + url.rstrip('/') if not url.startswith('http') \
                     and 'localhost' not in url.lower() else url.rstrip('/')
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
@@ -160,6 +157,7 @@ class AdminRESTEndpoint(object):
                 self.url = _fixer.lower()
             else:
                 RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
+        self.url = self.url.replace('/services//', '/services/') # cannot figure out where extra / is coming from in service urls
         params = {'f': 'json'}
         self.token = token
         if not self.token:
@@ -182,7 +180,7 @@ class AdminRESTEndpoint(object):
             elif isinstance(self.token, basestring):
                 params['token'] = self.token
             else:
-                raise IOError('Token <{}> of {} must be Token object or String!'.format(self.token, type(self.token)))
+                raise TypeError('Token <{}> of {} must be Token object or String!'.format(self.token, type(self.token)))
 
         self.raw_response = requests.post(self.url, params, verify=False)
         self.elapsed = self.raw_response.elapsed
@@ -1537,7 +1535,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         for f in self.folders:
             folder = Folder(self._servicesURL + '/{}'.format(f), token=self.token)
             for service in folder.list_services():
-                services.append('{}/{}/{}'.format(self._servicesURL, folder, service))
+                services.append('/'.join(map(str, [self._servicesURL, folder, service])))
 
         return services
 
