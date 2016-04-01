@@ -11,7 +11,7 @@ from collections import namedtuple
 from .. import requests
 from ..rest_utils import Token, mil_to_date, date_to_mil, namedTuple, objectize, RequestError, IdentityManager, _print_info
 from .decorator import decorator
-from .bunch import *
+from .munch import *
 
 # Globals
 BASE_PATTERN = '*:*/arcgis/admin*'
@@ -78,7 +78,7 @@ def POST(service, params={'f': 'json'}, token='', ret_json=True):
     token -- token to handle security (only required if security is enabled)
     ret_json -- return the response as JSON.  Default is True.
     """
-    if isinstance(params, Bunch):
+    if isinstance(params, Munch):
         params = params.toDict()
 
     for pName, p in params.iteritems():
@@ -261,36 +261,43 @@ class BaseDirectory(AdminRESTEndpoint):
         params = {'principal': principal, 'permission': permission}
         return POST(query_url, params, token=self.token)
 
-class Report(object):
-    """Report Object"""
+    def report(self):
+        """generate a report for resource"""
+        return [Report(r) for r in POST(self.url + '/report', token=self.token)['reports']]
+
+class BaseResource(object):
     def __init__(self, kwargs):
-        """kwargs -- JSON report response"""
-        for k,v in kwargs.iteritems():
-            setattr(self, k, v)
-        objectize(self, '_json')
-        self._json = kwargs
+        self.json = munchify(kwargs)
 
-    def asJSON(self):
-        """get Report back to JSON"""
-        return self._json
+    def __getattr__(self, name):
+        """get normal class attributes and json abstraction at object level"""
+        try:
+            # it is a class attribute
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            # it is in the json definition
+            if name in self.json:
+                return self.json[name]
+            else:
+                raise AttributeError(name)
 
-class ClusterMachine(object):
-    """Machine object"""
-    def __init__(self, **kwargs):
-        """kwargs -- JSON report response"""
-        for k,v in kwargs.iteritems():
-            setattr(self, k, v)
+    def __repr__(self):
+        """present as JSON"""
+        return '<%s>: %s' %(self.__class__.__name__, json.dumps(self.json, indent=4))
 
-        self._json = kwargs
+class Report(BaseResource):
+    pass
 
-    def asJSON(self):
-        """get machine back as JSON"""
-        return self._json
+class ClusterMachine(BaseResource):
+    pass
+
+class Permission(BaseResource):
+    pass
 
 class SSLCertificate(AdminRESTEndpoint):
     """class to handle SSL Certificate"""
     def __init__(self, url, usr='', pw='', token=''):
-        super(Machine, self).__init__(url, usr, pw, token)
+        super(SSLCertificate, self).__init__(url, usr, pw, token)
 
         for k,v in self.response:
             setattr(self, k, v)
@@ -303,14 +310,7 @@ class Machine(AdminRESTEndpoint):
         for k,v in self.response:
             setattr(self, k, v)
 
-class DataItem(object):
-    """Data Item object"""
-    def __init__(self, kwargs):
-        """kwargs = JSON report response"""
-        for k,v in kwargs.iteritems():
-            setattr(self, k, v)
-        objectize(self, '_json')
-        self._json = kwargs
+class DataItem(BaseResource):
 
     @passthrough
     def makePrimary(self, machineName):
@@ -330,23 +330,7 @@ class DataItem(object):
             machineName -- name of machine to validate data store against
         """
         query_url = self.url + '/machines/{}/validate'.format(machineName)
-        return POST(query_url, token=self.token)
-
-    def asJSON(self):
-        """get Report back to JSON"""
-        return {k:v for k,v in self._json.iteritems() if k != 'url'}
-
-class Permission(object):
-    """Permission Object"""
-    def __init__(self, kwargs):
-        for k,v in kwargs.iteritems():
-            setattr(self, k, v)
-        objectize(self)
-        self._json = kwargs
-
-    def asJSON(self):
-        """get object back to JSON"""
-        return self._json
+        return POST(query_url)
 
 class Item(AdminRESTEndpoint):
     """ This resource represents an item that has been uploaded to the server. Various
@@ -1114,12 +1098,6 @@ class Folder(BaseDirectory):
         params = {'description': description, 'webEncrypted': webEncrypted}
         return POST(query_url, params, token=self.token)
 
-    def report(self):
-        """return a list of service report object"""
-
-        reps = POST(self.url + '/report', token=self.token)['reports']
-        return [Report(rep) for rep in reps]
-
     def __getitem__(self, i):
         """get service by index"""
         return self.services[i]
@@ -1148,14 +1126,16 @@ class Service(BaseDirectory):
     token = None
     fullName = None
     elapsed = None
+    serviceName = None
     _permissionsURL = None
     json = {}
 
-    def __init__(self, url, usr='', pw='', token=None):
+    def __init__(self, url, usr='', pw='', token=''):
         """initialize with json definition plus additional attributes"""
         super(Service, self).__init__(url, usr, pw, token)
         self.json = self.response
-        self.fullName = '.'.join([self.serviceName, self.type])
+        self.fullName = self.url.split('/')[-1]
+        self.serviceName = self.fullName.split('.')[0]
 
     @property
     def enabledExtensions(self):
@@ -1170,7 +1150,7 @@ class Service(BaseDirectory):
     @property
     def status(self):
         """return status JSON object for service"""
-        return bunchify(POST(self.url + '/status', token=self.token))
+        return munchify(POST(self.url + '/status', token=self.token))
 
     @passthrough
     def enableExtensions(self, extensions):
@@ -1253,6 +1233,15 @@ class Service(BaseDirectory):
         else:
             print('"{}" is already stopped!'.format(self.fullName))
         return r
+
+    @passthrough
+    def restart(self):
+        """restarts the service"""
+        verb = VERBOSE
+        VERBOSE = False
+        self.stop()
+        self.start()
+        return {'status': 'success'}
 
     @passthrough
     def edit(self, serviceJSON={}, **kwargs):
@@ -1359,7 +1348,7 @@ class Service(BaseDirectory):
     def asJSON(self):
         """override to unbunchify self.json if any changes have been made, call
         self.response to get last response from server"""
-        return unbunchify(self.json)
+        return unmunchify(self.json)
 
     #**********************************************************************************
     #
@@ -1422,8 +1411,8 @@ class Service(BaseDirectory):
     def __setattr__(self, name, value):
         """properly set attributes for class as well as json abstraction"""
         # make sure our value is a Bunch if dict
-        if isinstance(value, dict) and name != 'response':
-            value = bunchify(value)
+        if isinstance(value, (dict, list)) and name != 'response':
+            value = munchify(value)
         try:
             # set existing class property, check if it exists first
             object.__getattribute__(self, name)
@@ -1472,6 +1461,10 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     #----------------------------------------------------------------------
     # general methods and properties
+    @property
+    def machines(self):
+        """return machines"""
+        return munchify(POST(self._machinesURL, token=self.token))
 
     @property
     def clusters(self):
@@ -1545,7 +1538,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             yield self.service(serviceName)
 
     def rehydrateServices(self):
-        """reloads cached response to get updated service list"""
+        """reloads response to get updated service list"""
         self.refresh()
         return self.list_services()
 
@@ -1634,7 +1627,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             clusterName -- name of cluster
         """
         query_url = self._clusterURL + '/{}/machines'.format(clusterName)
-        return [ClusterMachine(**r) for r in POST(query_url, token=self.token)]
+        return [ClusterMachine(r) for r in POST(query_url, token=self.token)]
 
     def getServicesInCluster(self, clusterName):
         """get a list of all services in a cluster

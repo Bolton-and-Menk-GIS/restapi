@@ -51,6 +51,7 @@ JSON_CODE = {v:k for k,v in JSON_DICT.iteritems()}
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 BASE_PATTERN = 'http*://*/rest/services*'
 USER_AGENT = 'restapi (Python)'
+PROTOCOL = ''
 
 # WKID json files
 try:
@@ -160,6 +161,8 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, p
         proxy -- option to use proxy page to handle security, need to provide
             full path to proxy url.
     """
+    if PROTOCOL != '':
+        service = '{}://{}'.format(PROTOCOL, service.split('://')[-1])
     if not cookies and not proxy:
         if not token:
             token = ID_MANAGER.findToken(service)
@@ -306,7 +309,9 @@ def mil_to_date(mil):
     elif mil < 0:
         return datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=(mil/1000))
     else:
-        return datetime.datetime.utcfromtimestamp(mil / 1000)
+        # safely cast, to avoid being out of range for platform local time
+        struct = time.gmtime(mil /1000.0)
+        return datetime.datetime.fromtimestamp(time.mktime(struct))
 
 def date_to_mil(date=None):
     """converts datetime.datetime() object to milliseconds
@@ -608,6 +613,8 @@ def generate_token(url, user='', pw='', expiration=60):
     infoResp = POST(infoUrl)
     if 'authInfo' in infoResp and 'tokenServicesUrl' in infoResp['authInfo']:
         base = infoResp['authInfo']['tokenServicesUrl']
+        setattr(sys.modules[__name__], 'PROTOCOL', base.split('://')[0])
+        print('set PROTOCOL to "{}" from generate token'.format(PROTOCOL))
         shortLived = infoResp['authInfo']['shortLivedTokenValidity']
     else:
         base = url.split('/rest')[0] + '/tokens'
@@ -619,7 +626,7 @@ def generate_token(url, user='', pw='', expiration=60):
               'client': 'requestip',
               'expiration': min([expiration, shortLived])}
 
-    resp = requests.post(url=base, data=params).json()
+    resp = POST(base, params)
     resp['domain'] = base.split('/tokens')[0].lower() + '/rest/services'
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
@@ -1193,7 +1200,10 @@ class RESTEndpoint(object):
             full path to proxy url.
     """
     def __init__(self, url, usr='', pw='', token='', proxy=None):
-        self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
+        if PROTOCOL:
+            self.url = PROTOCOL + '://' + url.rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
+        else:
+            self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _plus_services = self.url + '/arcgis/rest/services'
             if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
@@ -1352,6 +1362,7 @@ class BaseMapService(RESTEndpoint):
     def __init__(self, url, usr='', pw='', token='', proxy=None):
         super(BaseMapService, self).__init__(url, usr, pw, token, proxy)
 
+        self.name = self.url.split('/')[-2]
         self.layers = []
         self.tables = []
         if 'layers' in self.response:
@@ -2057,6 +2068,7 @@ class BaseImageService(RESTEndpoint):
     """Class to handle Image service and requests"""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
         super(BaseImageService, self).__init__(url, usr, pw, token, proxy)
+        self.name = self.url.split('/')[-2]
 
         for k, v in self.response.iteritems():
             if k != 'spatialReference':
@@ -2105,6 +2117,7 @@ class GeocodeService(RESTEndpoint):
                 full path to proxy url.
         """
         super(GeocodeService, self).__init__(url, usr, pw, token, proxy)
+        self.name = self.url.split('/')[-2]
 
         self.locators = []
         for key, value in self.response.iteritems():
@@ -2250,6 +2263,7 @@ class GPService(RESTEndpoint):
                 full path to proxy url.
         """
         super(GPService, self).__init__(url, usr, pw, token, proxy)
+        self.name = self.url.split('/')[-2]
 
         for key, value in self.response.iteritems():
             setattr(self, key, value)
@@ -2278,6 +2292,7 @@ class GPTask(RESTEndpoint):
                 full path to proxy url.
         """
         super(GPTask, self).__init__(url, usr, pw, token, proxy)
+        self.name = self.url.split('/')[-2]
 
         for key,value in self.response.iteritems():
             if key != 'parameters':
@@ -2341,7 +2356,6 @@ class GPTask(RESTEndpoint):
         params_json['f'] = 'json'
         r = POST(gp_exe_url, params_json, ret_json=False, cookies=self._cookie)
         gp_elapsed = r.elapsed
-
 
         # get result object as JSON
         res = r.json()
