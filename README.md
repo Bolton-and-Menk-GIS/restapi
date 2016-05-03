@@ -323,6 +323,27 @@ ags = restapi.ArcServer(url, token=token)  # uses a token that is already active
 #   this will forward all subsequent requests through the proxy
 ags = restapi.ArcServer(url, proxy='http://some-domain.com/proxy.ashx')
 ````
+
+You can even just generate a token and let the IdentityManager handle the rest.  It is even smart enough to handle multiple tokens for different sites:
+
+```py
+# login to instance 1
+usr = 'username'
+pw = 'password'
+
+# urls to two different ArcGIS Server sites
+url_1 = 'http://some-domain.com/arcserver1/rest/services'
+url_2 = 'http://domain2.com/arcgis/rest/services'
+
+# generate tokens
+tok1 = restapi.generate_token(url_1, usr, pw)
+tok2 = restapi.generate_token(url_2, usr, pw)
+
+# now we should be able to access both ArcGIS Server sites via the IdentityManager
+arcserver1 = restapi.ArcServer(url_1) # tok1 is automatically passed in and handled
+arcserver2 = restapi.ArcServer(url_2) # tok2 is used here
+```
+
 The admin Subpackage
 --------------------
 
