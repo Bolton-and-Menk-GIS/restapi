@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 
-tester.py
+/tester.py
 
 # C extensions
 *.so
