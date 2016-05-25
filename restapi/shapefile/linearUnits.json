@@ -1,0 +1,254 @@
+{
+  "150KilometerLength": {
+    "alias": "150 Kilometer Length", 
+    "wkid": "109031"
+  }, 
+  "50KilometerLength": {
+    "alias": "50 Kilometer Length", 
+    "wkid": "109030"
+  }, 
+  "ArcMinute": {
+    "alias": "Arc-minute", 
+    "wkid": "9103"
+  }, 
+  "ArcMinuteCentesimal": {
+    "alias": "Centesimal arc-minute", 
+    "wkid": "9112"
+  }, 
+  "ArcSecond": {
+    "alias": "Arc-second", 
+    "wkid": "9104"
+  }, 
+  "ArcSecondCentesimal": {
+    "alias": "Centesimal arc-second", 
+    "wkid": "9113"
+  }, 
+  "Benoit1895A_Chain": {
+    "alias": "Chain (Benoit 1895 A)", 
+    "wkid": "9052"
+  }, 
+  "Benoit1895A_Foot": {
+    "alias": "Foot (Benoit 1895 A)", 
+    "wkid": "9051"
+  }, 
+  "Benoit1895A_Link": {
+    "alias": "Link (Benoit 1895 A)", 
+    "wkid": "9053"
+  }, 
+  "Benoit1895A_Yard": {
+    "alias": "Yard (Benoit 1895 A)", 
+    "wkid": "9050"
+  }, 
+  "Benoit1895B_Chain": {
+    "alias": "Chain (Benoit 1895 B)", 
+    "wkid": "9062"
+  }, 
+  "Benoit1895B_Foot": {
+    "alias": "Foot (Benoit 1895 B)", 
+    "wkid": "9061"
+  }, 
+  "Benoit1895B_Link": {
+    "alias": "Link (Benoit 1895 B)", 
+    "wkid": "9063"
+  }, 
+  "Benoit1895B_Yard": {
+    "alias": "Yard (Benoit 1895 B)", 
+    "wkid": "9060"
+  }, 
+  "British1936Foot": {
+    "alias": "British Foot (1936)", 
+    "wkid": "9095"
+  }, 
+  "Centimeter": {
+    "alias": "Centimeter", 
+    "wkid": "109006"
+  }, 
+  "ClarkeChain": {
+    "alias": "Chain (Clarke's ratio)", 
+    "wkid": "9038"
+  }, 
+  "ClarkeFoot": {
+    "alias": "Clarke's foot", 
+    "wkid": "9005"
+  }, 
+  "ClarkeLink": {
+    "alias": "Link (Clarke's ratio)", 
+    "wkid": "9039"
+  }, 
+  "ClarkeYard": {
+    "alias": "Yard (Clarke's ratio)", 
+    "wkid": "9037"
+  }, 
+  "Decimeter": {
+    "alias": "Decimeter", 
+    "wkid": "109005"
+  }, 
+  "Degree": {
+    "alias": "Degree", 
+    "wkid": "9102"
+  }, 
+  "Fathom": {
+    "alias": "Fathom", 
+    "wkid": "9014"
+  }, 
+  "Foot": {
+    "alias": "International foot", 
+    "wkid": "9002"
+  }, 
+  "Foot1865": {
+    "alias": "Foot (1865)", 
+    "wkid": "9070"
+  }, 
+  "GermanMeter": {
+    "alias": "German legal meter", 
+    "wkid": "9031"
+  }, 
+  "GoldCoastFoot": {
+    "alias": "Gold Coast Foot", 
+    "wkid": "9094"
+  }, 
+  "Gon": {
+    "alias": "Gon", 
+    "wkid": "9106"
+  }, 
+  "Grad": {
+    "alias": "Grad", 
+    "wkid": "9105"
+  }, 
+  "Indian1937Foot": {
+    "alias": "Indian foot (1937)", 
+    "wkid": "9081"
+  }, 
+  "Indian1937Yard": {
+    "alias": "Indian yard (1937)", 
+    "wkid": "9085"
+  }, 
+  "Indian1962Foot": {
+    "alias": "Indian foot (1962)", 
+    "wkid": "9082"
+  }, 
+  "Indian1962Yard": {
+    "alias": "Indian yard (1962)", 
+    "wkid": "9086"
+  }, 
+  "Indian1975Foot": {
+    "alias": "Indian foot (1975)", 
+    "wkid": "9083"
+  }, 
+  "Indian1975Yard": {
+    "alias": "Indian yard (1975)", 
+    "wkid": "9087"
+  }, 
+  "IndianFoot": {
+    "alias": "Indian geodetic foot", 
+    "wkid": "9080"
+  }, 
+  "IndianYard": {
+    "alias": "Indian yard", 
+    "wkid": "9084"
+  }, 
+  "InternationalChain": {
+    "alias": "International Chain", 
+    "wkid": "9097"
+  }, 
+  "InternationalInch": {
+    "alias": "International inch", 
+    "wkid": "109008"
+  }, 
+  "InternationalLink": {
+    "alias": "International Link", 
+    "wkid": "9098"
+  }, 
+  "InternationalRod": {
+    "alias": "International rod", 
+    "wkid": "109010"
+  }, 
+  "InternationalYard": {
+    "alias": "International Yard", 
+    "wkid": "9096"
+  }, 
+  "Kilometer": {
+    "alias": "Kilometer", 
+    "wkid": "9036"
+  }, 
+  "Meter": {
+    "alias": "International meter", 
+    "wkid": "9001"
+  }, 
+  "Microradian": {
+    "alias": "Microradian", 
+    "wkid": "9109"
+  }, 
+  "Mil6400": {
+    "alias": "Mil", 
+    "wkid": "9114"
+  }, 
+  "Millimeter": {
+    "alias": "Millimeter", 
+    "wkid": "109007"
+  }, 
+  "NauticalMile": {
+    "alias": "International nautical mile", 
+    "wkid": "9030"
+  }, 
+  "Radian": {
+    "alias": "Radian", 
+    "wkid": "9101"
+  }, 
+  "SearsChain": {
+    "alias": "Chain (Sears)", 
+    "wkid": "9042"
+  }, 
+  "SearsFoot": {
+    "alias": "Sears' foot", 
+    "wkid": "9041"
+  }, 
+  "SearsLink": {
+    "alias": "Link (Sears)", 
+    "wkid": "9043"
+  }, 
+  "SearsYard": {
+    "alias": "Yard (Sears)", 
+    "wkid": "9040"
+  }, 
+  "StatuteMile": {
+    "alias": "Statute Mile", 
+    "wkid": "9093"
+  }, 
+  "SurveyChain": {
+    "alias": "US survey chain", 
+    "wkid": "9033"
+  }, 
+  "SurveyFoot": {
+    "alias": "US survey foot", 
+    "wkid": "9003"
+  }, 
+  "SurveyLink": {
+    "alias": "US survey link", 
+    "wkid": "9034"
+  }, 
+  "SurveyMile": {
+    "alias": "US survey mile", 
+    "wkid": "9035"
+  }, 
+  "SurveyYard": {
+    "alias": "US survey Yard", 
+    "wkid": "109002"
+  }, 
+  "UKNauticalMile": {
+    "alias": "UK nautical mile (pre-1970)", 
+    "wkid": "109013"
+  }, 
+  "USNauticalMile": {
+    "alias": "US nautical mile (pre-1954)", 
+    "wkid": "109012"
+  }, 
+  "USsurveyInch": {
+    "alias": "US survey inch", 
+    "wkid": "109009"
+  }, 
+  "USsurveyRod": {
+    "alias": "US survey rod", 
+    "wkid": "109011"
+  }
+}

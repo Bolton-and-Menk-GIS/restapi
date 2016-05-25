@@ -28,6 +28,11 @@ __website__ = 'https://github.com/Bolton-and-Menk-GIS/restapi'
 __version__ = '0.1'
 __package__ = 'restapi'
 __documentation__ = 'http://gis.bolton-menk.com/restapi-documentation/restapi-module.html'
+__keywords__ = ['rest', 'arcgis-server', 'requests', 'http', 'administration', 'rest-services']
+__description__ = 'Python API for working with ArcGIS REST API. This package has been designed to ' + \
+    'work with arcpy or open source and does not require arcpy. It will try to use arcpy if available ' + \
+    'for some data conversions, otherwise will use open source options. Also included is a subpackage ' + \
+    'for administering ArcGIS Server Sites.'
 
 def getHelp():
     """call this function to open help documentation in a new tab"""

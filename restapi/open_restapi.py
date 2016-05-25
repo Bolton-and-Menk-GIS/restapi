@@ -388,13 +388,13 @@ class Geometry(object):
                 if not self.JSON:
                     if 'rings' in geometry:
                         self.JSON['rings'] = [geometry['rings']]
-                        self.geometryType = JSON_DICT['rings']
+                        self.geometryType = GEOM_DICT['rings']
                     elif 'paths' in geometry:
                         self.JSON['paths'] = [geometry['paths']]
-                        self.geometryType = JSON_DICT['paths']
+                        self.geometryType = GEOM_DICT['paths']
                     elif 'points' in geometry:
                         self.JSON['points'] = [geometry['points']]
-                        self.geometryType = JSON_DICT['points']
+                        self.geometryType = GEOM_DICT['points']
                     elif 'x' in geometry and 'y' in geometry:
                         self.JSON['x'] = geometry['x']
                         self.JSON['y'] = geometry['y']

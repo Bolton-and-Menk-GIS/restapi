@@ -8,10 +8,12 @@ import collections
 import urllib
 import time
 import json
+import copy
 import os
 import sys
 from itertools import izip_longest
 from collections import namedtuple, OrderedDict
+from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 
 # esri fields
 OID = 'esriFieldTypeOID'
@@ -41,13 +43,13 @@ G_DICT = {'esriGeometryPolygon': 'Polygon',
           'esriGeometryMultipoint': 'Multipoint',
           'esriGeometryEnvelope':'Envelope'}
 
-JSON_DICT = {'rings': 'esriGeometryPolygon',
+GEOM_DICT = {'rings': 'esriGeometryPolygon',
              'paths': 'esriGeometryPolyline',
              'points': 'esriGeometryMultipoint',
              'x': 'esriGeometryPoint',
              'y': 'esriGeometryPoint'}
 
-JSON_CODE = {v:k for k,v in JSON_DICT.iteritems()}
+GEOM_CODE = {v:k for k,v in GEOM_DICT.iteritems()}
 FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
 BASE_PATTERN = 'http*://*/rest/services*'
 USER_AGENT = 'restapi (Python)'
@@ -63,6 +65,16 @@ except:
 PROJECTIONS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projections.json')).read())
 PRJ_NAMES = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_names.json')).read())
 PRJ_STRINGS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_strings.json')).read())
+GTFS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'gtf.json')).read())
+LINEAR_UNITS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'linearUnits.json')).read())
+
+# Constants list for import *
+CONSTANTS = ['OID', 'SHAPE', 'GLOBALID', 'FTYPES', 'G_DICT', 'GEOM_DICT', 'GEOM_CODE', 'PROJECTIONS',
+             'PRJ_NAMES', 'PRJ_STRINGS', 'GTFS', 'LINEAR_UNITS']
+
+# disable ssl warnings (we are not verifying certs...maybe should look at trying to auto verify ssl in future)
+for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
+    requests.packages.urllib3.disable_warnings(warning)
 
 class IdentityManager(object):
     """Identity Manager for secured services.  This will allow the user to only have
@@ -310,8 +322,12 @@ def mil_to_date(mil):
         return datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=(mil/1000))
     else:
         # safely cast, to avoid being out of range for platform local time
-        struct = time.gmtime(mil /1000.0)
-        return datetime.datetime.fromtimestamp(time.mktime(struct))
+        try:
+            struct = time.gmtime(mil /1000.0)
+            return datetime.datetime.fromtimestamp(time.mktime(struct))
+        except Exception as e:
+            print(mil)
+            raise e
 
 def date_to_mil(date=None):
     """converts datetime.datetime() object to milliseconds
@@ -886,8 +902,8 @@ class GPResult(object):
 
 class GeocodeResult(object):
     """class to handle Reverse Geocode Result"""
-    __slots__ = ['response', 'spatialReference','Result', 'type',
-                'candidates', 'locations', 'address', 'results']
+    __slots__ = ['response', 'spatialReference', 'type', 'candidates',
+                'locations', 'address', 'results', 'result', 'Result']
 
     def __init__(self, res_dict, geo_type):
         """geocode response object
@@ -899,20 +915,28 @@ class GeocodeResult(object):
         RequestError(res_dict)
         self.response = res_dict
         self.type = 'esri_' + geo_type
-        self.spatialReference = None
         self.candidates = []
         self.locations = []
         self.address = []
-        if 'spatialReference' in self.response:
-            self.spatialReference = self.response['spatialReference']
+        try:
+            sr_dict = self.response['location']['spatialReference']
+            wkid = sr_dict.get('latestWkid', None)
+            if wkid is None:
+                wkid = sr_dict.get('wkid', None)
+            self.spatialReference = wkid
+        except:
+            self.spatialReference = None
 
         if self.type == 'esri_reverseGeocode':
             addr_dict = {}
-            self.spatialReference = self.response['location']['spatialReference']
-            loc = self.response['location']
-            addr_dict['location'] = {'x': loc['x'], 'y': loc['y']}
+            addr_dict['location'] = self.response['location']
             addr_dict['attributes'] = self.response['address']
-            addr_dict['address'] = self.response['address']['Address']
+            address = self.response['address'].get('Address', None)
+            if address is None:
+                add = self.response['address']
+                addr_dict['address'] = ' '.join(filter(None, [add.get('Street'), add.get('City'), add.get('ZIP')]))
+            else:
+                addr_dict['address'] = address
             addr_dict['score'] = None
             self.address.append(addr_dict)
 
@@ -946,15 +970,26 @@ class GeocodeResult(object):
             elif self.type == 'esri_geocodeAddresses':
                 self.locations = self.response['locations']
 
-        self.Result = collections.namedtuple('GeocodeResult_result',
-                                        'address attributes location score')
+        defaults = 'address attributes location score'
+        self.Result = collections.namedtuple('GeocodeResult_result', defaults)
+
+
     @property
     def results(self):
         """returns list of result objects"""
+        gc_results = self.address + self.candidates + self.locations
         results = []
-        for res in self.address + self.candidates + self.locations:
+        for res in gc_results:
             results.append(self.Result(*[v for k,v in sorted(res.items())]))
         return results
+
+    @property
+    def result(self):
+        """returns the top result"""
+        try:
+            return self.results[0]
+        except IndexError:
+            return None
 
     def __getitem__(self, index):
         """allows for indexing of results"""
@@ -1030,6 +1065,7 @@ class BaseCursor(object):
         self.url = url
         self.token = token
         self.records = records
+        self.feature_set = {}
         layer_info = POST(self.url, token=self.token)
         self._all_fields = [Field(f) for f in layer_info['fields']]
         self.field_objects_string = fix_fields(self.url, fields, self.token)
@@ -1086,10 +1122,8 @@ class BaseCursor(object):
             raise ValueError(self.response['error']['message'])
 
         # fix date format in milliseconds to datetime.datetime()
-        self.date_indices = []
-        for f in self.field_objects:
-            if f.type == 'esriFieldTypeDate':
-                self.date_indices.append(f.name)
+        self.feature_set = copy.deepcopy(self.response)
+        self.date_indices = [f.name for f in self.field_objects if f.type == 'esriFieldTypeDate']
         if self.date_indices:
             for att in self.response['features']:
                 for field_name in self.date_indices:
@@ -1536,6 +1570,64 @@ class BaseMapServiceLayer(RESTEndpoint):
             add_params[k] = v
         return query(self.url, flds, where, add_params, token=self.token)
 
+    def select_by_location(self, geometry, geometryType='', inSR='', spatialRel='esriSpatialRelIntersects', distance=0, units='esriSRUnit_Meter', add_params={}, **kwargs):
+        """Selects features by location of a geometry, returns a feature set
+
+        Required:
+            geometry -- geometry as JSON
+
+        Optional:
+            geometryType -- type of geometry object, this can be gleaned automatically from the geometry input
+            inSR -- input spatial reference
+            spatialRel -- spatial relationship applied on the input geometry when performing the query operation
+            distance -- distance for search
+            units -- units for distance, only used if distance > 0 and if supportsQueryWithDistance is True
+            add_params -- dict containing any other options that will be added to the query
+            kwargs -- keyword args to add to the query
+
+
+        Spatial Relationships:
+            esriSpatialRelIntersects | esriSpatialRelContains | esriSpatialRelCrosses | esriSpatialRelEnvelopeIntersects | esriSpatialRelIndexIntersects
+            | esriSpatialRelOverlaps | esriSpatialRelTouches | esriSpatialRelWithin | esriSpatialRelRelation
+
+        Unit Options:
+            esriSRUnit_Meter | esriSRUnit_StatuteMile | esriSRUnit_Foot | esriSRUnit_Kilometer | esriSRUnit_NauticalMile | esriSRUnit_USNauticalMile
+        """
+        if isinstance(geometry, basestring):
+            geometry = json.loads(geometry)
+
+        if not geometryType:
+            for key,gtype in GEOM_DICT.iteritems():
+                if key in geometry:
+                    geometryType = gtype
+                    break
+
+        if 'spatialReference' in geometry:
+            sr_dict = geometry['spatialReference']
+            inSR = sr_dict.get('latestWkid') if sr_dict.get('latestWkid') else sr_dict.get('wkid')
+
+        params = {'geometry': geometry,
+                  'geometryType': geometryType,
+                  'spatialRel': spatialRel,
+                  'inSR': inSR,
+            }
+
+        if int(distance):
+            params['distance'] = distance
+            params['units'] = units
+
+        # add additional params
+        for k,v in add_params.iteritems():
+            if k not in params:
+                params[k] = v
+
+        # add kwargs
+        for k,v in kwargs.iteritems():
+            if k not in params:
+                params[k] = v
+
+        return self.query(add_params=params)
+
     def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
 
@@ -1626,7 +1718,7 @@ class BaseMapServiceLayer(RESTEndpoint):
                             out_file = os.path.join(out_path, name.split('.')[0] + ext)
 
                         with open(out_file, 'wb') as f:
-                            f.write(urllib.urlopen(self.attachmentURL).read())
+                            f.write(urllib.urlopen(self.url).read())
 
                         if verbose:
                             print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
@@ -2199,17 +2291,19 @@ class GeocodeService(RESTEndpoint):
 
         return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
-    def reverseGeocode(self, x, y, distance=100, outSR=4326, returnIntersection=False):
+    def reverseGeocode(self, location, distance=100, outSR=4326, returnIntersection=False, langCode='eng'):
         """reverse geocodes an address by x, y coordinates
 
         Required:
-            x -- longitude, x-coordinate
-            y -- latitude, y-coordinate
+            location -- input point object as JSON
             distance -- distance in meters from given location which a matching address will be found
             outSR -- wkid for output address
+
+        Optional:
+            langCode -- optional language code, default is eng (only used for StreMap Premium locators)
         """
         geo_url = self.url + '/reverseGeocode'
-        params = {'location': '{},{}'.format(x,y),
+        params = {'location': location,
                   'distance': distance,
                   'outSR': outSR,
                   'returnIntersection': str(returnIntersection).lower(),
