@@ -9,9 +9,9 @@ import json
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
-from ..rest_utils import Token, mil_to_date, date_to_mil, namedTuple, objectize, RequestError, IdentityManager, _print_info
+from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager
 from .decorator import decorator
-from .munch import *
+from ..munch import *
 
 # Globals
 BASE_PATTERN = '*:*/arcgis/admin*'
