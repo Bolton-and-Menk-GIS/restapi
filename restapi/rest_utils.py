@@ -16,63 +16,7 @@ import munch
 from itertools import izip_longest
 from collections import namedtuple, OrderedDict
 from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
-
-# esri fields
-OID = 'esriFieldTypeOID'
-SHAPE = 'esriFieldTypeGeometry'
-GLOBALID = 'esriFieldTypeGlobalID'
-
-# dictionaries
-FTYPES = {'esriFieldTypeDate':'DATE',
-          'esriFieldTypeString':'TEXT',
-          'esriFieldTypeSingle':'FLOAT',
-          'esriFieldTypeDouble':'DOUBLE',
-          'esriFieldTypeSmallInteger':'SHORT',
-          'esriFieldTypeInteger':'LONG',
-          'esriFieldTypeGUID':'GUID',
-          'esriFieldTypeGlobalID': 'GUID'}
-
-SKIP_FIELDS = {
-          'esriFieldTypeRaster':'RASTER',
-          'esriFieldTypeBlob': 'BLOB'}
-
-EXTRA ={'esriFieldTypeOID': 'OID@',
-        'esriFieldTypeGeometry': 'SHAPE@'}
-
-G_DICT = {'esriGeometryPolygon': 'Polygon',
-          'esriGeometryPoint': 'Point',
-          'esriGeometryPolyline': 'Polyline',
-          'esriGeometryMultipoint': 'Multipoint',
-          'esriGeometryEnvelope':'Envelope'}
-
-GEOM_DICT = {'rings': 'esriGeometryPolygon',
-             'paths': 'esriGeometryPolyline',
-             'points': 'esriGeometryMultipoint',
-             'x': 'esriGeometryPoint',
-             'y': 'esriGeometryPoint'}
-
-GEOM_CODE = {v:k for k,v in GEOM_DICT.iteritems()}
-FIELD_SCHEMA = collections.namedtuple('FieldSchema', 'name type')
-BASE_PATTERN = 'http*://*/rest/services*'
-USER_AGENT = 'restapi (Python)'
-PROTOCOL = ''
-
-# WKID json files
-try:
-    JSON_PATH = os.path.dirname(__file__)
-except:
-    import sys
-    JSON_PATH = os.path.abspath(os.path.dirname(sys.argv[0]))
-
-PROJECTIONS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projections.json')).read())
-PRJ_NAMES = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_names.json')).read())
-PRJ_STRINGS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'projection_strings.json')).read())
-GTFS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'gtf.json')).read())
-LINEAR_UNITS = json.loads(open(os.path.join(JSON_PATH, 'shapefile', 'linearUnits.json')).read())
-
-# Constants list for import *
-CONSTANTS = ['OID', 'SHAPE', 'GLOBALID', 'FTYPES', 'G_DICT', 'GEOM_DICT', 'GEOM_CODE', 'PROJECTIONS',
-             'PRJ_NAMES', 'PRJ_STRINGS', 'GTFS', 'LINEAR_UNITS']
+from ._strings import *
 
 # disable ssl warnings (we are not verifying certs...maybe should look at trying to auto verify ssl in future)
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
@@ -120,9 +64,12 @@ class IdentityManager(object):
 ID_MANAGER = IdentityManager()
 
 def Field(f_dict={}):
-    """returns a named tuple for lightweight, dynamic Field objects
+    """returns a list of safe field Munch() objects that will
+    always have the following keys:
+        ('name', 'length', 'type', 'domain')
 
-    f_dict -- dictionary containing Field properties
+    Required:
+        f_dict -- dictionary containing Field properties
     """
     # make sure always has at least (name, length, type, domain)
     for attr in ('name', 'length', 'type', 'domain'):
@@ -133,8 +80,11 @@ def Field(f_dict={}):
 
 def namedTuple(name, pdict):
     """creates a named tuple from a dictionary
-    name -- name of namedtuple object
-    pdict -- parameter dictionary that defines the properties"""
+
+    Required:
+        name -- name of namedtuple object
+        pdict -- parameter dictionary that defines the properties
+    """
     class obj(namedtuple(name, sorted(pdict.keys()))):
         """class to handle {}""".format(name)
         __slots__ = ()
@@ -148,11 +98,6 @@ def namedTuple(name, pdict):
     o = obj(**pdict)
     o.__class__.__name__ = name
     return o
-
-def GPParam(p_dict):
-    """object to handle GP Parameter
-    p_dict -- parameter dictionary (JSON)"""
-    return namedTuple('GPParam', p_dict)
 
 def Round(x, base=5):
     """round to nearest n"""
@@ -507,6 +452,7 @@ class RESTEndpoint(object):
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
+        RequestError(self.json)
 
     def refresh(self):
         """refreshes the service"""
@@ -2009,9 +1955,9 @@ class GeocodeService(RESTEndpoint):
             if key in ('addressFields',
                        'candidateFields',
                        'intersectionCandidateFields'):
-                setattr(self, key, [Field(v, 'GeocodeField') for v in value])
+                setattr(self, key, [Field(v) for v in value])
             elif key == 'singleLineAddressField':
-                setattr(self, key, Field(value, 'GeocodeField'))
+                setattr(self, key, Field(value))
             elif key == 'locators':
                 for loc_dict in value:
                     self.locators.append(loc_dict['name'])
@@ -2130,6 +2076,11 @@ class GeocodeService(RESTEndpoint):
 
         return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
+    def __repr__(self):
+        """string representation with service name"""
+        return '<GeocodeService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
+
+
 class GPService(BaseService):
     """GP Service object
 
@@ -2151,15 +2102,15 @@ class GPService(BaseService):
 class GPTask(BaseService):
     """GP Task object
 
-        Required:
-            url -- GP Task url
+    Required:
+        url -- GP Task url
 
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
+    Optional (below params only required if security is enabled):
+        usr -- username credentials for ArcGIS Server
+        pw -- password credentials for ArcGIS Server
+        token -- token to handle security (alternative to usr and pw)
+        proxy -- option to use proxy page to handle security, need to provide
+            full path to proxy url.
      """
 
     @property
@@ -2174,11 +2125,17 @@ class GPTask(BaseService):
 
     @property
     def outputParameter(self):
-        """returns the output parameter (if there is one)"""
+        """returns the first output parameter (if there is one)"""
         try:
-            return [p for p in self.parameters if p.direction == 'esriGPParameterDirectionOutput'][0]
+            return self.outputParameters[0]
         except IndexError:
             return None
+
+    @property
+    def outputParameters(self):
+        """returns list of all output parameters"""
+        return [p for p in self.parameters if p.direction == 'esriGPParameterDirectionOutput']
+
 
     def list_parameters(self):
         """lists the parameter names"""
