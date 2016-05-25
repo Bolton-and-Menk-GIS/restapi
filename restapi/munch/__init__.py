@@ -189,10 +189,10 @@ class Munch(dict):
         return self.toJSON(indent=2, sort_keys=True, ensure_ascii=False)
 
 
-    def __dir__(self):
-        return list(iterkeys(self))
-
-    __members__ = __dir__  # for python2.x compatibility
+##    def __dir__(self):
+##        return list(iterkeys(self))
+##
+##    __members__ = __dir__  # for python2.x compatibility
 
     @staticmethod
     def fromDict(d):

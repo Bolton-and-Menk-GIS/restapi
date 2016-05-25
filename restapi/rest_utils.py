@@ -7,6 +7,7 @@ import datetime
 import collections
 import urllib
 import time
+import codecs
 import json
 import copy
 import os
@@ -118,23 +119,40 @@ class IdentityManager(object):
 # initialize Identity Manager
 ID_MANAGER = IdentityManager()
 
-def Field(f_dict={}, name='Field'):
+def Field(f_dict={}):
     """returns a named tuple for lightweight, dynamic Field objects
 
     f_dict -- dictionary containing Field properties
-    name -- name for Field object"""
+    """
     # make sure always has at least (name, length, type, domain)
     for attr in ('name', 'length', 'type', 'domain'):
         if not attr in f_dict:
             f_dict[attr] = None
 
-    return MunchWrapper(f_dict, name)
+    return munch.munchify(f_dict)
+
+def namedTuple(name, pdict):
+    """creates a named tuple from a dictionary
+    name -- name of namedtuple object
+    pdict -- parameter dictionary that defines the properties"""
+    class obj(namedtuple(name, sorted(pdict.keys()))):
+        """class to handle {}""".format(name)
+        __slots__ = ()
+        def __new__(cls,  **kwargs):
+            return super(obj, cls).__new__(cls, **kwargs)
+
+        def asJSON(self):
+            """return object as JSON"""
+            return {f: getattr(self, f) for f in self._fields}
+
+    o = obj(**pdict)
+    o.__class__.__name__ = name
+    return o
 
 def GPParam(p_dict):
     """object to handle GP Parameter
-
     p_dict -- parameter dictionary (JSON)"""
-    return MuncWrapper(p_dict, 'GPParam')
+    return namedTuple('GPParam', p_dict)
 
 def Round(x, base=5):
     """round to nearest n"""
@@ -189,7 +207,7 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, p
     else:
         if ret_json is True:
             RequestError(r.json())
-            return r.json()
+            return munch.munchify(r.json())
         else:
             return r
 
@@ -319,171 +337,6 @@ def date_to_mil(date=None):
         epoch = datetime.datetime.utcfromtimestamp(0)
         return long((date - epoch).total_seconds() * 1000.0)
 
-def fix_fields(service_lyr, fields, token=''):
-    """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@")
-
-    Required:
-        service_lyr -- full path to url for feature layer
-        fields -- list or comma delimited field list
-        token -- token to handle security (only required if security is enabled)
-    """
-    if fields == '*':
-        return fields
-    if isinstance(fields, list):
-        fields = ','.join(fields)
-    if '@' in fields:
-        _fields = list_fields(service_lyr, token)
-        if 'SHAPE@' in fields:
-            fields = fields.replace('SHAPE@', [f.name for f in _fields if f.type == SHAPE][0])
-        if 'OID@' in fields:
-            fields = fields.replace('OID@', [f.name for f in _fields if f.type == OID][0])
-    return fields
-
-def query(service_lyr, fields='*', where='1=1', add_params={}, ret_form='json', token='', kmz=''):
-    """runs more robust queries against a rest mapservice layer.  extra arguments can be
-    passed in using the add_params dictionary.
-
-    example: http://some_domain/ArcGIS/services/rest/some_folder/some_map_service/43    #43 is layer ID
-
-    Required:
-        service_lyr -- full path to rest endpoint of a mapservice layer ID
-        field -- field or fields separated by comma to be returned from query
-
-    Optional:
-        where -- where clause to return records (ex: "TAX_NAME LIKE '%SMITH%'")
-        add_params -- dictionary with any additional params you want to add
-        ret_form -- default is json.  Return format for results
-        token -- token to handle security (only required if security is enabled)
-
-    list of parameters can be found here:
-        http://resources.arcgis.com/en/help/rest/apiref/
-    """
-    # query endpoint
-    endpoint = '{0}/query'.format(service_lyr)
-
-    # check for tokens (only shape and oid)
-    fields = fix_fields(service_lyr, fields, token)
-
-    # default params
-    params = {'returnGeometry' : 'true', 'outFields' : fields,
-              'where': where, 'f' : ret_form}
-
-    if add_params:
-        for k,v in add_params.iteritems():
-            params[k] = v
-
-    # create kmz file if requested
-    if ret_form == 'kmz':
-        import codecs
-        r = POST(endpoint, params, ret_json=False, token=token)
-        name = POST(service_lyr, token=token)['name']
-        r.encoding = 'zlib_codec'
-
-        # write kmz using codecs
-        if not kmz:
-            kmz = validate_name(os.path.join(os.path.expanduser('~'), 'Desktop', '{}.kmz'.format(name)))
-        with codecs.open(kmz, 'wb') as f:
-            f.write(r.content)
-        print('Created: "{0}"'.format(kmz))
-        return kmz
-    else:
-        r = POST(endpoint, params, token=token)
-        if ret_form == 'json':
-            return r
-    return None
-
-def list_services(service, token='', filterer=True):
-    """returns a list of all services
-
-    Required:
-        service -- full path to a rest services directory
-
-    Optional:
-        token -- token to handle security (only required if security is enabled)
-        filterer -- default is true to exclude "Utilities" and "System" folders,
-            set to false to list all services.
-    """
-    all_services = []
-    r = POST(service, token=token)
-    for s in r['services']:
-        all_services.append('/'.join([service, s['name'], s['type']]))
-    folders = r['folders']
-    if filterer:
-        for fld in ('Utilities', 'System'):
-            try:
-                folders.remove(fld)
-            except: pass
-    for s in folders:
-        new = '/'.join([service, s])
-        endpt = POST(new, token=token)
-        for serv in endpt['services']:
-           all_services.append('/'.join([service, serv['name'], serv['type']]))
-    return all_services
-
-def iter_services(service, token='', filterer=True):
-    """returns a generator for all services
-
-    Required:
-        service -- full path to a rest services directory
-
-    Optional:
-        token -- token to handle security (only required if security is enabled)
-        filterer -- default is true to exclude "Utilities" and "System" folders,
-            set to false to list all services.
-    """
-    r = POST(service, token=token)
-    for s in r['services']:
-        yield '/'.join([service, s['name'], s['type']])
-    folders = r['folders']
-    if filterer:
-        for fld in ('Utilities', 'System'):
-            try:
-                folders.remove(fld)
-            except: pass
-    for s in folders:
-        new = '/'.join([service, s])
-        endpt = POST(new, token=token)
-        for serv in endpt['services']:
-           yield '/'.join([service, serv['name'], serv['type']])
-
-def list_layers(service, token=''):
-    """lists all layers in a mapservice
-
-    Returns a list of field objects with the following properties:
-        name -- name of layer
-        id -- layer id (int)
-        minScale -- minimum scale range at which layer draws
-        maxScale -- maximum scale range at which layer draws
-        defaultVisiblity -- the layer is visible (bool)
-        parentLayerId -- layer id of parent layer if in group layer (int)
-        subLayerIds -- list of id's of all child layers if group layer (list of int's)
-
-    Required:
-        service -- full path to mapservice
-
-    Optional:
-        token -- token to handle security (only required if security is enabled)
-    """
-    r = POST(service, token=token)
-    if 'layers' in r:
-        return [Layer(p) for p in r['layers']]
-    return []
-
-def list_tables(service, token=''):
-    """List all tables in a MapService
-
-    Required:
-        service -- map service url
-
-    Optional:
-        token -- token to handle security (only required if security is enabled)
-    """
-    r = POST(service, token=token)
-    if 'tables' in r:
-        return [Table(p) for p in r['tables']]
-    return []
-
-
 def generate_token(url, user='', pw='', expiration=60):
     """Generates a token to handle ArcGIS Server Security, this is
     different from generating a token from the admin side.  Meant
@@ -522,10 +375,9 @@ def generate_token(url, user='', pw='', expiration=60):
     ID_MANAGER.tokens[token.domain] = token
     return token
 
-
 def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
-    """query all records.  Will iterate through "chunks" of OID's until all
-    records have been returned (grouped by maxRecordCount)
+    """generator to form where clauses to query all records.  Will iterate through "chunks"
+    of OID's until all records have been returned (grouped by maxRecordCount)
 
     *Thanks to Wayne Whitley for the brilliant idea to use itertools.izip_longest()
 
@@ -557,59 +409,172 @@ def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
 
         yield '{0} >= {1} and {0} <= {2}'.format(oid, _min, _max)
 
-def walk(url, filterer=True, token=''):
-    """method to walk through ArcGIS REST Services. ArcGIS Server only supports single
-    folder heiarchy, meaning that there cannot be subdirectories within folders.
+class FeatureSet(object):
+    json = {}
+    def __init__(self, in_json):
+        """class to handle feature set
+
+        Required:
+            in_json -- input json response from request
+        """
+        self.json = munch.munchify(in_json)
+
+    def __getattr__(self, name):
+        """get normal class attributes and those from json response"""
+        try:
+            # it is a class attribute
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            # it is in the json definition, abstract it to the class level
+            if name in self.json:
+                return self.json[name]
+            else:
+                raise AttributeError(name)
+
+    def __iter__(self):
+        for feature in self.features:
+            yield feature
+
+    def __len__(self):
+        return len(self.features)
+
+    def __nonzero__(self):
+        return bool(len(self))
+
+    def __dir__(self):
+        return sorted(self.__class__.__dict__.keys() + self.json.keys())
+
+class RESTEndpoint(object):
+    """Base REST Endpoint Object to handle credentials and get JSON response
 
     Required:
-        url -- url to ArcGIS REST Services directory or folder.
+        url -- service url
 
-
-    Optional:
-        filterer -- will filter Utilities, default is True. If
-          false, will list all services.
-        token -- token to handle security (only required if security is enabled)
-
-    will return tuple of folders and services from the topdown.
-    (root, folders, services) example:
-
-    ags = restapi.ArcServer(url, username, password)
-    for root, folders, services in ags.walk():
-        print root
-        print folders
-        print services
-        print '\n\n'
+    Optional (below params only required if security is enabled):
+        usr -- username credentials for ArcGIS Server
+        pw -- password credentials for ArcGIS Server
+        token -- token to handle security (alternative to usr and pw)
+        proxy -- option to use proxy page to handle security, need to provide
+            full path to proxy url.
     """
-    r = POST(url, token=token)
-    services = []
-    for s in r['services']:
-        services.append('/'.join([s['name'], s['type']]))
-    folders = r['folders']
-    if filterer:
-        for fld in ('Utilities', 'System'):
-            try:
-                folders.remove(fld)
-            except: pass
-    yield (url, folders, services)
+    url = None
+    raw_response = None
+    response = None
+    token = None
+    elapsed = None
+    json = {}
 
-    for f in folders:
-        new = '/'.join([url, f])
-        endpt = POST(new, token=token)
-        services = []
-        for serv in endpt['services']:
-           services.append('/'.join([serv['name'], serv['type']]))
-        yield (f, endpt['folders'], services)
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
+        if PROTOCOL:
+            self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
+        else:
+            self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
+        if not fnmatch.fnmatch(self.url, BASE_PATTERN):
+            _plus_services = self.url + '/arcgis/rest/services'
+            if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
+                self.url = _plus_services
+            else:
+                RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
+        params = {'f': 'json'}
+        self.token = token
+        self._cookie = None
+        self._proxy = proxy
+        if not self.token and not self._proxy:
+            if usr and pw:
+                self.token = generate_token(self.url, usr, pw)
+            else:
+                self.token = ID_MANAGER.findToken(self.url)
+                if isinstance(self.token, Token) and self.token.isExpired:
+                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
+                elif isinstance(self.token, Token) and not self.token.isExpired:
+                    pass
+                else:
+                    self.token = None
+        else:
+            if isinstance(self.token, Token) and self.token.isExpired and self.token.domain in self.url.lower():
+                raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
 
-class MunchWrapper(munch.Munch):
-    def __init__(self, x, name):
-        super(MunchWrapper, self).__init__(x)
-        self.__munch_name = name
+        if self.token:
+            if isinstance(self.token, Token) and self.token.domain.lower() in url.lower():
+                self._cookie = self.token._cookie
+            else:
+                self._cookie = {'agstoken': self.token.token if isinstance(self.token, Token) else self.token}
+        if (not self.token or not self._cookie) and not self._proxy:
+            if self.url in ID_MANAGER.proxies:
+                self._proxy = ID_MANAGER.proxies[self.url]
 
-    def __repr__(self):
-        return "<class '{}'>".format('.'.join([self.__module__, self.__munch_name]))
+        self.raw_response = POST(self.url, params, ret_json=False, cookies=self._cookie, proxy=self._proxy)
+        self.elapsed = self.raw_response.elapsed
+        self.response = self.raw_response.json()
+        self.json = munch.munchify(self.response)
+
+    def refresh(self):
+        """refreshes the service"""
+        self.__init__(self.url, token=self.token)
+
+    def __getitem__(self, name):
+        """dict like access to json definition"""
+        if name in self.json:
+            return self.json[name]
+
+    def __getattr__(self, name):
+        """get normal class attributes and those from json response"""
+        try:
+            # it is a class attribute
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            # it is in the json definition, abstract it to the class level
+            if name in self.json:
+                return self.json[name]
+            else:
+                raise AttributeError(name)
 
     def __str__(self):
-        return self.toJSON(indent=2, sort_keys=True, ensure_ascii=False)
+        return json.dumps(self.json, sort_keys=True, indent=2, ensure_ascii=False)
+
+    def __dir__(self):
+        return sorted(self.__class__.__dict__.keys() + self.json.keys())
+
+class BaseService(RESTEndpoint):
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
+        super(BaseService, self).__init__(url, usr, pw, token, proxy)
+        if 'name' not in self.json:
+            self.name = self.url.split('/')[-2]
+
+    def getSR(self):
+        """return the spatial reference"""
+        resp_d = {}
+        if 'spatialReference' in self.response:
+            resp_d = self.response['spatialReference']
+        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
+            resp_d = self.response['extent']['spatialReference']
+
+        for key in ['latestWkid', 'wkid', 'wkt']:
+            if key in resp_d:
+                return resp_d[key]
+
+    def getWKID(self):
+        """returns the well known id for service spatial reference"""
+        try:
+            return self.spatialReference.get('latestWkid') if self.spatialReference.get('latestWkid') else self.spatialReference.get('wkid')
+        except:
+            return None
+
+    def getWKT(self):
+        """returns the well known text (if it exists) for a service"""
+        try:
+            wkt = self.spatialReference.get('wkt')
+            if wkt is not None:
+                return wkt
+            else:
+                return ''
+        except:
+            return ''
+
+    def __repr__(self):
+        """string representation with service name"""
+        qualified_name = '/'.join([self.url.split('/services/')[-1].split('/' + self.name)[0], self.name])
+        return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
 
 class OrderedDict2(OrderedDict):
     """wrapper for OrderedDict"""
@@ -1040,141 +1005,79 @@ class BaseRow(object):
         else:
             return self.features
 
-class RESTEndpoint(object):
-    """Base REST Endpoint Object to handle credentials and get JSON response
-
-    Required:
-        url -- image service url
-
-    Optional (below params only required if security is enabled):
-        usr -- username credentials for ArcGIS Server
-        pw -- password credentials for ArcGIS Server
-        token -- token to handle security (alternative to usr and pw)
-        proxy -- option to use proxy page to handle security, need to provide
-            full path to proxy url.
-    """
-    url = None
-    raw_response = None
-    response = None
-    token = None
-    elapsed = None
-    json = {}
-
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        if PROTOCOL:
-            self.url = PROTOCOL + '://' + url.rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
-        else:
-            self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
-        if not fnmatch.fnmatch(self.url, BASE_PATTERN):
-            _plus_services = self.url + '/arcgis/rest/services'
-            if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
-                self.url = _plus_services
-            else:
-                RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
-        params = {'f': 'json'}
-        self.token = token
-        self._cookie = None
-        self._proxy = proxy
-        if not self.token and not self._proxy:
-            if usr and pw:
-                self.token = generate_token(self.url, usr, pw)
-            else:
-                self.token = ID_MANAGER.findToken(self.url)
-                if isinstance(self.token, Token) and self.token.isExpired:
-                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
-                elif isinstance(self.token, Token) and not self.token.isExpired:
-                    pass
-                else:
-                    self.token = None
-        else:
-            if isinstance(self.token, Token) and self.token.isExpired and self.token.domain in self.url.lower():
-                raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
-
-        if self.token:
-            if isinstance(self.token, Token) and self.token.domain.lower() in url.lower():
-                self._cookie = self.token._cookie
-            else:
-                self._cookie = {'agstoken': self.token.token if isinstance(self.token, Token) else self.token}
-        if (not self.token or not self._cookie) and not self._proxy:
-            if self.url in ID_MANAGER.proxies:
-                self._proxy = ID_MANAGER.proxies[self.url]
-        self.raw_response = POST(self.url, params, ret_json=False, cookies=self._cookie, proxy=self._proxy)
-        self.elapsed = self.raw_response.elapsed
-        self.response = self.raw_response.json()
-        self.json = self.response
-
-    def refresh(self):
-        """refreshes the service"""
-        self.__init__(self.url, token=self.token)
-
-    def __getitem__(self, name):
-        """dict like access to json definition"""
-        if name in self.json:
-            return self.json[name]
-
-    def __getattr__(self, name):
-        """get normal class attributes and json abstraction at object level"""
-        try:
-            # it is a class attribute
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            # it is in the json definition
-            if name in self.json:
-                return self.json[name]
-            else:
-                raise AttributeError(name)
-
-    def __str__(self):
-        return json.dumps(self.json, sort_keys=True, indent=2, ensure_ascii=False)
-
-    def __dir__(self):
-        return sorted(self.__dict__.keys() + self.json.keys())
-
-
 class BaseArcServer(RESTEndpoint):
     """Class to handle ArcGIS Server Connection"""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
         super(BaseArcServer, self).__init__(url, usr, pw, token, proxy)
-
-        for key, value in self.response.iteritems():
-            if key.lower() not in ('services', 'folders'):
-                setattr(self, key, value)
-        self._services = list_services(self.url, self.token)
-
-    @property
-    def services(self):
-        """list of services"""
-        return self._services
-
-    @property
-    def top_services(self):
-        """list of top directory services (unfolderized)"""
-        if 'services' in self.response:
-            return self.response['services']
-        print('Services not available!')
-        return []
+        self.service_cache = []
 
     @property
     def mapServices(self):
         """list of all MapServer objects"""
-        return [s for s in self.services if s.endswith('MapServer')]
+        if not self.service_cache:
+            self.service_cache = self.list_services()
+        return [s for s in self.service_cache if s.endswith('MapServer')]
 
     @property
-    def folders(self):
-        """list of top directory services (unfolderized)"""
-        if 'folders' in self.response:
-            return self.response['folders']
-        print('Folders not available!')
-        return []
+    def featureServices(self):
+        """list of all MapServer objects"""
+        if not self.service_cache:
+            self.service_cache = self.list_services()
+        return [s for s in self.service_cache if s.endswith('FeatureServer')]
 
-    def list_services(self, exclude_utilities=True):
-        """return list of services
+    @property
+    def imageServices(self):
+        """list of all MapServer objects"""
+        if not self.service_cache:
+            self.service_cache = self.list_services()
+        return [s for s in self.service_cache if s.endswith('ImageServer')]
+
+    @property
+    def gpServices(self):
+        """list of all MapServer objects"""
+        if not self.service_cache:
+            self.service_cache = self.list_services()
+        return [s for s in self.service_cache if s.endswith('GPServer')]
+
+
+    def list_services(self, filterer=True):
+        """returns a list of all services
 
         Optional:
-            exclude_utilities -- default is True, set to False to
-            view System and Utility services
+            filterer -- default is true to exclude "Utilities" and "System" folders,
+                set to false to list all services.
         """
-        return iter_services(self.url, self.token, exclude_utilities)
+        return list(self.iter_services(filterer))
+
+    def iter_services(self, token='', filterer=True):
+        """returns a generator for all services
+
+        Required:
+            service -- full path to a rest services directory
+
+        Optional:
+            token -- token to handle security (only required if security is enabled)
+            filterer -- default is true to exclude "Utilities" and "System" folders,
+                set to false to list all services.
+        """
+        self.service_cache = []
+        for s in self.services:
+            full_service_url = '/'.join([self.url, s['name'], s['type']])
+            self.service_cache.append(full_service_url)
+            yield full_service_url
+        folders = self.folders
+        if filterer:
+            for fld in ('Utilities', 'System'):
+                try:
+                    folders.remove(fld)
+                except: pass
+        for s in folders:
+            new = '/'.join([self.url, s])
+            resp = POST(new, token=self.token)
+            for serv in resp['services']:
+                full_service_url =  '/'.join([self.url, serv['name'], serv['type']])
+                self.service_cache.append(full_service_url)
+                yield full_service_url
 
     def get_service_url(self, wildcard='*', _list=False):
         """method to return a service url
@@ -1211,11 +1114,12 @@ class BaseArcServer(RESTEndpoint):
         return folder_objects
 
     def walk(self, filterer=True):
-        """method to walk through ArcGIS REST Services
+        """method to walk through ArcGIS REST Services. ArcGIS Server only supports single
+        folder heiarchy, meaning that there cannot be subdirectories within folders.
 
         Optional:
             filterer -- will filter Utilities, default is True. If
-            false, will list all services.
+              false, will list all services.
 
         will return tuple of folders and services from the topdown.
         (root, folders, services) example:
@@ -1227,7 +1131,31 @@ class BaseArcServer(RESTEndpoint):
             print services
             print '\n\n'
         """
-        return walk(self.url, filterer, self.token)
+        self.service_cache = []
+        services = []
+        for s in self.services:
+            qualified_service = '/'.join([s['name'], s['type']])
+            full_service_url = '/'.join([self.url, qualified_service])
+            services.append(qualified_service)
+            self.service_cache.append(full_service_url)
+        folders = self.folders
+        if filterer:
+            for fld in ('Utilities', 'System'):
+                try:
+                    folders.remove(fld)
+                except: pass
+        yield (self.url, folders, services)
+
+        for f in folders:
+            new = '/'.join([self.url, f])
+            endpt = POST(new, token=self.token)
+            services = []
+            for serv in endpt['services']:
+                qualified_service = '/'.join([serv['name'], serv['type']])
+                full_service_url = '/'.join([self.url, qualified_service])
+                services.append(qualified_service)
+                self.service_cache.append(full_service_url)
+            yield (f, endpt['folders'], services)
 
     def __iter__(self):
         """returns an generator for services"""
@@ -1235,30 +1163,12 @@ class BaseArcServer(RESTEndpoint):
 
     def __len__(self):
         """returns number of services"""
-        return len(self.services)
+        return len(self.service_cache)
 
-class BaseMapService(RESTEndpoint):
+class BaseMapService(BaseService):
     """Class to handle map service and requests"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        super(BaseMapService, self).__init__(url, usr, pw, token, proxy)
-        self.name = self.url.split('/')[-2]
 
-    @property
-    def spatialReference(self):
-        """return the spatial reference"""
-        resp_d = {}
-        if 'spatialReference' in self.response:
-            resp_d = self.response['spatialReference']
-        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
-            resp_d = self.response['extent']['spatialReference']
-
-        for key in ['latestWkid', 'wkid', 'wkt']:
-            if key in resp_d:
-                return resp_d[key]
-
-        return resp_d if resp_d != {} else ''
-
-    def get_layerID_by_name(self, name, grp_lyr=False):
+    def getLayerIdByName(self, name, grp_lyr=False):
         """gets a mapservice layer ID by layer name from a service (returns an integer)
 
         Required:
@@ -1283,7 +1193,7 @@ class BaseMapService(RESTEndpoint):
         print('No Layer found matching "{0}"'.format(name))
         return None
 
-    def get_layer_url(service, name, token='', grp_lyr=False):
+    def get_layer_url(self, name, grp_lyr=False):
         """returns the fully qualified path to a layer url by pattern match on name,
         will return the first match.
 
@@ -1294,31 +1204,7 @@ class BaseMapService(RESTEndpoint):
             grp_lyr -- default is false, does not return layer ID for group layers.  Set
                 to true to search for group layers too.
         """
-        return '/'.join([service, str(self.get_layerID_by_name(name,grp_lyr))])
-
-    def list_fields(service_lyr, token=''):
-        """lists the field objects from a mapservice layer
-
-        Returns a list of field objects with the following properties:
-            name -- name of field
-            alias -- alias name of field
-            type -- type of field
-            length -- length of field (if applicable, otherwise returns None)
-
-        example:
-        >>> mapservice = 'http://some_domain.com/ArcGIS/rest/services/folder/a_service/MapServer/23'
-        >>> for field in get_field_info(mapservice):
-               print(field.name, field.alias, field.type, field.length)
-
-        Required:
-            service_lyr -- full path to rest endpoint of a mapservice layer ID
-
-        Optional:
-            token -- token to handle security (only required if security is enabled)
-        """
-        try:
-            return [Field(f) for f in POST(service_lyr, token=token)['fields']]
-        except: return []
+        return '/'.join([self.url, str(self.getLayerIdByName(name,grp_lyr))])
 
     def list_layers(self):
         """Method to return a list of layer names in a MapService"""
@@ -1327,16 +1213,6 @@ class BaseMapService(RESTEndpoint):
     def list_tables(self):
         """Method to return a list of layer names in a MapService"""
         return [t.name for t in self.tables]
-
-    def list_fields(self, layer_name):
-        """Method to return field names from a layer"""
-        lyr = get_layer_url(self.url, layer_name, self.token)
-        return [f.name for f in list_fields(lyr, self.token)]
-
-    def get_fields(self, layer_name):
-        """Method to return field objects from a layer"""
-        lyr = get_layer_url(self.url, layer_name, self.token)
-        return list_fields(lyr, self.token)
 
     def getNameFromId(self, lyrID):
         """method to get layer name from ID
@@ -1349,6 +1225,22 @@ class BaseMapService(RESTEndpoint):
     def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png8', transparent=True, **kwargs):
         """exports a map image
 
+        Required:
+            out_image -- full path to output image
+
+        Optional:
+            imageSR -- spatial reference for exported image
+            bbox -- bounding box as comma separated string
+            bboxSR -- spatial reference for bounding box
+            size -- comma separated string for the size of image in pixels. It is advised not to use
+                this parameter and let this method generate it automatically
+            dpi -- output resolution, default is 96
+            format -- image format, default is png8
+            transparent -- option to support transparency in exported image, default is True
+            kwargs -- any additional keyword arguments for export operation (must be supported by REST API)
+
+        Keyword Arguments can be found here:
+            http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Export_Map/02r3000000v7000000/
         """
         query_url = self.url + '/export'
 
@@ -1392,24 +1284,13 @@ class BaseMapService(RESTEndpoint):
 
         return r
 
-    def __repr__(self):
-        """string representation with service name"""
-        return '<MapService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
-
 class BaseMapServiceLayer(RESTEndpoint):
     """Class to handle advanced layer properties"""
     def __init__(self, url='', usr='', pw='', token='', proxy=None):
         super(BaseMapServiceLayer, self).__init__(url, usr, pw, token, proxy)
-
-        for key, value in self.response.iteritems():
-            if key != 'spatialReference':
-                setattr(self, key, value)
-
-        objectize(self, ['fields', 'spatialReference'])
-        self.fields_dict = self.response['fields']
-        if self.fields_dict:
-            self.fields = [Field(f) for f in self.fields_dict]
-        else:
+        try:
+            self.json['fields'] = [Field(f) for f in self.json['fields']]
+        except:
             self.fields = []
 
     @property
@@ -1428,33 +1309,39 @@ class BaseMapServiceLayer(RESTEndpoint):
         except:
             return None
 
-    @property
-    def spatialReference(self):
-        """return the spatial reference"""
-        resp_d = {}
-        if 'spatialReference' in self.response:
-            resp_d = self.response['spatialReference']
-        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
-            resp_d = self.response['extent']['spatialReference']
-
-        for key in ['latestWkid', 'wkid', 'wkt']:
-            if key in resp_d:
-                return resp_d[key]
-
-        return resp_d if resp_d != {} else ''
-
-
     def list_fields(self):
         """method to list field names"""
         return [f.name for f in self.fields]
 
-    def query(self, flds='*', where='1=1', add_params={}, **kwargs):
+    def fix_fields(self, fields):
+        """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@")
+
+        Required:
+            fields -- list or comma delimited field list
+        """
+        if fields == '*':
+            return fields
+        if isinstance(fields, list):
+            fields = ','.join(fields)
+        if '@' in fields:
+            if 'SHAPE@' in fields:
+                fields = fields.replace('SHAPE@', self.SHAPE.name)
+            if 'OID@' in fields:
+                fields = fields.replace('OID@', self.OID.name)
+        return fields
+
+    def query(self, fields='*', where='1=1', add_params={}, records=None, get_all=False, f='json', kmz='', **kwargs):
         """query layer and get response as JSON
 
         Optional:
-            flds -- fields to return. Default is "*" to return all fields
+            fields -- fields to return. Default is "*" to return all fields
             where -- where clause
             add_params -- extra parameters to add to query string passed as dict
+            records -- number of records to return.  Default is None to return all
+                records within bounds of max record count unless get_all is True
+            get_all -- option to get all records in layer.  This option may be time consuming
+                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
+                must be performed in chunks to get all records.
             kwargs -- extra parameters to add to query string passed as key word arguments,
                 will override add_params***
 
@@ -1462,9 +1349,57 @@ class BaseMapServiceLayer(RESTEndpoint):
         params = {'returnGeometry' : 'true', 'outFields' : fields,
                   'where': where, 'f' : 'json'}
         """
+        query_url = self.url + '/query'
+
+        # default params
+        params = {'returnGeometry' : 'true', 'where': where, 'f' : f}
+
+        for k,v in add_params.iteritems():
+            params[k] = v
+
         for k,v in kwargs.iteritems():
-            add_params[k] = v
-        return query(self.url, flds, where, add_params, token=self.token)
+            params[k] = v
+
+        # check for tokens (only shape and oid)
+        fields = self.fix_fields(fields)
+        params['outFields'] = fields
+
+        # create kmz file if requested (does not support get_all parameter)
+        if f == 'kmz':
+            r = POST(query_url, params, ret_json=False, token=self.token)
+            r.encoding = 'zlib_codec'
+
+            # write kmz using codecs
+            if not kmz:
+                kmz = validate_name(os.path.join(os.path.expanduser('~'), 'Desktop', '{}.kmz'.format(self.name)))
+            with codecs.open(kmz, 'wb') as f:
+                f.write(r.content)
+            print('Created: "{0}"'.format(kmz))
+            return kmz
+
+        else:
+
+            server_response = {}
+
+            if get_all:
+                records = None
+                max_recs = self.json.get('maxRecordCount')
+                if not max_recs:
+                    # guess at 500 (default 1000 limit cut in half at 10.0 if returning geometry)
+                    max_recs = 500
+
+                for i, where2 in enumerate(query_all(self.url, oid_name, max_recs, where, add_params, self.token)):
+                    sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
+                    resp = POST(query_url, params, token=self.token)
+                    if i < 1:
+                        server_response = resp
+                    else:
+                        server_response['features'] += resp['features']
+
+            else:
+                server_response = POST(query_url, params, token=self.token)
+
+            return FeatureSet(server_response)
 
     def select_by_location(self, geometry, geometryType='', inSR='', spatialRel='esriSpatialRelIntersects', distance=0, units='esriSRUnit_Meter', add_params={}, **kwargs):
         """Selects features by location of a geometry, returns a feature set
@@ -1522,7 +1457,7 @@ class BaseMapServiceLayer(RESTEndpoint):
             if k not in params:
                 params[k] = v
 
-        return self.query(add_params=params)
+        return FeatureSet(self.query(add_params=params))
 
     def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
@@ -1629,24 +1564,21 @@ class BaseMapServiceLayer(RESTEndpoint):
 
     def __repr__(self):
         """string representation with service name"""
-        return '<MapServiceLayer: "{}" (id: {})>'.format(self.name, self.id)
+        return '<{}: "{}" (id: {})>'.format(self.__class__.__name__, self.name, self.id)
 
 class FeatureService(BaseMapService):
-    """class to handle FeatureService"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        """class to handle Feature Service
+    """class to handle Feature Service
 
-        Required:
-            url -- image service url
+    Required:
+        url -- image service url
 
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
-        """
-        super(FeatureService, self).__init__(url, usr, pw, token, proxy)
+    Optional (below params only required if security is enabled):
+        usr -- username credentials for ArcGIS Server
+        pw -- password credentials for ArcGIS Server
+        token -- token to handle security (alternative to usr and pw)
+        proxy -- option to use proxy page to handle security, need to provide
+            full path to proxy url.
+    """
 
     @property
     def replicas(self):
@@ -1663,7 +1595,7 @@ class FeatureService(BaseMapService):
         Required:
             name -- layer name (supports wildcard syntax*)
         """
-        layer_path = get_layer_url(self.url, name, self.token)
+        layer_path = self.get_layer_url(name)
         if layer_path:
             return FeatureLayer(layer_path, token=self.token)
         else:
@@ -1844,14 +1776,8 @@ class FeatureService(BaseMapService):
         params = {'replicaID': replicaID}
         return POST(query_url, params, cookies=self._cookie)
 
-    def __repr__(self):
-        """string representation with service name"""
-        return '<MapService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
-
 class FeatureLayer(BaseMapServiceLayer):
-    """class to handle FeatureLayer"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        """class to handle Feature Service Layer
+    """class to handle Feature Service Layer
 
         Required:
             url -- image service url
@@ -1863,14 +1789,6 @@ class FeatureLayer(BaseMapServiceLayer):
             proxy -- option to use proxy page to handle security, need to provide
                 full path to proxy url.
         """
-        super(FeatureLayer, self).__init__(url, usr, pw, token, proxy)
-
-        for key, value in self.response.iteritems():
-            if key == 'fields':
-                setattr(self, key, [Field(v, 'FeatureLayerField') for v in value])
-            else:
-                if key != 'spatialReference':
-                    setattr(self, key, value)
 
     def addFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """add new features to feature service layer
@@ -1970,11 +1888,12 @@ class FeatureLayer(BaseMapServiceLayer):
     def applyEdits(self, adds='', updates='', deletes='', gdbVersion='', rollbackOnFailure=True):
         """apply edits on a feature service layer
 
-        adds -- features to add (JSON)
-        updates -- features to be updated (JSON)
-        deletes -- oids to be deleted (list, tuple, or comma separated string)
-        gdbVersion -- geodatabase version to apply edits
-        rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+        Optional:
+            adds -- features to add (JSON)
+            updates -- features to be updated (JSON)
+            deletes -- oids to be deleted (list, tuple, or comma separated string)
+            gdbVersion -- geodatabase version to apply edits
+            rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
         """
         # TO DO
         pass
@@ -2052,26 +1971,8 @@ class FeatureLayer(BaseMapServiceLayer):
         """string representation with service name"""
         return '<FeatureLayer: "{}" (id: {})>'.format(self.name, self.id)
 
-class BaseImageService(RESTEndpoint):
+class BaseImageService(BaseService):
     """Class to handle Image service and requests"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        super(BaseImageService, self).__init__(url, usr, pw, token, proxy)
-        self.name = self.url.split('/')[-2]
-
-        for k, v in self.response.iteritems():
-            if k != 'spatialReference':
-                setattr(self, k, v)
-
-    @property
-    def spatialReference(self):
-        """return the spatial reference"""
-        try:
-            if 'latestWkid' in self.response['spatialReference']:
-                return self.response['spatialReference']['latestWkid']
-            else:
-                return self.response['spatialReference']['wkid']
-        except:
-            return None
 
     def adjustbbox(self, boundingBox):
         """method to adjust bounding box for image clipping to maintain
@@ -2084,10 +1985,6 @@ class BaseImageService(RESTEndpoint):
         if isinstance(boundingBox, basestring):
             boundingBox = boundingBox.split(',')
         return ','.join(map(str, map(lambda x: Round(x, cell_size), boundingBox)))
-
-    def __repr__(self):
-        """string representation with service name"""
-        return '<ImageService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""
@@ -2233,14 +2130,8 @@ class GeocodeService(RESTEndpoint):
 
         return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
-    def __repr__(self):
-        """string representation with service name"""
-        return '<GeocodeService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
-
-class GPService(RESTEndpoint):
-    """ Class to handle GP Service Object"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        """GP Service object
+class GPService(BaseService):
+    """GP Service object
 
         Required:
             url -- GP service url
@@ -2252,24 +2143,13 @@ class GPService(RESTEndpoint):
             proxy -- option to use proxy page to handle security, need to provide
                 full path to proxy url.
         """
-        super(GPService, self).__init__(url, usr, pw, token, proxy)
-        self.name = self.url.split('/')[-2]
-
-        for key, value in self.response.iteritems():
-            setattr(self, key, value)
 
     def task(self, name):
         """returns a GP Task object"""
         return GPTask('/'.join([self.url, name]))
 
-    def __repr__(self):
-        """string representation with service name"""
-        return '<GPService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
-
-class GPTask(RESTEndpoint):
-    """class to handle GP Task"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        """GP Task object
+class GPTask(BaseService):
+    """GP Task object
 
         Required:
             url -- GP Task url
@@ -2280,13 +2160,7 @@ class GPTask(RESTEndpoint):
             token -- token to handle security (alternative to usr and pw)
             proxy -- option to use proxy page to handle security, need to provide
                 full path to proxy url.
-        """
-        super(GPTask, self).__init__(url, usr, pw, token, proxy)
-        self.name = self.url.split('/')[-2]
-
-        for key,value in self.response.iteritems():
-            if key != 'parameters':
-                setattr(self, key, value)
+     """
 
     @property
     def isSynchronous(self):
@@ -2297,11 +2171,6 @@ class GPTask(RESTEndpoint):
     def isAsynchronous(self):
         """task is asynchronous"""
         return self.executionType == 'esriExecutionTypeAsynchronous'
-
-    @property
-    def parameters(self):
-        """returns list of GPParam objects"""
-        return [GPParam(pd) for pd in self.response['parameters']]
 
     @property
     def outputParameter(self):
@@ -2365,7 +2234,3 @@ class GPTask(RESTEndpoint):
 
         print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
         return GPResult(res)
-
-    def __repr__(self):
-        """string representation with service name"""
-        return '<GPTask: "{}">'.format(self.name)

@@ -904,16 +904,16 @@ class Row(BaseRow):
     @property
     def values(self):
         """returns values as tuple"""
-        _values = [self.atts[f.name] for f in self.fields
+        vals = [self.atts[f.name] for f in self.fields
                    if f.type != SHAPE]
 
         if self.geometry and self.shape_field_ob:
-            _values.insert(self.fields.index(self.shape_field_ob), self.geometry)
+            vals.insert(self.fields.index(self.shape_field_ob), self.geometry)
 
         elif self.geometry:
-            _values.append(self.geometry)
+            vals.append(self.geometry)
 
-        return tuple(_values)
+        return tuple(vals)
 
 class GeocodeHandler(object):
     """class to handle geocode results"""
