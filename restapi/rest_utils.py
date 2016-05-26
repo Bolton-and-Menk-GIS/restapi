@@ -320,40 +320,6 @@ def generate_token(url, user='', pw='', expiration=60):
     ID_MANAGER.tokens[token.domain] = token
     return token
 
-def query_all(layer_url, oid, max_recs, where='1=1', add_params={}, token=''):
-    """generator to form where clauses to query all records.  Will iterate through "chunks"
-    of OID's until all records have been returned (grouped by maxRecordCount)
-
-    *Thanks to Wayne Whitley for the brilliant idea to use itertools.izip_longest()
-
-    Required:
-        layer_url -- full path to layer url
-        oid -- oid field name
-        max_recs -- maximum amount of records returned
-
-    Optional:
-        where -- where clause for OID selection
-        add_params -- dictionary with any additional params you want to add
-        token -- token to handle security (only required if security is enabled)
-    """
-    if isinstance(add_params, dict):
-        add_params['returnIdsOnly'] = 'true'
-
-    # get oids
-    oids = sorted(query(layer_url, where=where, add_params=add_params, token=token)['objectIds'])
-    print('total records: {0}'.format(len(oids)))
-
-    # set returnIdsOnly to False
-    add_params['returnIdsOnly'] = 'false'
-
-    # iterate through groups to form queries
-    for each in izip_longest(*(iter(oids),) * max_recs):
-        theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
-        _min, _max = min(theRange), max(theRange)
-        del each
-
-        yield '{0} >= {1} and {0} <= {2}'.format(oid, _min, _max)
-
 class FeatureSet(object):
     json = {}
     def __init__(self, in_json):
@@ -363,6 +329,11 @@ class FeatureSet(object):
             in_json -- input json response from request
         """
         self.json = munch.munchify(in_json)
+
+    @property
+    def count(self):
+        """returns total number of records in Cursor (user queried)"""
+        return len(self)
 
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""
@@ -480,6 +451,39 @@ class RESTEndpoint(object):
 
     def __dir__(self):
         return sorted(self.__class__.__dict__.keys() + self.json.keys())
+
+class SpatialReferenceMixin(object):
+    json = {}
+
+    def getSR(self):
+        """return the spatial reference"""
+        resp_d = {}
+        if 'spatialReference' in self.response:
+            resp_d = self.response['spatialReference']
+        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
+            resp_d = self.response['extent']['spatialReference']
+
+        for key in ['latestWkid', 'wkid', 'wkt']:
+            if key in resp_d:
+                return resp_d[key]
+
+    def getWKID(self):
+        """returns the well known id for service spatial reference"""
+        try:
+            return self.spatialReference.get('latestWkid') if self.spatialReference.get('latestWkid') else self.spatialReference.get('wkid')
+        except:
+            return None
+
+    def getWKT(self):
+        """returns the well known text (if it exists) for a service"""
+        try:
+            wkt = self.spatialReference.get('wkt')
+            if wkt is not None:
+                return wkt
+            else:
+                return ''
+        except:
+            return ''
 
 class BaseService(RESTEndpoint):
     def __init__(self, url, usr='', pw='', token='', proxy=None):
@@ -776,7 +780,7 @@ class EditResult(object):
 
 class BaseCursor(object):
     """class to handle query returns"""
-    def __init__(self, url, fields='*', where='1=1', records=None, token='', add_params={}, get_all=False):
+    def __init__(self, feature_set):
         """Cusor object to handle queries to rest endpoints
 
         Required:
@@ -861,51 +865,6 @@ class BaseCursor(object):
                     milliseconds = att['attributes'][field_name]
                     att['attributes'][field_name] = mil_to_date(milliseconds)
 
-    @property
-    def geometryType(self):
-        """returns geometry type for features"""
-        if 'geometryType' in self.response:
-            return self.response['geometryType']
-        else:
-            return None
-
-    @property
-    def spatialReference(self):
-        """returns the spatial Reference for features"""
-        if 'spatialReference' in self.response:
-            if 'latestWkid' in self.response['spatialReference']:
-                return self.response['spatialReference']['latestWkid']
-            elif 'wkid' in self.response['spatialReference']:
-                return self.response['spatialReference']['wkid']
-        else:
-            try:
-                # maybe it's well known text (wkt)?
-                return self.response['spatialReference']
-            except:
-                return None
-
-    @property
-    def fields(self):
-        """field names for cursor"""
-        return [f.name for f in self.field_objects]
-
-    @property
-    def features(self):
-        """returns json features"""
-        return self.response['features'][:self.records]
-
-    @property
-    def count(self):
-        """returns total number of records in Cursor (user queried)"""
-        return len(self.features)
-
-    def __len__(self):
-        """return the count"""
-        return self.count
-
-    def __nonzero__(self):
-        """return True if records in cursor"""
-        return bool(self.count)
 
 class BaseRow(object):
     """Class to handle Row object"""
@@ -1276,6 +1235,40 @@ class BaseMapServiceLayer(RESTEndpoint):
                 fields = fields.replace('OID@', self.OID.name)
         return fields
 
+    def query_all(self, oid, max_recs, where='1=1', add_params={}, token=''):
+        """generator to form where clauses to query all records.  Will iterate through "chunks"
+        of OID's until all records have been returned (grouped by maxRecordCount)
+
+        *Thanks to Wayne Whitley for the brilliant idea to use itertools.izip_longest()
+
+        Required:
+            layer_url -- full path to layer url
+            oid -- oid field name
+            max_recs -- maximum amount of records returned
+
+        Optional:
+            where -- where clause for OID selection
+            add_params -- dictionary with any additional params you want to add
+            token -- token to handle security (only required if security is enabled)
+        """
+        if isinstance(add_params, dict):
+            add_params['returnIdsOnly'] = 'true'
+
+        # get oids
+        oids = sorted(self.query(where=where, add_params=add_params, token=token)['objectIds'])
+        print('total records: {0}'.format(len(oids)))
+
+        # set returnIdsOnly to False
+        add_params['returnIdsOnly'] = 'false'
+
+        # iterate through groups to form queries
+        for each in izip_longest(*(iter(oids),) * max_recs):
+            theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
+            _min, _max = min(theRange), max(theRange)
+            del each
+
+            yield '{0} >= {1} and {0} <= {2}'.format(oid, _min, _max)
+
     def query(self, fields='*', where='1=1', add_params={}, records=None, get_all=False, f='json', kmz='', **kwargs):
         """query layer and get response as JSON
 
@@ -1334,7 +1327,7 @@ class BaseMapServiceLayer(RESTEndpoint):
                     # guess at 500 (default 1000 limit cut in half at 10.0 if returning geometry)
                     max_recs = 500
 
-                for i, where2 in enumerate(query_all(self.url, oid_name, max_recs, where, add_params, self.token)):
+                for i, where2 in enumerate(self.query_all(oid_name, max_recs, where, add_params, self.token)):
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
                     resp = POST(query_url, params, token=self.token)
                     if i < 1:

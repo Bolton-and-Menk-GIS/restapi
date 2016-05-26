@@ -824,30 +824,21 @@ class GeometryService(RESTEndpoint):
 
         return POST(self.url + '/project', params, token=self.token)
 
-
     def __repr__(self):
         return '<restapi.GeometryService>'
 
-class Cursor(BaseCursor):
+class Cursor(FeatureSet):
     """Class to handle Cursor object"""
-    def __init__(self, url, fields='*', where='1=1', records=None, token='', add_params={}, get_all=False):
-        """Cusor object to handle queries to rest endpoints
 
-        Required:
-            url -- url to layer's rest endpoint
+    @property
+    def date_indices(self):
+        """gets the indices of date fields within feature set"""
+        return [f.name for f in self.fields if f.type == 'esriFieldTypeDate']
 
-        Optional:
-            fields -- option to limit fields returned.  All are returned by default
-            where -- where clause for cursor
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless get_all is True
-            token -- token to handle security (only required if security is enabled)
-            add_params -- option to add additional search parameters
-            get_all -- option to get all records in layer.  This option may be time consuming
-                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records.
-        """
-        super(Cursor, self).__init__(url, fields, where, records, token, add_params, get_all)
+    @property
+    def field_names(self):
+        """gets the field names for feature set"""
+        return [f.name for f in self.fields]
 
     def get_rows(self):
         """returns row objects"""
