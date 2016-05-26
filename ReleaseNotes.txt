@@ -1,0 +1,30 @@
+Release notes for restapi version 1.0, which was a major overhaul on this package to include many performance and convenience improvements.
+
+New Classes:
+	
+	GeometryService
+	GeometryCollection
+	FeatureSet
+
+Deprecated Functions (many of these have been converted to class methods):
+	
+	query
+	query_all
+	list_layers
+	list_tables
+	list_fields
+	walk
+	objectize
+
+Major changes:
+
+	Cursor -- this has been completely rewritten as an extension of the new FeatureSet class.  The row class is also no longer
+		globally exposed and is now an attribute of the Cursor.
+	ArcServer -- in versions < 1.0, this would build the service list for the entire REST services directory at initialization,
+		this no longer happens to improve performance.  The "services" property has also changed to represent just the services
+		at the root level.  A new property has been implemented called "service_cache", which is initially empty upon initialization
+		and gets populated whenever a call to iter_services, list_services, or walk is called.
+
+
+
+admin sub package changes

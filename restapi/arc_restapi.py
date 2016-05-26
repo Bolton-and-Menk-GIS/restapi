@@ -11,7 +11,7 @@ arcpy.env.addOutputsToMap = False
 
 __all__ = ['Cursor', 'MapService', 'MapServiceLayer', 'ArcServer', 'ImageService', 'Geocoder',
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry',
-           'FeatureService', 'FeatureLayer', 'GeocodeService', 'GPService', 'GPTask', 'POST',
+           'GeocodeService', 'GPService', 'GPTask', 'POST',# 'FeatureService', 'FeatureLayer',
            'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name'] + \
            ['GeometryService', 'GeometryCollection'] + CONSTANTS
 
@@ -359,7 +359,7 @@ def exportReplica(replica, out_folder):
 
 class Geometry(object):
     """class to handle restapi.Geometry"""
-    def __init__(self, geometry, *args):
+    def __init__(self, geometry, **kwargs):
         """converts geometry input to restapi.Geometry object
 
         Required:
@@ -369,6 +369,27 @@ class Geometry(object):
         self._inputGeometry = geometry
         self.spatialReference = None
         self.geometryType = None
+        for k, v in kwargs.iteritems():
+            if k == 'spatialReference':
+                if isinstance(v, int):
+                    self.spatialReference = v
+                elif isinstance(v, basestring):
+                    try:
+                        # it's a json string?
+                        v = json.loads(v)
+                    except:
+                        try:
+                            v = int(v)
+                            self.spatialReference = v
+                        except:
+                            pass
+
+                if isinstance(v, dict):
+                    self.spatialReference = v.get('latestWkid') if v.get('latestWkid') else v.get('wkid')
+
+            elif k == 'geometryType' and v.startswith('esri'):
+                self.geometryType = v
+
         self.JSON = OrderedDict2()
         if isinstance(geometry, arcpy.mapping.Layer) and geometry.supports('DATASOURCE'):
             geometry = geometry.dataSource
@@ -829,82 +850,150 @@ class GeometryService(RESTEndpoint):
 
 class Cursor(FeatureSet):
     """Class to handle Cursor object"""
+    def __init__(self, feature_set, fieldOrder=[]):
+        """Cursor object for a feature set
+
+        Required:
+            feature_set -- feature set as json or restapi.FeatureSet() object
+
+        Optional:
+            fieldOrder -- order of fields for cursor row returns.  To explicitly
+                specify and OBJECTID field or Shape (geometry field), you must use
+                the field tokens 'OID@' and 'SHAPE@' respectively.
+
+        """
+        if isinstance(feature_set, FeatureSet):
+            feature_set = feature_set.json
+        super(Cursor, self).__init__(feature_set)
+        self.fieldOrder = self.__validateOrderBy(fieldOrder)
 
     @property
-    def date_indices(self):
-        """gets the indices of date fields within feature set"""
+    def date_fields(self):
+        """gets the names of any date fields within feature set"""
         return [f.name for f in self.fields if f.type == 'esriFieldTypeDate']
 
     @property
     def field_names(self):
         """gets the field names for feature set"""
-        return [f.name for f in self.fields]
+        return self.fieldOrder
+
+    @property
+    def OIDFieldName(self):
+        """gets the OID field name if it exists in feature set"""
+        try:
+            return [f.name for f in self.fields if f.type == OID][0]
+        except IndexError:
+           return None
+
+    @property
+    def ShapeFieldName(self):
+        """gets the Shape field name if it exists in feature set"""
+        try:
+            return [f.name for f in self.fields if f.type == SHAPE][0]
+        except IndexError:
+           return None
 
     def get_rows(self):
         """returns row objects"""
-        for feature in self.features[:self.records]:
-            yield Row(feature, self.field_objects, self.spatialReference)
+        for feature in self.features:
+            yield self.createRow(feature, self.spatialReference)
 
     def rows(self):
         """returns Cursor.rows() as generator"""
-        for feature in self.features[:self.records]:
-            yield Row(feature, self.field_objects, self.spatialReference).values
+        for feature in self.features:
+            yield self.createRow(feature, self.spatialReference).values
 
     def getRow(self, index):
         """returns row object at index"""
         return [r for r in self.get_rows()][index]
 
+    def __validateOrderBy(self, fields):
+        """fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@")
+
+        Required:
+            fields -- list or comma delimited field list
+        """
+        if isinstance(fields, basestring):
+            fields = fields.split(',')
+        for i,f in enumerate(fields):
+            if '@' in f:
+                fields[i] = f.upper()
+            if f == self.ShapeFieldName:
+                fields[i] = 'SHAPE@'
+            if f == self.OIDFieldName:
+                fields[i] = 'OID@'
+
+        if not fields:
+            fields = self.field_names
+
+        return fields
+
     def __iter__(self):
         """returns Cursor.rows()"""
         return self.rows()
 
-    def __getitem__(self, index):
-        """allows for indexing"""
-        return self.rows()[index]
+    def createRow(self, feature, spatialReference):
 
-class Row(BaseRow):
-    """Class to handle Row object"""
-    def __init__(self, features, fields, spatialReference):
-        """Row object for Cursor
+        cursor = self
 
-        Required:
-            features -- features JSON object
-            fields -- fields participating in cursor
-            spatialReference -- spatial reference WKID for geometry
-        """
-        super(Row, self).__init__(features, fields, spatialReference)
+        class Row(object):
+            """Class to handle Row object"""
+            def __init__(self, feature, spatialReference):
+                """Row object for Cursor
 
-    @property
-    def geometry(self):
-        """returns arcpy geometry object
-        Warning: output is unprojected
-            use the projectAs(wkid, {transformation_name})
-            method to project geometry
-        """
-        if self.esri_json:
-            return arcpy.AsShape(self.esri_json, True)
-        return None
+                Required:
+                    feature -- features JSON object
+                """
+                self.feature = feature
+                self.spatialReference = spatialReference
 
-    @property
-    def oid(self):
-        """returns the OID for row"""
-        if self.oid_field_ob:
-            return self.atts[self.oid_field_ob.name]
-        return None
+            @property
+            def geometry(self):
+                """returns a restapi.Geometry() object"""
+                if 'geometry' in self.feature:
+                    gd = copy.deepcopy(self.feature.geometry)
+                    gd['spatialReference'] = cursor.json.spatialReference
+                    return Geometry(gd)
+                return None
 
-    @property
-    def values(self):
-        """returns values as tuple"""
-        vals = [self.atts[f.name] for f in self.fields
-                   if f.type != SHAPE]
+            @property
+            def oid(self):
+                """returns the OID for row"""
+                if cursor.OIDFieldName:
+                    return self.get(cursor.OIDFieldName)
+                return None
 
-        if self.geometry and self.shape_field_ob:
-            vals.insert(self.fields.index(self.shape_field_ob), self.geometry)
+            @property
+            def values(self):
+                """returns values as tuple"""
+                # fix date format in milliseconds to datetime.datetime()
+                vals = []
+                for i, field in enumerate(cursor.fieldOrder):
+                    if field in cursor.date_fields:
+                        vals.append(mil_to_date(self.feature.attributes[field]))
+                    else:
+                        if field == 'OID@':
+                            vals.append(self.oid)
+                        elif field == 'SHAPE@':
+                            vals.append(self.geometry)
+                        else:
+                            vals.append(self.feature.attributes[field])
 
-        elif self.geometry:
-            vals.append(self.geometry)
+                return tuple(vals)
 
-        return tuple(vals)
+            def get(self, field):
+                """gets an attribute by field name
+
+                Required:
+                    field -- name of field for which to get the value
+                """
+                return self.feature.attributes.get(field)
+
+            def __getitem__(self, i):
+                """allows for getting a field value by index"""
+                return self.values[i]
+
+        return Row(feature, spatialReference)
 
 class GeocodeHandler(object):
     """class to handle geocode results"""
@@ -1107,6 +1196,27 @@ class MapServiceLayer(BaseMapServiceLayer):
 
     def cursor(self, fields='*', where='1=1', records=None, add_params={}, get_all=False):
         """Run Cursor on layer, helper method that calls Cursor Object"""
+        field_objects_string = self.fix_fields(fields)
+        if fields == '*':
+            field_objects = [f for f in self.fields if f.type not in SKIP_FIELDS.keys()]
+        else:
+            field_objects = []
+            for field in field_objects_string.split(','):
+                for fld in self.fields:
+                    if fld.name == field and fld.type not in SKIP_FIELDS.keys():
+                        field_objects.append(fld)
+
+        # handle shape and oid fields
+        if self.OID:
+            oid_name = self.OID.name
+        else:
+            oid_name = 'OBJECTID'
+
+        if self.SHAPE:
+            add_params['returnGeometry'] = 'true'
+        else:
+            add_params['returnGeometry'] = 'false'
+
         return Cursor(self.url, fields, where, records, self.token, add_params, get_all)
 
     def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, get_all=False, sr=None):

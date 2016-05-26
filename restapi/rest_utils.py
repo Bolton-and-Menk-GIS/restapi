@@ -320,46 +320,6 @@ def generate_token(url, user='', pw='', expiration=60):
     ID_MANAGER.tokens[token.domain] = token
     return token
 
-class FeatureSet(object):
-    json = {}
-    def __init__(self, in_json):
-        """class to handle feature set
-
-        Required:
-            in_json -- input json response from request
-        """
-        self.json = munch.munchify(in_json)
-
-    @property
-    def count(self):
-        """returns total number of records in Cursor (user queried)"""
-        return len(self)
-
-    def __getattr__(self, name):
-        """get normal class attributes and those from json response"""
-        try:
-            # it is a class attribute
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            # it is in the json definition, abstract it to the class level
-            if name in self.json:
-                return self.json[name]
-            else:
-                raise AttributeError(name)
-
-    def __iter__(self):
-        for feature in self.features:
-            yield feature
-
-    def __len__(self):
-        return len(self.features)
-
-    def __nonzero__(self):
-        return bool(len(self))
-
-    def __dir__(self):
-        return sorted(self.__class__.__dict__.keys() + self.json.keys())
-
 class RESTEndpoint(object):
     """Base REST Endpoint Object to handle credentials and get JSON response
 
@@ -453,15 +413,16 @@ class RESTEndpoint(object):
         return sorted(self.__class__.__dict__.keys() + self.json.keys())
 
 class SpatialReferenceMixin(object):
+    """mixin to allow convenience methods for grabbing the spatial reference"""
     json = {}
 
     def getSR(self):
         """return the spatial reference"""
         resp_d = {}
-        if 'spatialReference' in self.response:
-            resp_d = self.response['spatialReference']
-        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
-            resp_d = self.response['extent']['spatialReference']
+        if 'spatialReference' in self.json:
+            resp_d = self.json['spatialReference']
+        elif 'extent' in self.json and 'spatialReference' in self.json['extent']:
+            resp_d = self.json['extent']['spatialReference']
 
         for key in ['latestWkid', 'wkid', 'wkt']:
             if key in resp_d:
@@ -485,46 +446,60 @@ class SpatialReferenceMixin(object):
         except:
             return ''
 
-class BaseService(RESTEndpoint):
+class BaseService(RESTEndpoint, SpatialReferenceMixin):
+    """base class for all services"""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
         super(BaseService, self).__init__(url, usr, pw, token, proxy)
         if 'name' not in self.json:
             self.name = self.url.split('/')[-2]
 
-    def getSR(self):
-        """return the spatial reference"""
-        resp_d = {}
-        if 'spatialReference' in self.response:
-            resp_d = self.response['spatialReference']
-        elif 'extent' in self.response and 'spatialReference' in self.response['extent']:
-            resp_d = self.response['extent']['spatialReference']
-
-        for key in ['latestWkid', 'wkid', 'wkt']:
-            if key in resp_d:
-                return resp_d[key]
-
-    def getWKID(self):
-        """returns the well known id for service spatial reference"""
-        try:
-            return self.spatialReference.get('latestWkid') if self.spatialReference.get('latestWkid') else self.spatialReference.get('wkid')
-        except:
-            return None
-
-    def getWKT(self):
-        """returns the well known text (if it exists) for a service"""
-        try:
-            wkt = self.spatialReference.get('wkt')
-            if wkt is not None:
-                return wkt
-            else:
-                return ''
-        except:
-            return ''
-
     def __repr__(self):
         """string representation with service name"""
         qualified_name = '/'.join([self.url.split('/services/')[-1].split('/' + self.name)[0], self.name])
         return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
+
+class FeatureSet(SpatialReferenceMixin):
+    json = {}
+    def __init__(self, in_json):
+        """class to handle feature set
+
+        Required:
+            in_json -- input json response from request
+        """
+        self.json = munch.munchify(in_json)
+
+    @property
+    def count(self):
+        """returns total number of records in Cursor (user queried)"""
+        return len(self)
+
+    def __getattr__(self, name):
+        """get normal class attributes and those from json response"""
+        try:
+            # it is a class attribute
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            # it is in the json definition, abstract it to the class level
+            if name in self.json:
+                return self.json[name]
+            else:
+                raise AttributeError(name)
+
+    def __iter__(self):
+        for feature in self.features:
+            yield feature
+
+    def __len__(self):
+        return len(self.features)
+
+    def __getitem__(self, i):
+        return self.json.features[i]
+
+    def __nonzero__(self):
+        return bool(len(self))
+
+    def __dir__(self):
+        return sorted(self.__class__.__dict__.keys() + self.json.keys())
 
 class OrderedDict2(OrderedDict):
     """wrapper for OrderedDict"""

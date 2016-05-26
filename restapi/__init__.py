@@ -17,8 +17,12 @@ try:
     import imp
     imp.find_module('arcpy')
     from arc_restapi import *
+    __opensource__ = False
 except ImportError:
     from open_restapi import *
+    __opensource__ = True
+
+from featureService import *
 
 # package info
 __author__ = 'Caleb Mackey'
