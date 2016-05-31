@@ -11,18 +11,23 @@ usr, pw = _ags.creds()
 gp_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/ChickenPermits/GPServer'
 ms_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/Permits/MapServer'
 fs_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/Permits/FeatureServer'
-ms = restapi.rest_utils.BaseMapService(ms_url)
+ms = restapi.MapService(ms_url)
 ##ms = restapi.MapService(ms_url)
-lyr = restapi.rest_utils.BaseMapServiceLayer(ms_url + '/1')
+lyr = restapi.MapServiceLayer(ms_url + '/1')
 fts = restapi.FeatureService(fs_url)
 
 fields=['Num_Chickens',  'OBJECTID', 'Primary_Address']
 fs = lyr.query(fields=fields)
-print fs.fields
-cursor = restapi.Cursor(fs.json, fields + ['shape@'])
-rows = cursor.get_rows()
-row = rows.next()
+##cursor = restapi.Cursor(fs.json, fields + ['shape@'])
+##rows = cursor.get_rows()
+##row = rows.next()
+##
+##gp = restapi.rest_utils.GPService(gp_url)
+##
+##lcur = lyr.cursor(['Owner_Name', 'SHAPE@'])
+##cur = cur = restapi.Cursor(fs)
 
-gp = restapi.rest_utils.GPService(gp_url)
-
-
+##out = r'C:\TEMP\water_resources.gdb\fs_test3'
+flyr = fts.layer(1)
+##flyr.layer_to_fc(out)
+gc = restapi.GeometryCollection(fs)

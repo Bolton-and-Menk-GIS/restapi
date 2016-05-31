@@ -13,16 +13,16 @@ import admin
 
 # look for arcpy access, otherwise use open source version
 # open source version may be faster.
-try:
-    import imp
-    imp.find_module('arcpy')
-    from arc_restapi import *
-    __opensource__ = False
-except ImportError:
-    from open_restapi import *
-    __opensource__ = True
+##try:
+##    import imp
+##    imp.find_module('arcpy')
+##    from arc_restapi import *
+##    __opensource__ = False
+##except ImportError:
+##    from open_restapi import *
+##    __opensource__ = True
 
-from featureService import *
+from common_types import *
 
 # package info
 __author__ = 'Caleb Mackey'

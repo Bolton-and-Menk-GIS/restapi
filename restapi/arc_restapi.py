@@ -9,12 +9,6 @@ from rest_utils import *
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
-__all__ = ['Cursor', 'MapService', 'MapServiceLayer', 'ArcServer', 'ImageService', 'Geocoder',
-           'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry',
-           'GeocodeService', 'GPService', 'GPTask', 'POST',# 'FeatureService', 'FeatureLayer',
-           'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name'] + \
-           ['GeometryService', 'GeometryCollection'] + CONSTANTS
-
 def exportFeatureSet(out_fc, feature_set):
     """export features (JSON result) to shapefile or feature class
 
@@ -26,14 +20,7 @@ def exportFeatureSet(out_fc, feature_set):
         [u'features', u'fields', u'spatialReference', u'geometryType']
     """
     # validate features input (should be list or dict, preferably list)
-    if isinstance(feature_set, basestring):
-        try:
-            feature_set = json.loads(feature_set)
-        except:
-            raise IOError('Not a valid input for "features" parameter!')
-
-    if not isinstance(feature_set, dict) or not 'features' in feature_set:
-        raise IOError('Not a valid input for "features" parameter!')
+    feature_set = FeatureSet(feature_set)
 
     def find_ws_type(path):
         """determine output workspace (feature class if not FileSystem)
@@ -69,22 +56,18 @@ def exportFeatureSet(out_fc, feature_set):
         isShp = False
 
     # make new feature class
-    fields = [Field(f) for f in feature_set['fields']]
+    fields = [Field(f) for f in feature_set.fields]
 
-    sr_dict = feature_set['spatialReference']
-    if 'latestWkid' in sr_dict:
-        outSR = int(sr_dict['latestWkid'])
-    else:
-        outSR = int(sr_dict['wkid'])
+    sr_dict = feature_set.spatialReference
+    outSR = feature_set.getWKID()
 
-    g_type = G_DICT[feature_set['geometryType']]
+    g_type = G_DICT[feature_set.geometryType]
     path, fc_name = os.path.split(out_fc)
     arcpy.CreateFeatureclass_management(path, fc_name, g_type,
                                         spatial_reference=outSR)
 
     # add all fields
-    cur_fields = []
-    fMap = []
+    cur_fields, fMap = [], []
     if not isShp:
         gdb_domains = arcpy.Describe(ws).domains
     for field in fields:
@@ -127,14 +110,12 @@ def exportFeatureSet(out_fc, feature_set):
                                             field_alias=field.alias,
                                             field_domain=field_domain)
                 cur_fields.append(field_name)
-                fMap.append(field)
+                fMap.append(field.name)
 
     # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
-    cur_fields.append('SHAPE@')
-    fMap += [f for f in fields if f.type == SHAPE]
-    with arcpy.da.InsertCursor(out_fc, cur_fields) as irows:
-        for feat in feature_set['features']:
-            irows.insertRow(Row(feat, fMap, outSR).values)
+    with arcpy.da.InsertCursor(out_fc, cur_fields + [SHAPE_TOKEN]) as irows:
+        for feat in feature_set:
+            irows.insertRow([feat.attributes.get(f) for f in fMap] + [arcpy.AsShape(feat.geometry, True)])
 
     # if output is a shapefile
     if isShp:
@@ -173,11 +154,11 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
     oid_name = lyr.OID.name
     if isinstance(fields, basestring):
         if fields != '*':
-            if 'OID@' not in fields or oid_name not in fields:
+            if OID_TOKEN not in fields or oid_name not in fields:
                 fields += ',{}'.format(oid_name)
 
     elif isinstance(fields, list):
-        if 'OID@' not in fields or oid_name not in fields:
+        if OID_TOKEN not in fields or oid_name not in fields:
             fields.append(oid_name)
 
     # get feature set
@@ -188,8 +169,8 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
     # form feature set and call export feature set
     fs = {'features': cursor.features,
           'fields': lyr.response['fields'],
-          'spatialReference': lyr.response['extent']['spatialReference'],
-          'geometryType': lyr.geometryType}
+          SPATIAL_REFERENCE: lyr.response['extent'][SPATIAL_REFERENCE],
+          GEOMETRY_TYPE: lyr.geometryType}
 
     exportFeatureSet(out_fc, fs)
 
@@ -277,7 +258,7 @@ def exportReplica(replica, out_folder):
             layer_fields = [f for f in layer.fields if f.type not in (SHAPE, OID)]
             for i, field in enumerate(layer_fields):
 
-                if field.type == 'esriFieldTypeGlobalID':
+                if field.type == GLOBALID:
                     field_name = 'ORIG_GlobalID'
                     guid = i
                     guidFieldName = field.name
@@ -316,10 +297,10 @@ def exportReplica(replica, out_folder):
                                             field_domain=field_domain)
 
             # set up field values
-            fld_names = ['SHAPE@'] + [f.name for f in layer_fields]
+            fld_names = [SHAPE_TOKEN] + [f.name for f in layer_fields]
             if guid != None:
                 fld_names[guid + 1] = 'ORIG_GlobalID'
-            date_indices = [i for i,f in enumerate(layer_fields) if f.type == 'esriFieldTypeDate']
+            date_indices = [i for i,f in enumerate(layer_fields) if f.type == DATE_FIELD]
 
             with arcpy.da.InsertCursor(fc, fld_names) as irows:
                 for rowD in layer.features:
@@ -370,7 +351,7 @@ class Geometry(object):
         self.spatialReference = None
         self.geometryType = None
         for k, v in kwargs.iteritems():
-            if k == 'spatialReference':
+            if k == SPATIAL_REFERENCE:
                 if isinstance(v, int):
                     self.spatialReference = v
                 elif isinstance(v, basestring):
@@ -385,9 +366,9 @@ class Geometry(object):
                             pass
 
                 if isinstance(v, dict):
-                    self.spatialReference = v.get('latestWkid') if v.get('latestWkid') else v.get('wkid')
+                    self.spatialReference = v.get(LATEST_WKID) if v.get(LATEST_WKID) else v.get(WKID)
 
-            elif k == 'geometryType' and v.startswith('esri'):
+            elif k == GEOMETRY_TYPE and v.startswith('esri'):
                 self.geometryType = v
 
         self.JSON = OrderedDict2()
@@ -402,10 +383,10 @@ class Geometry(object):
             self.geometryType = 'esriGeometry{}'.format(geometry.type.title())
             esri_json = json.loads(geometry.JSON)
             for k,v in sorted(esri_json.iteritems()):
-                if k != 'spatialReference':
+                if k != SPATIAL_REFERENCE:
                     self.JSON[k] = v
-            if 'spatialReference' in esri_json:
-                self.JSON['spatialReference'] = esri_json['spatialReference']
+            if SPATIAL_REFERENCE in esri_json:
+                self.JSON[SPATIAL_REFERENCE] = esri_json[SPATIAL_REFERENCE]
 
         elif isinstance(geometry, basestring):
             try:
@@ -422,52 +403,52 @@ class Geometry(object):
                             break
 
                     for k,v in sorted(esri_json.iteritems()):
-                        if k != 'spatialReference':
+                        if k != SPATIAL_REFERENCE:
                             self.JSON[k] = v
-                    if 'spatialReference' in esri_json:
-                        self.JSON['spatialReference'] = esri_json['spatialReference']
+                    if SPATIAL_REFERENCE in esri_json:
+                        self.JSON[SPATIAL_REFERENCE] = esri_json[SPATIAL_REFERENCE]
                 else:
                     raise IOError('Not a valid geometry input!')
 
         if isinstance(geometry, dict):
-            if 'spatialReference' in geometry:
-                sr_json = geometry['spatialReference']
-                if 'latestWkid' in sr_json:
-                    self.spatialReference = sr_json['latestWkid']
+            if SPATIAL_REFERENCE in geometry:
+                sr_json = geometry[SPATIAL_REFERENCE]
+                if LATEST_WKID in sr_json:
+                    self.spatialReference = sr_json[LATEST_WKID]
                 else:
                     try:
-                        self.spatialReference = sr_json['wkid']
+                        self.spatialReference = sr_json[WKID]
                     except:
                         raise IOError('No spatial reference found in JSON object!')
-                if 'features' in geometry:
-                    d = geometry['features'][0]
-                    if 'geometry' in d:
-                        d = geometry['features'][0]['geometry']
-                    for k,v in d.iteritems():
-                        self.JSON[k] = v
-                elif 'geometry' in geometry:
-                    for k,v in geometry['geometry']:
-                        self.JSON[k] = v
-                if not self.JSON:
-                    if 'rings' in geometry:
-                        self.JSON['rings'] = geometry['rings']
-                        self.geometryType = GEOM_DICT['rings']
-                    elif 'paths' in geometry:
-                        self.JSON['paths'] = geometry['paths']
-                        self.geometryType = GEOM_DICT['paths']
-                    elif 'points' in geometry:
-                        self.JSON['points'] = geometry['points']
-                        self.geometryType = GEOM_DICT['points']
-                    elif 'x' in geometry and 'y' in geometry:
-                        self.JSON['x'] = geometry['x']
-                        self.JSON['y'] = geometry['y']
-                        self.geometryType = 'esriGeometryPoint'
-                    else:
-                        raise IOError('Not a valid JSON object!')
-                if not self.geometryType and 'geometryType' in geometry:
-                    self.geometryType = geometry['geometryType']
-        if not 'spatialReference' in self.JSON and self.spatialReference:
-            self.JSON['spatialReference'] = {'wkid': self.spatialReference}
+            if 'features' in geometry:
+                d = geometry['features'][0]
+                if 'geometry' in d:
+                    d = geometry['features'][0]['geometry']
+                for k,v in d.iteritems():
+                    self.JSON[k] = v
+            elif 'geometry' in geometry:
+                for k,v in geometry['geometry']:
+                    self.JSON[k] = v
+            if not self.JSON:
+                if 'rings' in geometry:
+                    self.JSON['rings'] = geometry['rings']
+                    self.geometryType = GEOM_DICT['rings']
+                elif 'paths' in geometry:
+                    self.JSON['paths'] = geometry['paths']
+                    self.geometryType = GEOM_DICT['paths']
+                elif 'points' in geometry:
+                    self.JSON['points'] = geometry['points']
+                    self.geometryType = GEOM_DICT['points']
+                elif 'x' in geometry and 'y' in geometry:
+                    self.JSON['x'] = geometry['x']
+                    self.JSON['y'] = geometry['y']
+                    self.geometryType = ESRI_POINT
+                else:
+                    raise IOError('Not a valid JSON object!')
+            if not self.geometryType and GEOMETRY_TYPE in geometry:
+                self.geometryType = geometry[GEOMETRY_TYPE]
+        if not SPATIAL_REFERENCE in self.JSON and self.spatialReference:
+            self.JSON[SPATIAL_REFERENCE] = {WKID: self.spatialReference}
 
     def envelope(self):
         """return an envelope from shape"""
@@ -482,7 +463,7 @@ class Geometry(object):
         else:
             coords = self.envelope().split(',')
         d = dict(zip(flds, coords))
-        d['spatialReference'] = self.JSON['spatialReference']
+        d[SPATIAL_REFERENCE] = self.JSON[SPATIAL_REFERENCE]
         return d
 
     def dumps(self):
@@ -528,13 +509,14 @@ class GeometryCollection(object):
     """represents an array of restapi.Geometry objects"""
     geometries = []
     JSON = {'geometries': []}
+    geometryType = None
 
     def __init__(self, geometries, use_envelopes=False):
         """represents an array of restapi.Geometry objects
 
         Required:
             geometries -- a single geometry or a list of geometries.  Valid inputs
-                are a shapefile|feature class|Layer, geometry as JSON, or a restapi.Geometry
+                are a shapefile|feature class|Layer, geometry as JSON, or a restapi.Geometry or restapi.FeatureSet
 
         Optional:
             use_envelopes -- if set to true, will use the bounding box of each geometry passed in
@@ -550,17 +532,22 @@ class GeometryCollection(object):
         elif isinstance(geometries, list):
 
             # it is a list of restapi.Geometry() objects
-            if all(map(lambda g: isinstance(g, Geometry))):
+            if all(map(lambda g: isinstance(g, Geometry), geometries)):
                 self.geometries = geometries
 
             # it is a JSON structure either as dict or string
-            elif all(map(lambda g: isinstance(g, (dict, basestring)))):
+            elif all(map(lambda g: isinstance(g, (dict, basestring)), geometries)):
 
                 # this *should* be JSON, right???
                 try:
                     self.geometries = [Geometry(g) for g in geometries]
                 except ValueError:
                     raise ValueError('Inputs are not valid ESRI JSON Geometries!!!')
+
+        # it is a FeatureSet
+        elif isinstance(geometries, FeatureSet):
+            fs = geometries
+            self.geometries = [Geometry(f.geometry, spatialReference=fs.getWKID(), geometryType=fs.geometryType) for f in fs.features]
 
         # it is a JSON struture of geometries already
         elif isinstance(geometries, dict) and 'geometries' in geometries:
@@ -586,7 +573,12 @@ class GeometryCollection(object):
 
         if self.geometries:
             self.JSON['geometries'] = [g.envelopeAsJSON() if use_envelopes else g.JSON for g in self.geometries]
-            self.JSON['geometryType'] = self.geometries[0].geometryType if not use_envelopes else 'esriGeometryEnvelope'
+            self.JSON[GEOMETRY_TYPE] = self.geometries[0].geometryType if not use_envelopes else ESRI_ENVELOPE
+            self.geometryType = self.geometries[0].geometryType
+
+    @property
+    def count(self):
+        return len(self)
 
     def __len__(self):
         return len(self.geometries)
@@ -603,256 +595,11 @@ class GeometryCollection(object):
 
     def __repr__(self):
         """represntation"""
-        return '<restapi.GeometryCollection>'.format(self.geometryType)
-
-class GeometryService(RESTEndpoint):
-    linear_units = sorted(LINEAR_UNITS.keys())
-
-    @staticmethod
-    def getLinearUnitWKID(unit_name):
-        """gets a well known ID from a unit name
-
-        Required:
-            unit_name -- name of unit to fetch WKID for.  It is safe to use this as
-                a filter to ensure a valid WKID is extracted.  if a WKID is passed in,
-                that same value is returned.  This argument is expecting a string from
-                linear_units list.  Valid options can be viewed with GeometryService.linear_units
-        """
-        if isinstance(unit_name, int) or unicode(unit_name).isdigit():
-            return int(unit_name)
-
-        for k,v in LINEAR_UNITS.iteritems():
-            if k.lower() == unit_name.lower():
-                return int(v['wkid'])
-
-    @staticmethod
-    def validateGeometries(geometries, use_envelopes=False):
-        """
-
-        """
-        cleanGeometry = {}
-        geometryType = ''
-        geoms = []
-        if isinstance(geometries, basestring):
-            if '{' in geometries:
-                geometries = json.loads(geometries)
-
-        # there is just a single geometry
-        if isinstance(geometries, Geometry):
-            geometries =  [geometries]
-
-
-        # it is json it may be correct, but iterate through and validate anyways
-        if isinstance(geometries, dict):
-            if 'geometries' in geometries:
-                theGeoms = geometries['geometries']
-                if isinstance(theGeoms, list):
-                    for geom in theGeoms:
-                        if isinstance(geom, Geometry):
-                            if use_envelopes:
-                                geoms.append(geom.envelopeAsJSON())
-                            else:
-                                geoms.append(geom.JSON)
-                        elif isinstance(geom, dict):
-                            geoms.append(geom)
-
-            else:
-                geoms.append(geometries)
-
-            if 'geometryType' in geometries:
-                geometryType = geometries['geometryType']
-
-
-        # we just have a list of Geometry Objects, dicts or bounding boxes
-        if isinstance(geometries, list):
-            for geom in geometries:
-                if isinstance(geom, Geometry):
-                    if use_envelopes:
-                        geoms.append(geom.envelopeAsJSON())
-                    else:
-                        geoms.append(geom.JSON)
-
-                    if not geometryType:
-                        geometryType = geom.geometryType if not use_envelopes else 'esriGeometryEnvelope'
-
-                elif isinstance(geom, dict):
-                    geoms.append(geom)
-
-        # form json
-        if not geometryType and len(geoms):
-            if 'x' in geoms[0]:
-                geometryType = 'esriGeometryPoint'
-            elif 'points' in geoms[0]:
-                geometryType = 'esriGeometryMultipoint'
-            elif 'paths' in geoms[0]:
-                geometryType = 'esriGeometryPolyline'
-            elif 'rings' in geoms[0]:
-                geometryType = 'esriGeometryPolygon'
-            else:
-                geometryType = 'esriGeometryEnvelope'
-
-        return {'geometryType': geometryType, 'geometries': geoms}
-
-    @staticmethod
-    def returnGeometry(in_json, wkid=None):
-        """passthrough helper method to return a single Geometry or GeometryCollection
-        based on JSON response.
-
-        Required:
-            in_json -- input JSON response
-
-        Optional:
-            wkid -- well known ID for spatial reference, required to output valid Geometry objects
-        """
-        if isinstance(in_json, dict) and 'geometries' in in_json:
-            if wkid:
-                for geometry in in_json['geometries']:
-                    geometry['spatialReference'] = {'wkid': wkid}
-                gc = GeometryCollection(in_json)
-
-                # if only one geometry, return it as a Geometry() object otherwise as GeometryCollection()
-                if len(gc) == 1:
-                    return gc[0]
-                else:
-                    return gc
-
-            else:
-                return in_json
-
-    def buffer(self, geometries, inSR, distances, unit='', outSR='', use_envelopes=False, **kwargs):
-        """buffer a single geoemetry or multiple
-
-        Required:
-            geometries -- array of geometries to be buffered. The spatial reference of the geometries
-                is specified by inSR. The structure of each geometry in the array is the same as the
-                structure of the JSON geometry objects returned by the ArcGIS REST API.
-
-            inSR -- wkid for input geometry
-
-            distances -- the distances that each of the input geometries is buffered. The distance units
-                are specified by unit.
-
-        Optional:
-
-            use_envelopes -- not a valid option in ArcGIS REST API, this is an extra argument that will
-                convert the geometries to bounding box envelopes ONLY IF they are restapi.Geometry objects,
-                otherwise this parameter is ignored.
-
-
-        """
-        buff_url = self.url + '/buffer'
-
-        params = {'f': 'pjson',
-                  'geometries': self.validateGeometries(geometries),
-                  'inSR': inSR,
-                  'distances': distances,
-                  'unit': self.getLinearUnitWKID(unit),
-                  'outSR': outSR,
-                  'unionResults': 'true',
-                  'geodesic': 'false',
-                  'outSR': '',
-                  'bufferSR': ''
-                }
-
-        # add kwargs
-        for k,v in kwargs:
-            if k not in params:
-                params[k] = v
-
-        # perform operation
-        return self.returnGeometry(POST(buff_url, params, token=self.token))
-
-
-    def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
-        """finds the most applicable transformation based on inSR and outSR
-
-        Required:
-            inSR -- input Spatial Reference (wkid)
-            outSR -- output Spatial Reference (wkid)
-
-        Optional:
-            extentOfInterest --e bounding box of the area of interest specified as a
-                JSON envelope. If provided, the extent of interest is used to return
-                the most applicable geographic transformations for the area. If a spatial
-                reference is not included in the JSON envelope, the inSR is used for the
-                envelope.
-
-            numOfResults -- The number of geographic transformations to return. The
-                default value is 1. If numOfResults has a value of -1, all applicable
-                transformations are returned.
-
-        return looks like this:
-            [
-              {
-                "wkid": 15851,
-                "latestWkid": 15851,
-                "name": "NAD_1927_To_WGS_1984_79_CONUS"
-              },
-              {
-                "wkid": 8072,
-                "latestWkid": 1172,
-                "name": "NAD_1927_To_WGS_1984_3"
-              },
-              {
-                "geoTransforms": [
-                  {
-                    "wkid": 108001,
-                    "latestWkid": 1241,
-                    "transformForward": true,
-                    "name": "NAD_1927_To_NAD_1983_NADCON"
-                  },
-                  {
-                    "wkid": 108190,
-                    "latestWkid": 108190,
-                    "transformForward": false,
-                    "name": "WGS_1984_(ITRF00)_To_NAD_1983"
-                  }
-                ]
-              }
-            ]
-        """
-        params = {'inSR': inSR,
-                  'outSR': outSR,
-                  'extentOfInterest': extentOfInterest,
-                  'numOfResults': numOfResults
-                }
-
-        res = POST(self.url + '/findTransformations', params, token=self.token)
-        if int(numOfResults) == 1:
-            return res[0]
-        else:
-            return res
-
-
-    def project(self, geometries, inSR, outSR, transformation='', transformForward='false'):
-        """project a single or group of geometries
-
-        Required:
-            geometries --
-            inSR --
-            outSR --
-
-        Optional:
-            transformation --
-            trasnformForward --
-        """
-        params = {'geometries': validateGeometries(geometries),
-                  'inSR': inSR,
-                  'outSR': outSR,
-                  'transformation': transformation,
-                  'transformForward': transformForward
-                }
-
-        return POST(self.url + '/project', params, token=self.token)
-
-    def __repr__(self):
-        return '<restapi.GeometryService>'
-
-
+        return '<restapi.GeometryCollection [{}]>'.format(self.geometryType)
 
 class GeocodeHandler(object):
     """class to handle geocode results"""
-    __slots__ = ['spatialReference', 'results', 'fields', 'formattedResults']
+    __slots__ = [SPATIAL_REFERENCE, 'results', 'fields', 'formattedResults']
 
     def __init__(self, geocodeResult):
         """geocode response object handler
@@ -894,130 +641,6 @@ class GeocodeHandler(object):
 
             yield (pt,) + tuple(res.attributes[f.name] for f in self.fields)
 
-
-class MapServiceLayer(BaseMapServiceLayer):
-    """Class to handle advanced layer properties"""
-
-    def cursor(self, fields='*', where='1=1', records=None, add_params={}, get_all=False):
-        """Run Cursor on layer, helper method that calls Cursor Object"""
-        field_objects_string = self.fix_fields(fields)
-        if fields == '*':
-            field_objects = [f for f in self.fields if f.type not in SKIP_FIELDS.keys()]
-        else:
-            field_objects = []
-            for field in field_objects_string.split(','):
-                for fld in self.fields:
-                    if fld.name == field and fld.type not in SKIP_FIELDS.keys():
-                        field_objects.append(fld)
-
-        # handle shape and oid fields
-        if self.OID:
-            oid_name = self.OID.name
-        else:
-            oid_name = 'OBJECTID'
-
-        if self.SHAPE:
-            add_params['returnGeometry'] = 'true'
-        else:
-            add_params['returnGeometry'] = 'false'
-
-        return Cursor(self.url, fields, where, records, self.token, add_params, get_all)
-
-    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, get_all=False, sr=None):
-        """Method to export a feature class from a service layer
-
-        Required:
-            out_fc -- full path to output feature class
-
-        Optional:
-            where -- optional where clause
-            params -- dictionary of parameters for query
-            fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            records -- number of records to return. Default is none, will return maxRecordCount
-            get_all -- option to get all records.  If true, will recursively query REST endpoint
-                until all records have been gathered. Default is False.
-            sr -- output spatial refrence (WKID)
-        """
-        if self.type == 'Feature Layer':
-            if not fields:
-                fields = '*'
-            if fields == '*':
-                _fields = self.fields
-            else:
-                if isinstance(fields, basestring):
-                    fields = fields.split(',')
-                _fields = [f for f in self.fields if f.name in fields]
-
-            # filter fields for cusor object
-            cur_fields = []
-            for fld in _fields:
-                if fld.type not in [OID] + SKIP_FIELDS.keys():
-                    if not any(['shape_' in fld.name.lower(),
-                                'shape.' in fld.name.lower(),
-                                '(shape)' in fld.name.lower(),
-                                'objectid' in fld.name.lower(),
-                                fld.name.lower() == 'fid']):
-                        cur_fields.append(fld.name)
-
-            # make new feature class
-            if not sr:
-                sr = self.spatialReference
-            else:
-                params['outSR'] = sr
-
-            # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
-            if not self.SHAPE.name in cur_fields and 'SHAPE@' not in cur_fields:
-                cur_fields.append('SHAPE@')
-            query_resp = self.cursor(cur_fields, where, records, params, get_all).response
-
-            # have to override here to get domains (why are they excluded in feature set response!?)
-            query_resp['fields'] = [f.asJSON() for f in _fields]
-            return exportFeatureSet(out_fc, query_resp)
-
-        else:
-            print('Cannot convert layer: "{0}" to Feature Layer, Not a vector layer!'.format(self.name))
-
-    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False):
-        """Method for spatial Query, exports geometry that intersect polygon or
-        envelope features.
-
-        Required:
-            poly -- polygon (or other) features used for spatial query
-            output -- full path to output feature class
-
-        Optional:
-             fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            out_sr -- output spatial refrence (WKID)
-            where -- optional where clause
-            envelope -- if true, the polygon features bounding box will be used.  This option
-                can be used if the feature has many vertices or to check against the full extent
-                of the feature class
-        """
-        if isinstance(poly, Geometry):
-            in_geom = poly
-        else:
-            in_geom = Geometry(poly)
-        sr = in_geom.spatialReference
-        if envelope:
-            geojson = in_geom.envelope()
-            geometryType = 'esriGeometryEnvelope'
-        else:
-            geojson = in_geom.dumps()
-            geometryType = in_geom.geometryType
-
-        if not out_sr:
-            out_sr = sr
-
-        d = {'geometryType': geometryType,
-             'returnGeometry': 'true',
-             'geometry': geojson,
-             'inSR' : sr,
-             'outSR': out_sr}
-
-        return self.layer_to_fc(output, fields, where, params=d, get_all=True, sr=out_sr)
-
 class ImageService(BaseImageService):
 
     def pointIdentify(self, **kwargs):
@@ -1027,7 +650,7 @@ class ImageService(BaseImageService):
             geometry -- JSON point object as dictionary
             x -- x coordinate
             y -- y coordinate
-            sr -- input spatial reference.  Should be supplied if spatial
+            inSR -- input spatial reference.  Should be supplied if spatial
                 reference is different from the Image Service's projection
 
         geometry example:
@@ -1042,14 +665,8 @@ class ImageService(BaseImageService):
             inSR = self.spatialReference
 
         if 'geometry' in kwargs:
-            g = kwargs['geometry']
-            if isinstance(g, Geometry):
-                g = geometry.dumps()
-                inSR = g.spatialReference
-            elif isinstance(g, dict):
-                geometry = json.dumps(g)
-            elif isinstance(g, basestring):
-                geometry = g
+            g = Geometry(kwargs['geometry'], spatialReference=inSR)
+            inSR = g.spatialReference
 
         elif 'x' in kwargs and 'y' in kwargs:
             g = {'x': kwargs['x'], 'y': kwargs['y']}
@@ -1061,7 +678,7 @@ class ImageService(BaseImageService):
 
         params = {'geometry': geometry,
                   'inSR': inSR,
-                  'geometryType':'esriGeometryPoint',
+                  GEOMETRY_TYPE:ESRI_POINT,
                   'f':'json',
                   'returnGeometry': 'false',
                   'returnCatalogItems': 'false'
@@ -1098,7 +715,7 @@ class ImageService(BaseImageService):
         sr = in_geom.spatialReference
         if envelope:
             geojson = in_geom.envelope()
-            geometryType = 'esriGeometryEnvelope'
+            geometryType = ESRI_ENVELOPE
         else:
             geojson = in_geom.dumps()
             geometryType = in_geom.geometryType
@@ -1179,7 +796,7 @@ class ImageService(BaseImageService):
             bbox = map(int, [float(i) for i in self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax]).split(',')])
             flds = ['xmin','ymin','xmax','ymax']
             geojson = dict(zip(flds, bbox))
-            geojson['spatialReference'] = poly.JSON['spatialReference']
+            geojson[SPATIAL_REFERENCE] = poly.JSON[SPATIAL_REFERENCE]
         else:
             geojson = Geometry(poly).dumps() if not isinstance(poly, Geometry) else poly.dumps()
         ren = {

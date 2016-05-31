@@ -14,21 +14,17 @@ from shapefile import shapefile
 
 # field types for shapefile module
 SHP_FTYPES = {
-          'esriFieldTypeDate':'D',
-          'esriFieldTypeString':'C',
-          'esriFieldTypeSingle':'F',
-          'esriFieldTypeDouble':'F',
-          'esriFieldTypeSmallInteger':'N',
-          'esriFieldTypeInteger':'N',
-          'esriFieldTypeGUID':'C',
-          'esriFieldTypeRaster':'B',
-          'esriFieldTypeGlobalID': 'C'
+          DATE_FIELD:'D',
+          TEXT_FIELD:'C',
+          FLOAT_FIELD:'F',
+          DOUBLE_FIELD:'F',
+          SHORT_FIELD:'N',
+          LONG_FIELD:'N',
+          GUID_FIELD:'C',
+          RASTER_FIELD:'B',
+          BLOB_FIELD: 'B',
+          GLOBALID: 'C'
           }
-
-__all__ = ['Cursor', 'MapService', 'MapServiceLayer', 'ArcServer', 'ImageService', 'Geocoder',
-           'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry',
-           'FeatureService', 'FeatureLayer', 'GeocodeService', 'GPService', 'GPTask', 'POST',
-           'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name']
 
 def project(SHAPEFILE, wkid):
     """creates .prj for shapefile
@@ -68,13 +64,13 @@ def exportFeatureSet(out_fc, feature_set, outSR=None):
     fields = [Field(f) for f in feature_set['fields']]
 
     if not outSR:
-        sr_dict = feature_set['spatialReference']
-        if 'latestWkid' in sr_dict:
-            outSR = int(sr_dict['latestWkid'])
+        sr_dict = feature_set[SPATIAL_REFERNCE]
+        if LATEST_WKID in sr_dict:
+            outSR = int(sr_dict[LATEST_WKID])
         else:
-            outSR = int(sr_dict['wkid'])
+            outSR = int(sr_dict[WKID])
 
-    g_type = feature_set['geometryType']
+    g_type = feature_set[GEOMETRY_TYPE]
 
     # add all fields
     w = shp_helper.shp(G_DICT[g_type].upper(), out_fc)
@@ -143,8 +139,8 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
     # form feature set and call export feature set
     fs = {'features': cursor.features,
           'fields': lyr.response['fields'],
-          'spatialReference': lyr.response['extent']['spatialReference'],
-          'geometryType': lyr.geometryType}
+          SPATIAL_REFERNCE: lyr.response['extent'][SPATIAL_REFERNCE],
+          GEOMETRY_TYPE: lyr.geometryType}
 
     # create new shapefile
     out_fc = validate_name(os.path.join(out_ws, lyr.name + '.shp'))
@@ -323,14 +319,14 @@ class Geometry(object):
         self.JSON = OrderedDict2()
         if isinstance(geometry, shapefile._Shape):
             if geometry.shapeType in (1, 11, 21):
-                self.geometryType = 'esriGeometryPoint'
+                self.geometryType = ESRI_POINT
             elif geometry.shapeType in (3, 13, 23):
-                self.geometryType = 'esriGeometryPolyline'
+                self.geometryType = ESRI_POLYLINE
             elif geometry.shapeType in (5,15, 25):
-                self.geometryType = 'esriGeometryPolygon'
+                self.geometryType = ESRI_POLYGON
             elif self.geometryType in (8, 18, 28):
-                self.geometryType = 'esriGeometryMultipoint'
-            if self.geometryType != 'esriGeometryPoint':
+                self.geometryType = ESRI_MULTIPOINT
+            if self.geometryType != ESRI_POINT:
                 self.JSON[JSON_CODE[self.geometryType]] = partHandler(geometry.points)
             else:
                 self.JSON = OrderedDict2(zip(['x', 'y'], geometry.points[0]))
@@ -353,14 +349,14 @@ class Geometry(object):
                             self.spatialReference = PRJ_NAMES[name]
                     r = shapefile.Reader(geometry)
                     if r.shapeType in (1, 11, 21):
-                        self.geometryType = 'esriGeometryPoint'
+                        self.geometryType = ESRI_POINT
                     elif r.shapeType in (3, 13, 23):
-                        self.geometryType = 'esriGeometryPolyline'
+                        self.geometryType = ESRI_POLYLINE
                     elif r.shapeType in (5,15, 25):
-                        self.geometryType = 'esriGeometryPolygon'
+                        self.geometryType = ESRI_POLYGON
                     elif self.geometryType in (8, 18, 28):
-                        self.geometryType = 'esriGeometryMultipoint'
-                    if self.geometryType != 'esriGeometryPoint':
+                        self.geometryType = ESRI_MULTIPOINT
+                    if self.geometryType != ESRI_POINT:
                         self.JSON[JSON_CODE[self.geometryType]] = partHandler(r.shape())
                     else:
                         self.JSON = OrderedDict2(zip(['x', 'y'], r.shape().points[0]))
@@ -368,13 +364,13 @@ class Geometry(object):
                     raise IOError('Not a valid geometry input!')
 
         if isinstance(geometry, dict):
-            if 'spatialReference' in geometry:
-                sr_json = geometry['spatialReference']
-                if 'latestWkid' in sr_json:
-                    self.spatialReference = sr_json['latestWkid']
+            if SPATIAL_REFERNCE in geometry:
+                sr_json = geometry[SPATIAL_REFERNCE]
+                if LATEST_WKID in sr_json:
+                    self.spatialReference = sr_json[LATEST_WKID]
                 else:
                     try:
-                        self.spatialReference = sr_json['wkid']
+                        self.spatialReference = sr_json[WKID]
                     except:
                         raise IOError('No spatial reference found in JSON object!')
                 if 'features' in geometry:
@@ -398,17 +394,17 @@ class Geometry(object):
                     elif 'x' in geometry and 'y' in geometry:
                         self.JSON['x'] = geometry['x']
                         self.JSON['y'] = geometry['y']
-                        self.geometryType = 'esriGeometryPoint'
+                        self.geometryType = ESRI_POINT
                     else:
                         raise IOError('Not a valid JSON object!')
-                if not self.geometryType and 'geometryType' in geometry:
-                    self.geometryType = geometry['geometryType']
-        if not 'spatialReference' in self.JSON and self.spatialReference:
-            self.JSON['spatialReference'] = {'wkid': self.spatialReference}
+                if not self.geometryType and GEOMETRY_TYPE in geometry:
+                    self.geometryType = geometry[GEOMETRY_TYPE]
+        if not SPATIAL_REFERNCE in self.JSON and self.spatialReference:
+            self.JSON[SPATIAL_REFERNCE] = {WKID: self.spatialReference}
 
     def envelope(self):
         """return an envelope from shape"""
-        if self.geometryType != 'esriGeometryPoint':
+        if self.geometryType != ESRI_POINT:
             coords = []
             for i in self.JSON[JSON_CODE[self.geometryType]]:
                 coords.extend(i)
@@ -423,7 +419,7 @@ class Geometry(object):
     def dumps(self):
         """retuns json as a string"""
         # cannot use json.dumps, fails to serialize some nested lists
-        if self.geometryType == 'esriGeometryPoint':
+        if self.geometryType == ESRI_POINT:
             if self.spatialReference:
                 return '{"x":%s, "y":%s, "spatialReference":{"wkid": %s}}' %(self.JSON['x'],
                                                                              self.JSON['y'],
@@ -440,7 +436,7 @@ class Geometry(object):
     def asShape(self):
         """returns geometry as shapefile._Shape() object"""
         shp = shapefile._Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
-        if self.geometryType != 'esriGeometryPoint':
+        if self.geometryType != ESRI_POINT:
             shp.points = self.JSON[JSON_CODE[self.geometryType]]
         else:
             shp.points = [[self.JSON['x'], self.JSON['y']]]
@@ -469,106 +465,10 @@ class Geometry(object):
         """dumps JSON to string"""
         return self.dumps()
 
-class Cursor(BaseCursor):
-    """Class to handle Cursor object"""
-    def __init__(self, url, fields='*', where='1=1', records=None, token='', add_params={}, get_all=False):
-        """Cusor object to handle queries to rest endpoints
-
-        Required:
-            url -- url to layer's rest endpoint
-
-        Optional:
-            fields -- option to limit fields returned.  All are returned by default
-            where -- where clause for cursor
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless get_all is True
-            token -- token to handle security (only required if security is enabled)
-            add_params -- option to add additional search parameters
-            get_all -- option to get all records in layer.  This option may be time consuming
-                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records.
-        """
-        super(Cursor, self).__init__(url, fields, where, records, token, add_params, get_all)
-
-    def get_rows(self):
-        """returns row objects"""
-        for feature in self.features[:self.records]:
-            yield Row(feature, self.field_objects, self.spatialReference, self.geometryType)
-
-    def rows(self):
-        """returns row values as tuple"""
-        for feature in self.features[:self.records]:
-            yield Row(feature, self.field_objects, self.spatialReference, self.geometryType).values
-
-    def getRow(self, index):
-        """returns row object at index"""
-        return [r for r in self.get_rows()][index]
-
-    def __iter__(self):
-        """returns Cursor.rows() generator"""
-        return self.rows()
-
-    def __getitem__(self, index):
-        """allows for indexing"""
-        return self.rows()[index]
-
-class Row(BaseRow):
-    """Class to handle Row object"""
-    def __init__(self, features={}, fields=[], spatialReference=None, g_type=''):
-        """Row object for Cursor
-
-        Required:
-            features -- features JSON object
-            fields -- fields participating in cursor
-            spatialReference -- spatial reference for geometry (ignored in this source version)
-            g_type -- geometry type
-        """
-        super(Row, self).__init__(features, fields, spatialReference)
-        self.geometryType = g_type
-
-    @property
-    def geometry(self):
-        """returns REST API geometry as esri JSON"""
-        if self.esri_json:
-            g_type = G_DICT[self.geometryType]
-            if g_type == 'Polygon':
-                return self.esri_json['rings']
-
-            elif g_type == 'Polyline':
-                return self.esri_json['paths']
-
-            elif g_type == 'Point':
-                return [self.esri_json['x'], self.esri_json['y']]
-
-            else:
-                # multipoint - to do
-                pass
-        return None
-
-    @property
-    def oid(self):
-        """returns the OID for row"""
-        if self.oid_field_ob:
-            return self.atts[self.oid_field_ob.name]
-        return None
-
-    @property
-    def values(self):
-        """returns values as tuple"""
-        _values = [self.atts[f.name] for f in self.fields
-                   if f.type != SHAPE]
-
-        if self.geometry and self.shape_field_ob:
-            _values.insert(self.fields.index(self.shape_field_ob), self.geometry)
-
-        elif self.geometry:
-            _values.append(self.geometry)
-
-        return tuple(_values)
 
 class GeocodeHandler(object):
     """class to handle geocode results"""
-    __slots__ = ['spatialReference', 'results', 'fields', 'formattedResults']
+    __slots__ = [SPATIAL_REFERNCE, 'results', 'fields', 'formattedResults']
 
     def __init__(self, geocodeResult):
         """geocode response object handler
@@ -577,7 +477,7 @@ class GeocodeHandler(object):
             geocodeResult -- GeocodeResult object
         """
         self.results = geocodeResult.results
-        self.spatialReference = geocodeResult.spatialReference['wkid']
+        self.spatialReference = geocodeResult.spatialReference[WKID]
 
     @property
     def fields(self):
@@ -603,142 +503,7 @@ class GeocodeHandler(object):
             pt = (res.location['x'], res.location['y'])
             yield (pt,) + tuple(res.attributes[f.name] for f in self.fields)
 
-class ArcServer(BaseArcServer):
-    """class to handle ArcServer connection"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        """Base REST Endpoint Object to handle credentials and get JSON response
 
-        Required:
-            url -- ArcGIS services directory
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
-        """
-        super(ArcServer, self).__init__(url, usr, pw, token, proxy)
-
-    def get_MapService(self, name_or_wildcard):
-        """method to return MapService Object, supports wildcards
-
-        Required:
-            name_or_wildcard -- service name or wildcard used to grab service name
-                (ex: "moun_webmap_rest/mapserver" or "*moun*mapserver")
-        """
-        full_path = self.get_service_url(name_or_wildcard)
-        if full_path:
-            return MapService(full_path, token=self.token)
-
-class MapService(BaseMapService):
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        """MapService object
-
-        Required:
-            url -- MapService url
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
-        """
-        super(MapService, self).__init__(url, usr, pw, token)
-
-    def layer(self, name_or_id):
-        """Method to return a layer object with advanced properties by name
-
-        Required:
-            name -- layer name (supports wildcard syntax*) or id (must be of type <int>)
-        """
-        if isinstance(name_or_id, int):
-            # reference by id directly
-            return MapServiceLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
-
-        layer_path = get_layer_url(self.url, name_or_id, self.token)
-        if layer_path:
-            return MapServiceLayer(layer_path, token=self.token)
-        else:
-            print('Layer "{0}" not found!'.format(name_or_id))
-
-    def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, get_all=False):
-        """Cusor object to handle queries to rest endpoints
-
-        Required:
-           layer_name -- name of layer in map service
-
-        Optional:
-            fields -- option to limit fields returned.  All are returned by default
-            where -- where clause for cursor
-            records -- number of records to return (within bounds of max record count)
-            token --
-            add_params -- option to add additional search parameters
-            get_all -- option to get all records in layer.  This option may be time consuming
-                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records
-        """
-        lyr = get_layer_url(self.url, layer_name, self.token)
-        return Cursor(lyr, fields, where, records, self.token, add_params, get_all)
-
-    def layer_to_fc(self, layer_name,  out_fc, fields='*', where='1=1',
-                    records=None, params={}, get_all=False, sr=None):
-        """Method to export a feature class from a service layer
-
-        Required:
-            layer_name -- name of map service layer to export to fc
-            out_fc -- full path to output feature class
-
-        Optional:
-            where -- optional where clause
-            params -- dictionary of parameters for query
-            fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            records -- number of records to return. Default is none, will return maxRecordCount
-            get_all -- option to get all records.  If true, will recursively query REST endpoint
-                until all records have been gathered. Default is False.
-            sr -- output spatial refrence (WKID)
-        """
-        lyr = self.layer(layer_name)
-        lyr.layer_to_fc(out_fc, fields, where,records, params, get_all, sr)
-
-    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
-
-        Required:
-            layer_name -- name of map service layer to export to fc
-
-        Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
-        """
-        lyr = self.layer(layer_name)
-        lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
-
-    def clip(self, layer_name, poly, output, fields='*', out_sr='', where='', envelope=False):
-        """Method for spatial Query, exports geometry that intersect polygon or
-        envelope features.
-
-        Required:
-            layer_name -- name of map service layer to export to fc
-            poly -- polygon (or other) features used for spatial query
-            output -- full path to output feature class
-
-        Optional:
-             fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            sr -- output spatial refrence (WKID)
-            where -- optional where clause
-            envelope -- if true, the polygon features bounding box will be used.  This option
-                can be used if the feature has many vertices or to check against the full extent
-                of the feature class
-        """
-        lyr = self.layer(layer_name)
-        return lyr.clip(poly, output, fields, out_sr, where, envelope)
 
 class MapServiceLayer(BaseMapServiceLayer):
     """Class to handle advanced layer properties"""
@@ -851,7 +616,7 @@ class MapServiceLayer(BaseMapServiceLayer):
         if not out_sr:
             out_sr = sr
 
-        d = {'geometryType' : geometryType,
+        d = {GEOMETRY_TYPE : geometryType,
              'geometry': geojson, 'inSR' : out_sr, 'outSR': out_sr}
         return self.layer_to_fc(output, fields, where, params=d, get_all=True, sr=out_sr)
 
@@ -913,7 +678,7 @@ class ImageService(BaseImageService):
 
         params = {'geometry': geometry,
                   'inSR': inSR,
-                  'geometryType':'esriGeometryPoint',
+                  GEOMETRY_TYPE:ESRI_POINT,
                   'f':'json',
                   'returnGeometry': 'false',
                   'returnCatalogItems': 'false'

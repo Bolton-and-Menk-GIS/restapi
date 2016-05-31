@@ -413,32 +413,32 @@ class RESTEndpoint(object):
         return sorted(self.__class__.__dict__.keys() + self.json.keys())
 
 class SpatialReferenceMixin(object):
-    """mixin to allow convenience methods for grabbing the spatial reference"""
+    """mixin to allow convenience methods for grabbing the spatial reference from a service"""
     json = {}
 
     def getSR(self):
         """return the spatial reference"""
         resp_d = {}
-        if 'spatialReference' in self.json:
-            resp_d = self.json['spatialReference']
-        elif 'extent' in self.json and 'spatialReference' in self.json['extent']:
-            resp_d = self.json['extent']['spatialReference']
+        if SPATIAL_REFERENCE in self.json:
+            resp_d = self.json[SPATIAL_REFERENCE]
+        elif 'extent' in self.json and SPATIAL_REFERENCE in self.json['extent']:
+            resp_d = self.json['extent'][SPATIAL_REFERENCE]
 
-        for key in ['latestWkid', 'wkid', 'wkt']:
+        for key in [LATEST_WKID, WKID, WKT]:
             if key in resp_d:
                 return resp_d[key]
 
     def getWKID(self):
         """returns the well known id for service spatial reference"""
         try:
-            return self.spatialReference.get('latestWkid') if self.spatialReference.get('latestWkid') else self.spatialReference.get('wkid')
+            return self.spatialReference.get(LATEST_WKID) if self.spatialReference.get(LATEST_WKID) else self.spatialReference.get(WKID)
         except:
             return None
 
     def getWKT(self):
         """returns the well known text (if it exists) for a service"""
         try:
-            wkt = self.spatialReference.get('wkt')
+            wkt = self.spatialReference.get(WKT)
             if wkt is not None:
                 return wkt
             else:
@@ -466,12 +466,21 @@ class FeatureSet(SpatialReferenceMixin):
         Required:
             in_json -- input json response from request
         """
-        self.json = munch.munchify(in_json)
+        if isinstance(in_json, basestring):
+            in_json = json.loads(in_json)
+        elif isinstance(in_json, self.__class__):
+            self.json = in_json.json
+        else:
+            self.json = munch.munchify(in_json)
 
     @property
     def count(self):
         """returns total number of records in Cursor (user queried)"""
         return len(self)
+
+    def list_fields(self):
+        """returns a list of field names"""
+        return [f.name for f in self.fields]
 
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""
@@ -485,15 +494,19 @@ class FeatureSet(SpatialReferenceMixin):
             else:
                 raise AttributeError(name)
 
+    def __getitem__(self, key):
+        """supports grabbing feature by index and json keys by name"""
+        if isinstance(key, int):
+            return self.features[key]
+        else:
+            return self.json.get(key)
+
     def __iter__(self):
         for feature in self.features:
             yield feature
 
     def __len__(self):
         return len(self.features)
-
-    def __getitem__(self, i):
-        return self.json.features[i]
 
     def __nonzero__(self):
         return bool(len(self))
@@ -612,7 +625,7 @@ class GPResult(object):
 
 class GeocodeResult(object):
     """class to handle Reverse Geocode Result"""
-    __slots__ = ['response', 'spatialReference', 'type', 'candidates',
+    __slots__ = ['response', SPATIAL_REFERENCE, 'type', 'candidates',
                 'locations', 'address', 'results', 'result', 'Result']
 
     def __init__(self, res_dict, geo_type):
@@ -629,10 +642,10 @@ class GeocodeResult(object):
         self.locations = []
         self.address = []
         try:
-            sr_dict = self.response['location']['spatialReference']
-            wkid = sr_dict.get('latestWkid', None)
+            sr_dict = self.response['location'][SPATIAL_REFERENCE]
+            wkid = sr_dict.get(LATEST_WKID, None)
             if wkid is None:
-                wkid = sr_dict.get('wkid', None)
+                wkid = sr_dict.get(WKID, None)
             self.spatialReference = wkid
         except:
             self.spatialReference = None
@@ -835,19 +848,21 @@ class BaseArcServer(RESTEndpoint):
             _list -- default is false.  If true, will return a list of all services
                 matching the wildcard.  If false, first match is returned.
         """
+        if not self.service_cache:
+            self.list_services()
         if '*' in wildcard:
             if wildcard == '*':
-                return self.services[0]
+                return self.service_cache[0]
             else:
                 if _list:
-                    return [s for s in self.services if fnmatch.fnmatch(s, wildcard)]
-            for s in self.services:
+                    return [s for s in self.service_cache if fnmatch.fnmatch(s, wildcard)]
+            for s in self.service_cache:
                 if fnmatch.fnmatch(s, wildcard):
                     return s
         else:
             if _list:
-                return [s for s in self.services if wildcard.lower() in s.lower()]
-            for s in self.services:
+                return [s for s in self.service_cache if wildcard.lower() in s.lower()]
+            for s in self.service_cache:
                 if wildcard.lower() in s.lower():
                     return s
         print('"{0}" not found in services'.format(wildcard))
@@ -1032,7 +1047,11 @@ class BaseMapService(BaseService):
 
         return r
 
-class BaseMapServiceLayer(RESTEndpoint):
+    def __iter__(self):
+        for lyr in self.layers:
+            yield lyr
+
+class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
     """Class to handle advanced layer properties"""
     def __init__(self, url='', usr='', pw='', token='', proxy=None):
         super(BaseMapServiceLayer, self).__init__(url, usr, pw, token, proxy)
@@ -1067,16 +1086,25 @@ class BaseMapServiceLayer(RESTEndpoint):
         Required:
             fields -- list or comma delimited field list
         """
+        field_list = []
         if fields == '*':
             return fields
+        elif isinstance(fields, basestring):
+            fields = fields.split(',')
         if isinstance(fields, list):
-            fields = ','.join(fields)
-        if '@' in fields:
-            if 'SHAPE@' in fields:
-                fields = fields.replace('SHAPE@', self.SHAPE.name)
-            if 'OID@' in fields:
-                fields = fields.replace('OID@', self.OID.name)
-        return fields
+            all_fields = self.list_fields()
+            for f in fields:
+                if '@' in f:
+                    if f.upper() == SHAPE_TOKEN:
+                        if self.SHAPE:
+                            field_list.append(self.SHAPE.name)
+                    elif f.upper() == OID_TOKEN:
+                        if self.OID:
+                            field_list.append(self.OID.name)
+                else:
+                    if f in all_fields:
+                        field_list.append(f)
+        return ','.join(field_list)
 
     def query_all(self, oid, max_recs, where='1=1', add_params={}, token=''):
         """generator to form where clauses to query all records.  Will iterate through "chunks"
@@ -1215,12 +1243,12 @@ class BaseMapServiceLayer(RESTEndpoint):
                     geometryType = gtype
                     break
 
-        if 'spatialReference' in geometry:
-            sr_dict = geometry['spatialReference']
-            inSR = sr_dict.get('latestWkid') if sr_dict.get('latestWkid') else sr_dict.get('wkid')
+        if SPATIAL_REFERENCE in geometry:
+            sr_dict = geometry[SPATIAL_REFERENCE]
+            inSR = sr_dict.get(LATEST_WKID) if sr_dict.get(LATEST_WKID) else sr_dict.get(WKID)
 
         params = {'geometry': geometry,
-                  'geometryType': geometryType,
+                  GEOMETRY_TYPE: geometryType,
                   'spatialRel': spatialRel,
                   'inSR': inSR,
             }
