@@ -32,7 +32,7 @@ shp_dict = {
 
 shp_code = {v:k for k,v in shp_dict.iteritems()}
 
-class shp(object):
+class ShpWriter(object):
     def __init__(self, shapeType='NULL', path=''):
         self.w = shapefile.Writer(shp_dict[shapeType.upper()] if isinstance(shapeType, basestring) else shapeType)
         self.shapeType = self.w.shapeType
@@ -82,7 +82,7 @@ class shp(object):
         else:
             self.w.save(path)
 
-class shpEditor(object):
+class ShpEditor(object):
     def __init__(self, path):
         self.r = shapefile.Reader(path)
         self.__isBuilt = False

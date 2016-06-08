@@ -18,6 +18,12 @@ from collections import namedtuple, OrderedDict
 from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 from ._strings import *
 
+# python 3 compat
+try:
+    basestring
+except NameError:
+    basestring = str
+
 # disable ssl warnings (we are not verifying certs...maybe should look at trying to auto verify ssl in future)
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     requests.packages.urllib3.disable_warnings(warning)
@@ -72,7 +78,7 @@ def Field(f_dict={}):
         f_dict -- dictionary containing Field properties
     """
     # make sure always has at least (name, length, type, domain)
-    for attr in ('name', 'length', 'type', 'domain'):
+    for attr in (NAME, LENGTH, TYPE, DOMAIN):
         if not attr in f_dict:
             f_dict[attr] = None
 
@@ -103,7 +109,7 @@ def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
 
-def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, proxy=None):
+def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -134,8 +140,8 @@ def POST(service, params={'f': 'json'}, ret_json=True, token='', cookies=None, p
         if isinstance(p, dict):
             params[pName] = json.dumps(p)
 
-    if not 'f' in params:
-        params['f'] = 'json'
+    if not F in params:
+        params[F] = JSON
 
     if not token and not proxy:
         proxy = ID_MANAGER.findProxy(service)
@@ -169,12 +175,12 @@ def do_proxy_request(proxy, url, params={}):
         params -- query parameters, user is responsible for passing in the
             proper paramaters
     """
-    if not 'f' in params:
-        params['f'] = 'json'
-    p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems() if k != 'f')
+    if not F in params:
+        params[F] = JSON
+    p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems() if k != F)
 
     # probably a better way to do this, but I couldn't figure out how to use the "proxies" kwarg
-    return requests.post('{}?{}?f={}&{}'.format(proxy, url, params['f'], p).rstrip('&'), headers={'User-Agent': USER_AGENT})
+    return requests.post('{}?{}?f={}&{}'.format(proxy, url, params[F], p).rstrip('&'), headers={'User-Agent': USER_AGENT})
 
 def guess_proxy_url(domain):
     """grade school level hack to see if there is a standard esri proxy available for a domain
@@ -308,14 +314,14 @@ def generate_token(url, user='', pw='', expiration=60):
         base = url.split('/rest')[0] + '/tokens'
         shortLived = 100
 
-    params = {'f': 'json',
+    params = {F: JSON,
               'username': user,
               'password': pw,
               'client': 'requestip',
               'expiration': max([expiration, shortLived])}
 
     resp = POST(base, params)
-    resp['domain'] = base.split('/tokens')[0].lower() + '/rest/services'
+    resp[DOMAIN] = base.split('/tokens')[0].lower() + '/rest/services'
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
     return token
@@ -351,7 +357,7 @@ class RESTEndpoint(object):
                 self.url = _plus_services
             else:
                 RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
-        params = {'f': 'json'}
+        params = {F: JSON}
         self.token = token
         self._cookie = None
         self._proxy = proxy
@@ -385,6 +391,29 @@ class RESTEndpoint(object):
         self.json = munch.munchify(self.response)
         RequestError(self.json)
 
+    def compatible_with_version(self, version):
+        """checks if ArcGIS Server version is compatible with input version.  A
+        service is compatible with the version if it is greater than or equal to
+        the input version
+
+        Required:
+            version -- minimum version compatibility as float (ex: 10.3 or 10.31)
+        """
+        def validate_version(ver):
+            if isinstance(ver, (float, int)):
+                return ver
+            elif isinstance(ver, basestring):
+                try:
+                    ver = float(ver)
+                except:
+                    # we want an exception here if it does not match the format
+                    whole, dec = ver.split('.')
+                    ver = float('.'.join([whole, ''.join([i for i in dec if i.isdigit()])]))
+        try:
+            return validate_version(self.currentVersion) >= validate_version(version)
+        except AttributeError:
+            return False
+
     def refresh(self):
         """refreshes the service"""
         self.__init__(self.url, token=self.token)
@@ -409,8 +438,18 @@ class RESTEndpoint(object):
     def __str__(self):
         return json.dumps(self.json, sort_keys=True, indent=2, ensure_ascii=False)
 
+    @classmethod
+    def __get_cls(cls):
+        return cls
+
     def __dir__(self):
-        return sorted(self.__class__.__dict__.keys() + self.json.keys())
+        atts = []
+        bases = self.__get_cls().__bases__
+        while bases:
+            for base in bases:
+                atts.extend(base.__dict__.keys())
+                bases = base.__bases__
+        return sorted(list(set(self.__class__.__dict__.keys() + self.json.keys() + atts)))
 
 class SpatialReferenceMixin(object):
     """mixin to allow convenience methods for grabbing the spatial reference from a service"""
@@ -421,8 +460,8 @@ class SpatialReferenceMixin(object):
         resp_d = {}
         if SPATIAL_REFERENCE in self.json:
             resp_d = self.json[SPATIAL_REFERENCE]
-        elif 'extent' in self.json and SPATIAL_REFERENCE in self.json['extent']:
-            resp_d = self.json['extent'][SPATIAL_REFERENCE]
+        elif EXTENT in self.json and SPATIAL_REFERENCE in self.json[EXTENT]:
+            resp_d = self.json[EXTENT][SPATIAL_REFERENCE]
 
         for key in [LATEST_WKID, WKID, WKT]:
             if key in resp_d:
@@ -450,7 +489,7 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
     """base class for all services"""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
         super(BaseService, self).__init__(url, usr, pw, token, proxy)
-        if 'name' not in self.json:
+        if NAME not in self.json:
             self.name = self.url.split('/')[-2]
 
     def __repr__(self):
@@ -530,7 +569,7 @@ class Token(object):
         self.token = response['token']
         self.expires = mil_to_date(response['expires'])
         self._cookie = {'agstoken': self.token}
-        self.domain = response['domain']
+        self.domain = response[DOMAIN]
         self._response = response
 
     @property
@@ -625,8 +664,8 @@ class GPResult(object):
 
 class GeocodeResult(object):
     """class to handle Reverse Geocode Result"""
-    __slots__ = ['response', SPATIAL_REFERENCE, 'type', 'candidates',
-                'locations', 'address', 'results', 'result', 'Result']
+    __slots__ = ['response', SPATIAL_REFERENCE, TYPE, 'candidates',
+                LOCATIONS, 'address', 'results', 'result', 'Result']
 
     def __init__(self, res_dict, geo_type):
         """geocode response object
@@ -642,7 +681,7 @@ class GeocodeResult(object):
         self.locations = []
         self.address = []
         try:
-            sr_dict = self.response['location'][SPATIAL_REFERENCE]
+            sr_dict = self.response[LOCATION][SPATIAL_REFERENCE]
             wkid = sr_dict.get(LATEST_WKID, None)
             if wkid is None:
                 wkid = sr_dict.get(WKID, None)
@@ -652,7 +691,7 @@ class GeocodeResult(object):
 
         if self.type == 'esri_reverseGeocode':
             addr_dict = {}
-            addr_dict['location'] = self.response['location']
+            addr_dict[LOCATION] = self.response[LOCATION]
             addr_dict['attributes'] = self.response['address']
             address = self.response['address'].get('Address', None)
             if address is None:
@@ -667,16 +706,16 @@ class GeocodeResult(object):
         # http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/find #still works
         elif self.type == 'esri_find':
             # format legacy results
-            for res in self.response['locations']:
+            for res in self.response[LOCATIONS]:
                 ref_dict = {}
                 for k,v in res.iteritems():
-                    if k == 'name':
+                    if k == NAME:
                         ref_dict['address'] = v
                     elif k == 'feature':
                         atts_dict = {}
                         for att, val in res[k].iteritems():
-                            if att == 'geometry':
-                                ref_dict['location'] = val
+                            if att == GEOMETRY:
+                                ref_dict[LOCATION] = val
                             elif att == 'attributes':
                                 for att2, val2 in res[k][att].iteritems():
                                     if att2.lower() == 'score':
@@ -691,7 +730,7 @@ class GeocodeResult(object):
                 self.candidates = self.response['candidates']
 
             elif self.type == 'esri_geocodeAddresses':
-                self.locations = self.response['locations']
+                self.locations = self.response[LOCATIONS]
 
         defaults = 'address attributes location score'
         self.Result = collections.namedtuple('GeocodeResult_result', defaults)
@@ -744,7 +783,7 @@ class EditResult(object):
         self.deleteResults = []
         for key, value in res_dict.iteritems():
             for v in value:
-                if v['success'] in (True, 'true'):
+                if v['success'] in (True, TRUE):
                     getattr(self, key).append(v['objectId'])
                 else:
                     self.failedOIDs.append(v['objectId'])
@@ -765,6 +804,33 @@ class EditResult(object):
     def __len__(self):
         """return count of affected OIDs"""
         return len(self.affectedOIDs)
+
+class BaseGeometryCollection(object):
+    """Base Geometry Collection"""
+    geometries = []
+    json = {GEOMETRIES: []}
+    geometryType = None
+
+    @property
+    def count(self):
+        return len(self)
+
+    def __len__(self):
+        return len(self.geometries)
+
+    def __iter__(self):
+        for geometry in self.geometries:
+            yield geometry
+
+    def __getitem__(self, index):
+        return self.geometries[index]
+
+    def __bool__(self):
+        return bool(len(self.geometries))
+
+    def __repr__(self):
+        """represntation"""
+        return '<restapi.GeometryCollection [{}]>'.format(self.geometryType)
 
 class BaseArcServer(RESTEndpoint):
     """Class to handle ArcGIS Server Connection"""
@@ -823,7 +889,7 @@ class BaseArcServer(RESTEndpoint):
         """
         self.service_cache = []
         for s in self.services:
-            full_service_url = '/'.join([self.url, s['name'], s['type']])
+            full_service_url = '/'.join([self.url, s[NAME], s[TYPE]])
             self.service_cache.append(full_service_url)
             yield full_service_url
         folders = self.folders
@@ -835,8 +901,8 @@ class BaseArcServer(RESTEndpoint):
         for s in folders:
             new = '/'.join([self.url, s])
             resp = POST(new, token=self.token)
-            for serv in resp['services']:
-                full_service_url =  '/'.join([self.url, serv['name'], serv['type']])
+            for serv in resp[SERVICES]:
+                full_service_url =  '/'.join([self.url, serv[NAME], serv[TYPE]])
                 self.service_cache.append(full_service_url)
                 yield full_service_url
 
@@ -897,7 +963,7 @@ class BaseArcServer(RESTEndpoint):
         self.service_cache = []
         services = []
         for s in self.services:
-            qualified_service = '/'.join([s['name'], s['type']])
+            qualified_service = '/'.join([s[NAME], s[TYPE]])
             full_service_url = '/'.join([self.url, qualified_service])
             services.append(qualified_service)
             self.service_cache.append(full_service_url)
@@ -913,12 +979,12 @@ class BaseArcServer(RESTEndpoint):
             new = '/'.join([self.url, f])
             endpt = POST(new, token=self.token)
             services = []
-            for serv in endpt['services']:
-                qualified_service = '/'.join([serv['name'], serv['type']])
+            for serv in endpt[SERVICES]:
+                qualified_service = '/'.join([serv[NAME], serv[TYPE]])
                 full_service_url = '/'.join([self.url, qualified_service])
                 services.append(qualified_service)
                 self.service_cache.append(full_service_url)
-            yield (f, endpt['folders'], services)
+            yield (f, endpt[FOLDERS], services)
 
     def __iter__(self):
         """returns an generator for services"""
@@ -943,7 +1009,7 @@ class BaseMapService(BaseService):
         """
         all_layers = self.layers
         for layer in all_layers:
-            if fnmatch.fnmatch(layer['name'], name):
+            if fnmatch.fnmatch(layer[NAME], name):
                 if 'subLayerIds' in layer:
                     if grp_lyr and layer['subLayerIds'] != None:
                         return layer['id']
@@ -951,7 +1017,7 @@ class BaseMapService(BaseService):
                         return layer['id']
                 return layer['id']
         for tab in r['tables']:
-            if fnmatch.fnmatch(tab['name'], name):
+            if fnmatch.fnmatch(tab[NAME], name):
                 return tab['id']
         print('No Layer found matching "{0}"'.format(name))
         return None
@@ -1024,14 +1090,14 @@ class BaseMapService(BaseService):
             imageSR = self.spatialReference
 
         # initial params
-        params = {'format': format,
-          'f': 'image',
-          'imageSR': imageSR,
-          'bboxSR': bboxSR,
-          'bbox': bbox,
-          'transparent': transparent,
-          'dpi': dpi,
-          'size': size}
+        params = {FORMAT: format,
+          F: 'image',
+          IMAGE_SR: imageSR,
+          BBOX_SR: bboxSR,
+          BBOX: bbox,
+          TRANSPARENT: transparent,
+          DPI: dpi,
+          SIZE: size}
 
         # add additional params from **kwargs
         for k,v in kwargs.iteritems():
@@ -1056,7 +1122,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
     def __init__(self, url='', usr='', pw='', token='', proxy=None):
         super(BaseMapServiceLayer, self).__init__(url, usr, pw, token, proxy)
         try:
-            self.json['fields'] = [Field(f) for f in self.json['fields']]
+            self.json[FIELDS] = [Field(f) for f in self.json[FIELDS]]
         except:
             self.fields = []
 
@@ -1123,14 +1189,14 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             token -- token to handle security (only required if security is enabled)
         """
         if isinstance(add_params, dict):
-            add_params['returnIdsOnly'] = 'true'
+            add_params[RETURN_IDS_ONLY] = TRUE
 
         # get oids
-        oids = sorted(self.query(where=where, add_params=add_params, token=token)['objectIds'])
+        oids = sorted(self.query(where=where, add_params=add_params, token=token)[OBJECT_IDS])
         print('total records: {0}'.format(len(oids)))
 
         # set returnIdsOnly to False
-        add_params['returnIdsOnly'] = 'false'
+        add_params[RETURN_IDS_ONLY] = 'false'
 
         # iterate through groups to form queries
         for each in izip_longest(*(iter(oids),) * max_recs):
@@ -1140,7 +1206,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
             yield '{0} >= {1} and {0} <= {2}'.format(oid, _min, _max)
 
-    def query(self, fields='*', where='1=1', add_params={}, records=None, get_all=False, f='json', kmz='', **kwargs):
+    def query(self, fields='*', where='1=1', add_params={}, records=None, get_all=False, f=JSON, kmz='', **kwargs):
         """query layer and get response as JSON
 
         Optional:
@@ -1162,7 +1228,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         query_url = self.url + '/query'
 
         # default params
-        params = {'returnGeometry' : 'true', 'where': where, 'f' : f}
+        params = {RETURN_GEOMETRY : TRUE, WHERE: where, F : f}
 
         for k,v in add_params.iteritems():
             params[k] = v
@@ -1172,7 +1238,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
         # check for tokens (only shape and oid)
         fields = self.fix_fields(fields)
-        params['outFields'] = fields
+        params[OUT_FIELDS] = fields
 
         # create kmz file if requested (does not support get_all parameter)
         if f == 'kmz':
@@ -1204,7 +1270,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                     if i < 1:
                         server_response = resp
                     else:
-                        server_response['features'] += resp['features']
+                        server_response[FEATURES] += resp[FEATURES]
 
             else:
                 server_response = POST(query_url, params, token=self.token)
@@ -1247,14 +1313,14 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             sr_dict = geometry[SPATIAL_REFERENCE]
             inSR = sr_dict.get(LATEST_WKID) if sr_dict.get(LATEST_WKID) else sr_dict.get(WKID)
 
-        params = {'geometry': geometry,
+        params = {GEOMETRY: geometry,
                   GEOMETRY_TYPE: geometryType,
-                  'spatialRel': spatialRel,
-                  'inSR': inSR,
+                  SPATIAL_REL: spatialRel,
+                  IN_SR: inSR,
             }
 
         if int(distance):
-            params['distance'] = distance
+            params[DISTANCE] = distance
             params['units'] = units
 
         # add additional params
@@ -1289,16 +1355,16 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             max_recs -- maximimum number of records to return (maxRecordCount does not apply)
             **kwargs -- optional key word arguments to further limit query (i.e. add geometry interesect)
         """
-        p = {'returnIdsOnly':'true',
-             'returnGeometry': 'false',
-             'outFields': ''}
+        p = {RETURN_IDS_ONLY:TRUE,
+             RETURN_GEOMETRY: 'false',
+             OUT_FIELDS: ''}
 
         # add kwargs if specified
         for k,v in kwargs.iteritems():
             if k not in p.keys():
                 p[k] = v
 
-        return sorted(self.query(where=where, add_params=p)['objectIds'])[:max_recs]
+        return sorted(self.query(where=where, add_params=p)[OBJECT_IDS])[:max_recs]
 
     def getCount(self, where='1=1', **kwargs):
         """get count of features, can use optional query and **kwargs to filter
@@ -1338,7 +1404,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                         return super(Attachment, cls).__new__(cls, **kwargs)
 
                     def __repr__(self):
-                        if hasattr(self, 'id') and hasattr(self, 'name'):
+                        if hasattr(self, 'id') and hasattr(self, NAME):
                             return '<Attachment ID: {} ({})>'.format(self.id, self.name)
                         else:
                             return '<Attachment> ?'
@@ -1419,7 +1485,7 @@ class GeocodeService(RESTEndpoint):
                 setattr(self, key, Field(value))
             elif key == 'locators':
                 for loc_dict in value:
-                    self.locators.append(loc_dict['name'])
+                    self.locators.append(loc_dict[NAME])
             else:
                 setattr(self, key, value)
 
@@ -1484,8 +1550,8 @@ class GeocodeService(RESTEndpoint):
             raise ValueError('Not a valid input for "recs" parameter!')
 
         params = {'addresses': json.dumps(recs),
-                      'outSR': outSR,
-                      'f': 'json'}
+                      OUT_SR: outSR,
+                      F: JSON}
 
         return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
@@ -1501,11 +1567,11 @@ class GeocodeService(RESTEndpoint):
             langCode -- optional language code, default is eng (only used for StreMap Premium locators)
         """
         geo_url = self.url + '/reverseGeocode'
-        params = {'location': location,
-                  'distance': distance,
-                  'outSR': outSR,
+        params = {LOCATION: location,
+                  DISTANCE: distance,
+                  OUT_SR: outSR,
                   'returnIntersection': str(returnIntersection).lower(),
-                  'f': 'json'}
+                  F: JSON}
 
         return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
 
@@ -1520,10 +1586,10 @@ class GeocodeService(RESTEndpoint):
             **kwargs -- key word arguments to use for Address, City, State, etc fields if no SingleLine field
         """
         geo_url = self.url + '/findAddressCandidates'
-        params = {'outSR': outSR,
-                  'outFields': outFields,
+        params = {OUT_SR: outSR,
+                  OUT_FIELDS: outFields,
                   'returnIntersection': str(returnIntersection).lower(),
-                  'f': 'json'}
+                  F: JSON}
         if address:
             if hasattr(self, 'singleLineAddressField'):
                 params[self.singleLineAddressField.name] = address
@@ -1628,7 +1694,7 @@ class GPTask(BaseService):
         params_json['env:processSR'] = processSR
         params_json['returnZ'] = returnZ
         params_json['returnM'] = returnZ
-        params_json['f'] = 'json'
+        params_json[F] = JSON
         r = POST(gp_exe_url, params_json, ret_json=False, cookies=self._cookie)
         gp_elapsed = r.elapsed
 
@@ -1640,8 +1706,8 @@ class GPTask(BaseService):
             try:
                 default = self.outputParameter.defaultValue
                 feature_set = default
-                feature_set['features'] = res['results'][0]['value']['features']
-                feature_set['fields'] = default['Fields'] if 'Fields' in default else default['fields']
+                feature_set[FEATURES] = res['results'][0]['value'][FEATURES]
+                feature_set[FIELDS] = default['Fields'] if 'Fields' in default else default[FIELDS]
                 res['value'] = feature_set
             except:
                 pass

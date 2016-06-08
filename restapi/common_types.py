@@ -252,7 +252,7 @@ class MapServiceLayer(BaseMapServiceLayer):
             if not sr:
                 sr = self.getSR()
             else:
-                params['outSR'] = sr
+                params[OUT_SR] = sr
 
             # do query to get feature set
             fs = self.query(cur_fields, where, params, records, get_all)
@@ -295,10 +295,10 @@ class MapServiceLayer(BaseMapServiceLayer):
             out_sr = sr
 
         d = {GEOMETRY_TYPE: geometryType,
-             'returnGeometry': 'true',
-             'geometry': geojson,
-             'inSR' : sr,
-             'outSR': out_sr}
+             RETURN_GEOMETRY: TRUE,
+             GEOMETRY: geojson,
+             IN_SR : sr,
+             OUT_SR: out_sr}
 
         return self.layer_to_fc(output, fields, where, params=d, get_all=True, sr=out_sr)
 
@@ -501,43 +501,43 @@ class FeatureService(MapService):
             replicaSR = self.spatialReference
 
         validated = layers.split(',')
-        options = {'replicaName': replicaName,
-                   'layers': layers,
-                   'layerQueries': '',
+        options = {REPLICA_NAME: replicaName,
+                   LAYERS: layers,
+                   LAYER_QUERIES: '',
                    GEOMETRY: geometry,
                    GEOMETRY_TYPE: geometryType,
-                   'inSR': inSR,
-                   'replicaSR':	replicaSR,
-                   'transportType':	'esriTransportTypeUrl',
-                   'returnAttachments':	'true',
-                   'returnAttachmentsDataByUrl': 'true',
-                   'async':	'false',
-                   'f': 'pjson',
-                   'dataFormat': 'json',
-                   'replicaOptions': '',
+                   IN_SR: inSR,
+                   REPLICA_SR:	replicaSR,
+                   TRANSPORT_TYPE: 'esriTransportTypeUrl',
+                   RETURN_ATTACHMENTS:	TRUE,
+                   RETURN_ATTACHMENTS_DATA_BY_URL: TRUE,
+                   ASYNC:	'false',
+                   F: PJSON,
+                   DATA_FORMAT: JSON,
+                   REPLICA_OPTIONS: '',
                    }
 
         for k,v in kwargs.iteritems():
             options[k] = v
-            if k == 'layerQueries':
+            if k == LAYER_QUERIES:
                 if options[k]:
                     if isinstance(options[k], basestring):
                         options[k] = json.loads(options[k])
                     for key in options[k].keys():
-                        options[k][key]['useGeometry'] = useGeometry
+                        options[k][key][USE_GEOMETRY] = useGeometry
                         options[k] = json.dumps(options[k])
 
         if self.syncCapabilities.supportsPerReplicaSync:
-            options['syncModel'] = 'perReplica'
+            options[SYNC_MODEL] = PER_REPLICA
         else:
-            options['syncModel'] = 'perLayer'
+            options[SYNC_MODEL] = PER_LAYER
 
-        if options['async'] in ('true', True) and self.syncCapabilities.supportsAsync:
+        if options[ASYNC] in (TRUE, True) and self.syncCapabilities.supportsAsync:
             st = POST(self.url + '/createReplica', options, cookies=self._cookie)
             while 'statusUrl' not in st:
                 time.sleep(1)
         else:
-            options['async'] = 'false'
+            options[ASYNC] = 'false'
             st = POST(self.url + '/createReplica', options, cookies=self._cookie)
 
         RequestError(st)
@@ -548,19 +548,19 @@ class FeatureService(MapService):
             replicaSR = self.spatialReference
 
         repLayers = []
-        for i,l in enumerate(js['layers']):
-            l['layerURL'] = '/'.join([self.url, validated[i]])
-            layer_ob = FeatureLayer(l['layerURL'], token=self.token)
-            l['fields'] = layer_ob.fields
-            l['name'] = layer_ob.name
-            l['geometryType'] = layer_ob.geometryType
+        for i,l in enumerate(js[LAYERS]):
+            l[LAYER_URL] = '/'.join([self.url, validated[i]])
+            layer_ob = FeatureLayer(l[LAYER_URL], token=self.token)
+            l[FIELDS] = layer_ob.fields
+            l[NAME] = layer_ob.name
+            l[GEOMETRY_TYPE] = layer_ob.geometryType
             l[SPATIAL_REFERENCE] = replicaSR
-            if not 'attachments' in l:
-                l['attachments'] = []
+            if not ATTACHMENTS in l:
+                l[ATTACHMENTS] = []
             repLayers.append(namedTuple('ReplicaLayer', l))
 
         rep_dict = js
-        rep_dict['layers'] = repLayers
+        rep_dict[LAYERS] = repLayers
         return namedTuple('Replica', rep_dict)
 
     def replicaInfo(self, replicaID):
@@ -593,7 +593,7 @@ class FeatureService(MapService):
             replicaID -- ID of replica
         """
         query_url = self.url + '/synchronizeReplica'
-        params = {'replicaID': replicaID}
+        params = {REPLICA_ID: replicaID}
 
         for k,v in kwargs.iteritems():
             params[k] = v
@@ -608,7 +608,7 @@ class FeatureService(MapService):
             replicaID -- the ID of the replica registered with the service
         """
         query_url = self.url + '/unRegisterReplica'
-        params = {'replicaID': replicaID}
+        params = {REPLICA_ID: replicaID}
         return POST(query_url, params, cookies=self._cookie)
 
 class FeatureLayer(MapServiceLayer):
@@ -640,10 +640,10 @@ class FeatureLayer(MapServiceLayer):
                      {"Utility_Type":2,"Five_Yr_Plan":"No","Rating":None,"Inspection_Date":1429885595000}}]
         """
         add_url = self.url + '/addFeatures'
-        params = {'features': json.dumps(features) if isinstance(features, list) else features,
-                  'gdbVersion': gdbVersion,
-                  'rollbackOnFailure': str(rollbackOnFailure).lower(),
-                  'f': 'pjson'}
+        params = {FEATURES: json.dumps(features) if isinstance(features, list) else features,
+                  GDB_VERSION: gdbVersion,
+                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
+                  F: PJSON}
 
         # update features
         result = EditResult(POST(add_url, params, cookies=self._cookie))
@@ -670,10 +670,10 @@ class FeatureLayer(MapServiceLayer):
                 {"Five_Yr_Plan":"Yes","Rating":90,"OBJECTID":1}}] #only fields that were changed!
         """
         update_url = self.url + '/updateFeatures'
-        params = {'features': json.dumps(features),
-                  'gdbVersion': gdbVersion,
-                  'rollbackOnFailure': rollbackOnFailure,
-                  'f': 'json'}
+        params = {FEATURES: json.dumps(features),
+                  GDB_VERSION: gdbVersion,
+                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
+                  F: JSON}
 
         # update features
         result = EditResult(POST(update_url, params, cookies=self._cookie))
@@ -699,21 +699,21 @@ class FeatureLayer(MapServiceLayer):
             oids = "1, 2, 4" # as string
         """
         if not geometryType:
-            geometryType = 'esriGeometryEnvelope'
+            geometryType = ESRI_ENVELOPE
         if not spatialRel:
             spatialRel = 'esriSpatialRelIntersects'
 
         del_url = self.url + '/deleteFeatures'
         if isinstance(oids, (list, tuple)):
             oids = ', '.join(map(str, oids))
-        params = {'objectIds': oids,
-                  'where': where,
+        params = {OBJECT_IDS: oids,
+                  WHERE: where,
                   GEOMETRY: geometry,
                   GEOMETRY_TYPE: geometryType,
-                  'spatialRel': spatialRel,
-                  'gdbVersion': gdbVersion,
-                  'rollbackOnFailure': rollbackOnFailure,
-                  'f': 'json'}
+                  SPATIAL_REL: spatialRel,
+                  GDB_VERSION: gdbVersion,
+                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
+                  F: JSON}
 
         # delete features
         result = EditResult(POST(del_url, params, cookies=self._cookie))
@@ -764,12 +764,12 @@ class FeatureLayer(MapServiceLayer):
             # make post request
             att_url = '{}/{}/addAttachment'.format(self.url, oid)
             files = {'attachment': (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
-            params = {'f': 'json'}
+            params = {F: JSON}
             if gdbVersion:
-                params['gdbVersion'] = gdbVersion
+                params[GDB_VERSION] = gdbVersion
             r = requests.post(att_url, params, files=files, cookies=self._cookie, verify=False).json()
-            if 'addAttachmentResult' in r:
-                print(r['addAttachmentResult'])
+            if ADD_ATTACHMENT_RESULT in r:
+                print(r[ADD_ATTACHMENT_RESULT])
             return r
 
         else:
@@ -789,13 +789,13 @@ class FeatureLayer(MapServiceLayer):
             exp = [{"field" : "Quality", "value" : 3}]
             exp =[{"field" : "A", "sqlExpression" : "B*3"}]
         """
-        if hasattr(self, 'supportsCalculate') and self.supportsCalculate:
+        if hasattr(self, SUPPORTS_CALCULATE) and self.supportsCalculate:
             calc_url = self.url + '/calculate'
-            p = {'returnIdsOnly':'true',
-                'returnGeometry': 'false',
-                'outFields': '',
-                'calcExpression': json.dumps(exp),
-                'sqlFormat': sqlFormat}
+            p = {RETURN_IDS_ONLY:TRUE,
+                RETURN_GEOMETRY: 'false',
+                OUT_FIELDS: '',
+                CALC_EXPRESSION: json.dumps(exp),
+                SQL_FORMAT: sqlFormat}
 
             return POST(calc_url, where=where, add_params=p, cookies=self._cookie)
 
@@ -804,6 +804,14 @@ class FeatureLayer(MapServiceLayer):
 
 class GeometryService(RESTEndpoint):
     linear_units = sorted(LINEAR_UNITS.keys())
+    _default_url = 'https://utility.arcgisonline.com/ArcGIS/rest/services/Geometry/GeometryServer'
+
+    def __init__(self, url=None, usr=None, pw=None, token=None, proxy=None):
+        if not url:
+            # do not require a url, use default arcgis online Geometry Service
+            super(GeometryService, self).__init__(self._default_url, usr, pw, token, proxy)
+        else:
+            super(GeometryService, self).__init__(url, usr, pw, token, proxy)
 
     @staticmethod
     def getLinearUnitWKID(unit_name):
@@ -841,15 +849,15 @@ class GeometryService(RESTEndpoint):
 
         # it is json it may be correct, but iterate through and validate anyways
         if isinstance(geometries, dict):
-            if 'geometries' in geometries:
-                theGeoms = geometries['geometries']
+            if GEOMETRIES in geometries:
+                theGeoms = geometries[GEOMETRIES]
                 if isinstance(theGeoms, list):
                     for geom in theGeoms:
                         if isinstance(geom, Geometry):
                             if use_envelopes:
                                 geoms.append(geom.envelopeAsJSON())
                             else:
-                                geoms.append(geom.JSON)
+                                geoms.append(geom.json)
                         elif isinstance(geom, dict):
                             geoms.append(geom)
 
@@ -867,7 +875,7 @@ class GeometryService(RESTEndpoint):
                     if use_envelopes:
                         geoms.append(geom.envelopeAsJSON())
                     else:
-                        geoms.append(geom.JSON)
+                        geoms.append(geom.json)
 
                     if not geometryType:
                         geometryType = geom.geometryType if not use_envelopes else ESRI_ENVELOPE
@@ -877,18 +885,18 @@ class GeometryService(RESTEndpoint):
 
         # form json
         if not geometryType and len(geoms):
-            if 'x' in geoms[0]:
+            if X in geoms[0]:
                 geometryType = ESRI_POINT
-            elif 'points' in geoms[0]:
+            elif POINTS in geoms[0]:
                 geometryType = ESRI_MULTIPOINT
-            elif 'paths' in geoms[0]:
+            elif PATHS in geoms[0]:
                 geometryType = ESRI_POLYLINE
-            elif 'rings' in geoms[0]:
+            elif RINGS in geoms[0]:
                 geometryType = ESRI_POLYGON
             else:
                 geometryType = ESRI_ENVELOPE
 
-        return {GEOMETRY_TYPE: geometryType, 'geometries': geoms}
+        return {GEOMETRY_TYPE: geometryType, GEOMETRIES: geoms}
 
     @staticmethod
     def returnGeometry(in_json, wkid=None):
@@ -901,9 +909,9 @@ class GeometryService(RESTEndpoint):
         Optional:
             wkid -- well known ID for spatial reference, required to output valid Geometry objects
         """
-        if isinstance(in_json, dict) and 'geometries' in in_json:
+        if isinstance(in_json, dict) and GEOMETRIES in in_json:
             if wkid:
-                for geometry in in_json['geometries']:
+                for geometry in in_json[GEOMETRIES]:
                     geometry[SPATIAL_REFERENCE] = {WKID: wkid}
                 gc = GeometryCollection(in_json)
 
@@ -939,15 +947,15 @@ class GeometryService(RESTEndpoint):
         """
         buff_url = self.url + '/buffer'
 
-        params = {'f': 'pjson',
-                  'geometries': self.validateGeometries(geometries),
-                  'inSR': inSR,
+        params = {F: PJSON,
+                  GEOMETRIES: self.validateGeometries(geometries),
+                  IN_SR: inSR,
                   'distances': distances,
                   'unit': self.getLinearUnitWKID(unit),
-                  'outSR': outSR,
-                  'unionResults': 'true',
+                  OUT_SR: outSR,
+                  'unionResults': TRUE,
                   'geodesic': 'false',
-                  'outSR': '',
+                  OUT_SR: '',
                   'bufferSR': ''
                 }
 
@@ -1008,8 +1016,8 @@ class GeometryService(RESTEndpoint):
               }
             ]
         """
-        params = {'inSR': inSR,
-                  'outSR': outSR,
+        params = {IN_SR: inSR,
+                  OUT_SR: outSR,
                   'extentOfInterest': extentOfInterest,
                   'numOfResults': numOfResults
                 }
@@ -1033,14 +1041,212 @@ class GeometryService(RESTEndpoint):
             transformation --
             trasnformForward --
         """
-        params = {'geometries': validateGeometries(geometries),
-                  'inSR': inSR,
-                  'outSR': outSR,
-                  'transformation': transformation,
-                  'transformForward': transformForward
+        params = {GEOMETRIES: self.validateGeometries(geometries),
+                  IN_SR: inSR,
+                  OUT_SR: outSR,
+                  TRANSFORMATION: transformation,
+                  TRANSFORM_FORWARD: transformForward
                 }
 
         return POST(self.url + '/project', params, token=self.token)
 
     def __repr__(self):
         return '<restapi.GeometryService>'
+
+class ImageService(BaseImageService):
+
+    def pointIdentify(self, **kwargs):
+        """method to get pixel value from x,y coordinates or JSON point object
+
+        Recognized key word arguments:
+            geometry -- JSON point object as dictionary
+            x -- x coordinate
+            y -- y coordinate
+            inSR -- input spatial reference.  Should be supplied if spatial
+                reference is different from the Image Service's projection
+
+        geometry example:
+            geometry = {"x":3.0,"y":5.0,"spatialReference":{"wkid":102100}}
+        """
+        IDurl = self.url + '/identify'
+
+        geometry = {}
+        if IN_SR in kwargs:
+            inSR = kwargs[IN_SR]
+        else:
+            inSR = self.spatialReference
+
+        if GEOMETRY in kwargs:
+            g = Geometry(kwargs[GEOMETRY], spatialReference=inSR)
+            inSR = g.spatialReference
+
+        elif X in kwargs and Y in kwargs:
+            g = {X: kwargs[X], Y: kwargs[Y]}
+            if 'sr' in kwargs:
+                g[SPATIAL_REFERENCE] = {"wkid": kwargs['sr']}
+            else:
+                g[SPATIAL_REFERENCE] = {"wkid": self.spatialReference}
+            geometry = json.dumps(g)
+
+        params = {GEOMETRY: geometry,
+                  IN_SR: inSR,
+                  GEOMETRY_TYPE:ESRI_POINT,
+                  F:JSON,
+                  RETURN_GEOMETRY: 'false',
+                  'returnCatalogItems': 'false'
+                  }
+
+        for k,v in kwargs.iteritems():
+            if k not in params:
+                params[k] = v
+
+        j = POST(IDurl, params, cookies=self._cookie)
+        if 'value' in j:
+            return j['value']
+
+    def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation', nodata=None, **kwargs):
+        """method to export an AOI from an Image Service
+
+        Required:
+            poly -- polygon features
+            out_raster -- output raster image
+
+        Optional:
+            envelope -- option to use envelope of polygon
+            rendering_rule -- rendering rule to perform raster functions
+            kwargs -- optional key word arguments for other parameters
+        """
+        if not out_raster.endswith('.tif'):
+            out_raster = os.path.splitext(out_raster)[0] + '.tif'
+        query_url = '/'.join([self.url, 'exportImage'])
+
+        if isinstance(poly, Geometry):
+            in_geom = poly
+        else:
+            in_geom = Geometry(poly)
+
+        sr = in_geom.spatialReference
+
+        if envelope:
+            geojson = in_geom.envelope()
+            geometryType = ESRI_ENVELOPE
+        else:
+            geojson = in_geom.dumps()
+            geometryType = in_geom.geometryType
+
+        if sr != self.spatialReference:
+            polyG = in_geom.asShape()
+            polygon = polyG.projectAs(arcpy.SpatialReference(self.spatialReference))
+
+        bbox = self.adjustbbox(in_geom.envelope())
+
+        # imageSR
+        if IMAGE_SR not in kwargs:
+            imageSR = sr
+        else:
+            imageSR = kwargs[IMAGE_SR]
+
+        if NO_DATA in kwargs:
+            nodata = kwargs[NO_DATA]
+
+        # check for raster function availability
+        if not self.allowRasterFunction:
+            rendering_rule = ''
+
+        # find width and height for image size (round to whole number)
+        bbox_int = map(int, bbox.split(','))
+        width = abs(bbox_int[0] - bbox_int[2])
+        height = abs(bbox_int[1] - bbox_int[3])
+
+        matchType = 'esriNoDataMatchAny'
+        if ',' in str(nodata):
+            matchType = 'esriNoDataMatchAll'
+
+
+        # set params
+        p = {F:PJSON,
+             RENDERING_RULE: rendering_rule,
+             ADJUST_ASPECT_RATIO: TRUE,
+             BBOX: bbox,
+             FORMAT: TIFF,
+             IMAGE_SR: imageSR,
+             BBOX_SR: self.spatialReference,
+             SIZE: '{0},{1}'.format(width,height),
+             PIXEL_TYPE: self.pixelType,
+             NO_DATA_INTERPRETATION: '&'.join(map(str, filter(lambda x: x not in (None, ''),
+                ['noData=' + str(nodata) if nodata != None else '', 'noDataInterpretation=%s' %matchType if nodata != None else matchType]))),
+             INTERPOLATION: interp
+            }
+
+        # overwrite with kwargs
+        for k,v in kwargs.iteritems():
+            if k not in [SIZE, BBOX_SR]:
+                p[k] = v
+
+        # post request
+        r = POST(query_url, p, cookies=self._cookie)
+
+        # check for errors
+        if 'error' in r:
+            if 'details' in r['error']:
+                raise RuntimeError('\n'.join(r['error']['details']))
+
+        elif 'href' in r:
+            tiff = urllib.urlopen(r['href'].strip()).read()
+            with open(out_raster, 'wb') as f:
+                f.write(tiff)
+            try:
+                arcpy.management.CalculateStatistics(out_raster)
+            except:
+                pass
+            print('Created: "{0}"'.format(out_raster))
+
+    def clip(self, poly, out_raster, envelope=True, imageSR='', noData=None):
+        """method to clip a raster"""
+        if envelope:
+            if not isinstance(poly, Geometry):
+                poly = Geometry(poly)
+            e = poly.asShape().extent
+            bbox = map(int, [float(i) for i in self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax]).split(',')])
+            flds = [XMIN,YMIN,XMAX,YMAX]
+            geojson = dict(zip(flds, bbox))
+            geojson[SPATIAL_REFERENCE] = poly.json[SPATIAL_REFERENCE]
+        else:
+            geojson = Geometry(poly).dumps() if not isinstance(poly, Geometry) else poly.dumps()
+        ren = {
+          "rasterFunction" : "Clip",
+          "rasterFunctionArguments" : {
+            "ClippingGeometry" : geojson,
+            "ClippingType": 1
+            },
+          "variableName" : "Raster"
+        }
+        self.exportImage(poly, out_raster, rendering_rule=ren, noData=noData, imageSR=imageSR)
+
+    def arithmetic(self, poly, out_raster, raster_or_constant, operation=3, envelope=False, imageSR='', **kwargs):
+        """perform arithmetic operations against a raster
+
+        Required:
+            poly -- input polygon or JSON polygon object
+            out_raster -- full path to output raster
+            raster_or_constant -- raster to perform opertion against or constant value
+
+        Optional:
+            operation -- arithmetic operation to use (1|2|3)
+            envelope -- if true, will use bounding box of input features
+            imageSR -- output image spatial reference
+
+        Operations:
+            1 -- esriRasterPlus
+            2 -- esriRasterMinus
+            3 -- esriRasterMultiply
+        """
+        ren = {
+                  "rasterFunction" : "Arithmetic",
+                  "rasterFunctionArguments" : {
+                       "Raster" : "$$",
+                       "Raster2": raster_or_constant,
+                       "Operation" : operation
+                     }
+                  }
+        self.exportImage(poly, out_raster, rendering_rule=json.dumps(ren), imageSR=imageSR, **kwargs)
