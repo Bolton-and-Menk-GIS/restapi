@@ -13,7 +13,7 @@ from rest_utils import *
 from shapefile import shapefile
 
 # field types for shapefile module
-SHP_FTYPES = {
+SHP_FTYPES = munch.munchify({
           DATE_FIELD:'D',
           TEXT_FIELD:'C',
           FLOAT_FIELD:'F',
@@ -24,7 +24,7 @@ SHP_FTYPES = {
           RASTER_FIELD:'B',
           BLOB_FIELD: 'B',
           GLOBALID: 'C'
-          }
+          })
 
 def project(SHAPEFILE, wkid):
     """creates .prj for shapefile
@@ -193,7 +193,7 @@ def exportReplica(replica, out_folder):
         # download attachments
         att_dict = {}
         for attInfo in layer.attachments:
-            out_file = assignUniqueName(os.path.join(att_loc, attInfo['name']))
+            out_file = assignUniqueName(os.path.join(att_loc, attInfo[NAME]))
             with open(out_file, 'wb') as f:
                 f.write(urllib.urlopen(attInfo['url']).read())
             att_dict[attInfo['parentGlobalId']] = out_file.strip()
@@ -214,7 +214,7 @@ def exportReplica(replica, out_folder):
             for fld in layer_fields:
                 field_name = fld.name.split('.')[-1][:10]
                 field_type = SHP_FTYPES[fld.type]
-                if fld.type == 'esriFieldTypeGlobalID':
+                if fld.type == GLOBALID:
                     guid = fld.name
                 field_length = str(fld.length) if fld.length else "50"
                 w.add_field(field_name, field_type, field_length)
@@ -224,12 +224,12 @@ def exportReplica(replica, out_folder):
 
             # search cursor to write rows
             s_fields = [f[0] for f in field_map]
-            date_indices = [i for i,f in enumerate(layer_fields) if f.type == 'esriFieldTypeDate']
+            date_indices = [i for i,f in enumerate(layer_fields) if f.type == DATE_FIELD]
 
             for feature in layer.features:
-                row = [feature['attributes'][f] for f in s_fields]
+                row = [feature[ATTRIBUTES][f] for f in s_fields]
                 if guid:
-                    row += [att_dict[feature['attributes'][guid]]]
+                    row += [att_dict[feature[ATTRIBUTES][guid]]]
                 for i in date_indices:
                     row[i] = mil_to_date(row[i])
 

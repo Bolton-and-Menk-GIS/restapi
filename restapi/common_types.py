@@ -1,5 +1,6 @@
 # look for arcpy access, otherwise use open source version
 # open source version may be faster?
+from __future__ import print_function
 try:
     import imp
     imp.find_module('arcpy')
@@ -15,7 +16,7 @@ from . import _strings
 
 __all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', '__opensource__',
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
-           'GeocodeService', 'GPService', 'GPTask', 'POST', 'MapService', 'ArcServer', 'Cursor',
+           'GeocodeService', 'GPService', 'GPTask', 'POST', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
            'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name'] + \
            ['GeometryService', 'GeometryCollection'] + [d for d in dir(_strings) if not d.startswith('__')]
 
@@ -93,7 +94,7 @@ class Cursor(FeatureSet):
         Required:
             fields -- list or comma delimited field list
         """
-        if not fields:
+        if not fields or fields == '*':
             fields = [f.name for f in self.fields]
         if isinstance(fields, basestring):
             fields = fields.split(',')
@@ -104,9 +105,6 @@ class Cursor(FeatureSet):
                 fields[i] = SHAPE_TOKEN
             if f == self.OIDFieldName:
                 fields[i] = OID_TOKEN
-
-        if not fields:
-            fields = self.field_names
 
         return fields
 
@@ -314,7 +312,7 @@ class MapService(BaseMapService):
             # reference by id directly
             return MapServiceLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
 
-        layer_path = get_layer_url(self.url, name_or_id, self.token)
+        layer_path = self.get_layer_url(name_or_id, self.token)
         if layer_path:
             return MapServiceLayer(layer_path, token=self.token)
         else:
@@ -336,8 +334,8 @@ class MapService(BaseMapService):
                 because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
                 must be performed in chunks to get all records
         """
-        lyr = get_layer_url(self.url, layer_name, self.token)
-        return Cursor(lyr, fields, where, records, self.token, add_params, get_all)
+        lyr = self.layer(layer_name)
+        return lyr.cursor(fields, where, add_params, records, get_all)
 
     def layer_to_fc(self, layer_name,  out_fc, fields='*', where='1=1',
                     records=None, params={}, get_all=False, sr=None):
@@ -466,7 +464,7 @@ class FeatureService(MapService):
             replicaSR -- output spatial reference for replica data
             **kwargs -- optional keyword arguments for createReplica request
         """
-        if hasattr(self, 'syncEnabled') and not self.syncEnabled:
+        if hasattr(self, SYNC_ENABLED) and not self.syncEnabled:
             raise NotImplementedError('FeatureService "{}" does not support Sync!'.format(self.url))
 
         # validate layers
@@ -508,10 +506,10 @@ class FeatureService(MapService):
                    GEOMETRY_TYPE: geometryType,
                    IN_SR: inSR,
                    REPLICA_SR:	replicaSR,
-                   TRANSPORT_TYPE: 'esriTransportTypeUrl',
+                   TRANSPORT_TYPE: TRANSPORT_TYPE_URL,
                    RETURN_ATTACHMENTS:	TRUE,
                    RETURN_ATTACHMENTS_DATA_BY_URL: TRUE,
-                   ASYNC:	'false',
+                   ASYNC:	FALSE,
                    F: PJSON,
                    DATA_FORMAT: JSON,
                    REPLICA_OPTIONS: '',
@@ -534,14 +532,14 @@ class FeatureService(MapService):
 
         if options[ASYNC] in (TRUE, True) and self.syncCapabilities.supportsAsync:
             st = POST(self.url + '/createReplica', options, cookies=self._cookie)
-            while 'statusUrl' not in st:
+            while STATUS_URL not in st:
                 time.sleep(1)
         else:
             options[ASYNC] = 'false'
             st = POST(self.url + '/createReplica', options, cookies=self._cookie)
 
         RequestError(st)
-        js = POST(st['URL'] if 'URL' in st else st['statusUrl'], cookies=self._cookie)
+        js = POST(st['URL'] if 'URL' in st else st[STATUS_URL], cookies=self._cookie)
         RequestError(js)
 
         if not replicaSR:
@@ -701,7 +699,7 @@ class FeatureLayer(MapServiceLayer):
         if not geometryType:
             geometryType = ESRI_ENVELOPE
         if not spatialRel:
-            spatialRel = 'esriSpatialRelIntersects'
+            spatialRel = ESRI_INTERSECT
 
         del_url = self.url + '/deleteFeatures'
         if isinstance(oids, (list, tuple)):
@@ -763,7 +761,7 @@ class FeatureLayer(MapServiceLayer):
 
             # make post request
             att_url = '{}/{}/addAttachment'.format(self.url, oid)
-            files = {'attachment': (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
+            files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
             params = {F: JSON}
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
@@ -835,68 +833,8 @@ class GeometryService(RESTEndpoint):
         """
 
         """
-        cleanGeometry = {}
-        geometryType = ''
-        geoms = []
-        if isinstance(geometries, basestring):
-            if '{' in geometries:
-                geometries = json.loads(geometries)
-
-        # there is just a single geometry
-        if isinstance(geometries, Geometry):
-            geometries =  [geometries]
-
-
-        # it is json it may be correct, but iterate through and validate anyways
-        if isinstance(geometries, dict):
-            if GEOMETRIES in geometries:
-                theGeoms = geometries[GEOMETRIES]
-                if isinstance(theGeoms, list):
-                    for geom in theGeoms:
-                        if isinstance(geom, Geometry):
-                            if use_envelopes:
-                                geoms.append(geom.envelopeAsJSON())
-                            else:
-                                geoms.append(geom.json)
-                        elif isinstance(geom, dict):
-                            geoms.append(geom)
-
-            else:
-                geoms.append(geometries)
-
-            if GEOMETRY_TYPE in geometries:
-                geometryType = geometries[GEOMETRY_TYPE]
-
-
-        # we just have a list of Geometry Objects, dicts or bounding boxes
-        if isinstance(geometries, list):
-            for geom in geometries:
-                if isinstance(geom, Geometry):
-                    if use_envelopes:
-                        geoms.append(geom.envelopeAsJSON())
-                    else:
-                        geoms.append(geom.json)
-
-                    if not geometryType:
-                        geometryType = geom.geometryType if not use_envelopes else ESRI_ENVELOPE
-
-                elif isinstance(geom, dict):
-                    geoms.append(geom)
-
-        # form json
-        if not geometryType and len(geoms):
-            if X in geoms[0]:
-                geometryType = ESRI_POINT
-            elif POINTS in geoms[0]:
-                geometryType = ESRI_MULTIPOINT
-            elif PATHS in geoms[0]:
-                geometryType = ESRI_POLYLINE
-            elif RINGS in geoms[0]:
-                geometryType = ESRI_POLYGON
-            else:
-                geometryType = ESRI_ENVELOPE
-
-        return {GEOMETRY_TYPE: geometryType, GEOMETRIES: geoms}
+        gc = GeometryCollection(geometries, use_envelopes)
+        return gc.json
 
     @staticmethod
     def returnGeometry(in_json, wkid=None):
@@ -909,20 +847,16 @@ class GeometryService(RESTEndpoint):
         Optional:
             wkid -- well known ID for spatial reference, required to output valid Geometry objects
         """
-        if isinstance(in_json, dict) and GEOMETRIES in in_json:
-            if wkid:
-                for geometry in in_json[GEOMETRIES]:
-                    geometry[SPATIAL_REFERENCE] = {WKID: wkid}
-                gc = GeometryCollection(in_json)
+        try:
+            gc = GeometryCollection(in_json, spatialReference=wkid)
 
-                # if only one geometry, return it as a Geometry() object otherwise as GeometryCollection()
-                if len(gc) == 1:
-                    return gc[0]
-                else:
-                    return gc
-
+            # if only one geometry, return it as a Geometry() object otherwise as GeometryCollection()
+            if gc.count == 1:
+                return gc[0]
             else:
-                return in_json
+                return gc
+        except:
+            return in_json
 
     def buffer(self, geometries, inSR, distances, unit='', outSR='', use_envelopes=False, **kwargs):
         """buffer a single geoemetry or multiple
@@ -950,13 +884,13 @@ class GeometryService(RESTEndpoint):
         params = {F: PJSON,
                   GEOMETRIES: self.validateGeometries(geometries),
                   IN_SR: inSR,
-                  'distances': distances,
-                  'unit': self.getLinearUnitWKID(unit),
+                  DISTANCES: distances,
+                  UNIT: self.getLinearUnitWKID(unit),
                   OUT_SR: outSR,
-                  'unionResults': TRUE,
-                  'geodesic': 'false',
-                  OUT_SR: '',
-                  'bufferSR': ''
+                  UNION_RESULTS: FALSE,
+                  GEODESIC: FALSE,
+                  OUT_SR: None,
+                  BUFFER_SR: None
                 }
 
         # add kwargs
@@ -965,7 +899,7 @@ class GeometryService(RESTEndpoint):
                 params[k] = v
 
         # perform operation
-        return self.returnGeometry(POST(buff_url, params, token=self.token))
+        return self.returnGeometry(POST(buff_url, params, token=self.token), outSR if outSR else inSR)
 
 
     def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
@@ -1018,8 +952,8 @@ class GeometryService(RESTEndpoint):
         """
         params = {IN_SR: inSR,
                   OUT_SR: outSR,
-                  'extentOfInterest': extentOfInterest,
-                  'numOfResults': numOfResults
+                  EXTENT_OF_INTEREST: extentOfInterest,
+                  NUM_OF_RESULTS: numOfResults
                 }
 
         res = POST(self.url + '/findTransformations', params, token=self.token)
@@ -1048,18 +982,23 @@ class GeometryService(RESTEndpoint):
                   TRANSFORM_FORWARD: transformForward
                 }
 
-        return POST(self.url + '/project', params, token=self.token)
+        return self.returnGeometry(POST(self.url + '/project', params, token=self.token), outSR if outSR else inSR)
 
     def __repr__(self):
-        return '<restapi.GeometryService>'
+        try:
+            return "<restapi.GeometryService: '{}'>".format(self.url.split('://')[1].split('/')[0])
+        except:
+            return '<restapi.GeometryService>'
 
 class ImageService(BaseImageService):
+    geometry_service = None
 
-    def pointIdentify(self, **kwargs):
+    def pointIdentify(self, geometry=None, **kwargs):
         """method to get pixel value from x,y coordinates or JSON point object
 
+        geometry -- input restapi.Geometry() object or point as json
+
         Recognized key word arguments:
-            geometry -- JSON point object as dictionary
             x -- x coordinate
             y -- y coordinate
             inSR -- input spatial reference.  Should be supplied if spatial
@@ -1070,41 +1009,48 @@ class ImageService(BaseImageService):
         """
         IDurl = self.url + '/identify'
 
-        geometry = {}
         if IN_SR in kwargs:
             inSR = kwargs[IN_SR]
         else:
             inSR = self.spatialReference
 
-        if GEOMETRY in kwargs:
+        if geometry is not None:
+            if not isinstance(geometry, Geometry):
+                geometry = Geometry(geometry)
+            inSR = geometry.spatialReference
+
+        elif GEOMETRY in kwargs:
             g = Geometry(kwargs[GEOMETRY], spatialReference=inSR)
             inSR = g.spatialReference
 
         elif X in kwargs and Y in kwargs:
             g = {X: kwargs[X], Y: kwargs[Y]}
-            if 'sr' in kwargs:
-                g[SPATIAL_REFERENCE] = {"wkid": kwargs['sr']}
+            if SR in kwargs:
+                g[SPATIAL_REFERENCE] = {WKID: kwargs[SR]}
             else:
-                g[SPATIAL_REFERENCE] = {"wkid": self.spatialReference}
-            geometry = json.dumps(g)
+                g[SPATIAL_REFERENCE] = {WKID: self.spatialReference}
+            geometry = Geometry(g)
 
-        params = {GEOMETRY: geometry,
-                  IN_SR: inSR,
-                  GEOMETRY_TYPE:ESRI_POINT,
-                  F:JSON,
-                  RETURN_GEOMETRY: 'false',
-                  'returnCatalogItems': 'false'
-                  }
+        else:
+            raise ValueError('Not a valid input geometry!')
+
+        params = {
+            GEOMETRY: geometry.dumps(),
+            IN_SR: inSR,
+            GEOMETRY_TYPE: ESRI_POINT,
+            F: JSON,
+            RETURN_GEOMETRY: FALSE,
+            RETURN_CATALOG_ITEMS: FALSE,
+        }
 
         for k,v in kwargs.iteritems():
             if k not in params:
                 params[k] = v
 
         j = POST(IDurl, params, cookies=self._cookie)
-        if 'value' in j:
-            return j['value']
+        return j.get(VALUE)
 
-    def exportImage(self, poly, out_raster, envelope=False, rendering_rule={}, interp='RSP_BilinearInterpolation', nodata=None, **kwargs):
+    def exportImage(self, poly, out_raster, envelope=False, rendering_rule=None, interp=BILINEAR_INTERPOLATION, nodata=None, **kwargs):
         """method to export an AOI from an Image Service
 
         Required:
@@ -1113,12 +1059,12 @@ class ImageService(BaseImageService):
 
         Optional:
             envelope -- option to use envelope of polygon
-            rendering_rule -- rendering rule to perform raster functions
+            rendering_rule -- rendering rule to perform raster functions as JSON
             kwargs -- optional key word arguments for other parameters
         """
         if not out_raster.endswith('.tif'):
             out_raster = os.path.splitext(out_raster)[0] + '.tif'
-        query_url = '/'.join([self.url, 'exportImage'])
+        query_url = '/'.join([self.url, EXPORT_IMAGE])
 
         if isinstance(poly, Geometry):
             in_geom = poly
@@ -1135,10 +1081,16 @@ class ImageService(BaseImageService):
             geometryType = in_geom.geometryType
 
         if sr != self.spatialReference:
-            polyG = in_geom.asShape()
-            polygon = polyG.projectAs(arcpy.SpatialReference(self.spatialReference))
+            self.geometry_service = GeometryService()
+            gc = self.geometry_service.project(in_geom, in_geom.spatialReference, self.getSR())
+            in_geom = gc
 
+        # The adjust aspect ratio doesn't seem to fix the clean pixel issue
         bbox = self.adjustbbox(in_geom.envelope())
+        #if not self.compatible_with_version(10.3):
+        #    bbox = self.adjustbbox(in_geom.envelope())
+        #else:
+        #    bbox = in_geom.envelope()
 
         # imageSR
         if IMAGE_SR not in kwargs:
@@ -1151,17 +1103,16 @@ class ImageService(BaseImageService):
 
         # check for raster function availability
         if not self.allowRasterFunction:
-            rendering_rule = ''
+            rendering_rule = None
 
         # find width and height for image size (round to whole number)
-        bbox_int = map(int, bbox.split(','))
+        bbox_int = map(int, map(float, bbox.split(',')))
         width = abs(bbox_int[0] - bbox_int[2])
         height = abs(bbox_int[1] - bbox_int[3])
 
-        matchType = 'esriNoDataMatchAny'
+        matchType = NO_DATA_MATCH_ANY
         if ',' in str(nodata):
-            matchType = 'esriNoDataMatchAll'
-
+            matchType = NO_DATA_MATCH_ALL
 
         # set params
         p = {F:PJSON,
@@ -1186,30 +1137,21 @@ class ImageService(BaseImageService):
         # post request
         r = POST(query_url, p, cookies=self._cookie)
 
-        # check for errors
-        if 'error' in r:
-            if 'details' in r['error']:
-                raise RuntimeError('\n'.join(r['error']['details']))
-
-        elif 'href' in r:
-            tiff = urllib.urlopen(r['href'].strip()).read()
+        if r.get('href', None) is not None:
+            tiff = POST(r.get('href').strip(), ret_json=False).content
             with open(out_raster, 'wb') as f:
                 f.write(tiff)
-            try:
-                arcpy.management.CalculateStatistics(out_raster)
-            except:
-                pass
             print('Created: "{0}"'.format(out_raster))
 
     def clip(self, poly, out_raster, envelope=True, imageSR='', noData=None):
         """method to clip a raster"""
+        # check for raster function availability
+        if not self.allowRasterFunction:
+            raise NotImplemented('This Service does not support Raster Functions!')
         if envelope:
             if not isinstance(poly, Geometry):
                 poly = Geometry(poly)
-            e = poly.asShape().extent
-            bbox = map(int, [float(i) for i in self.adjustbbox([e.XMin, e.YMin, e.XMax, e.YMax]).split(',')])
-            flds = [XMIN,YMIN,XMAX,YMAX]
-            geojson = dict(zip(flds, bbox))
+            geojson = poly.envelopeAsJSON()
             geojson[SPATIAL_REFERENCE] = poly.json[SPATIAL_REFERENCE]
         else:
             geojson = Geometry(poly).dumps() if not isinstance(poly, Geometry) else poly.dumps()
@@ -1217,13 +1159,13 @@ class ImageService(BaseImageService):
           "rasterFunction" : "Clip",
           "rasterFunctionArguments" : {
             "ClippingGeometry" : geojson,
-            "ClippingType": 1
+            "ClippingType": CLIP_INSIDE,
             },
           "variableName" : "Raster"
         }
         self.exportImage(poly, out_raster, rendering_rule=ren, noData=noData, imageSR=imageSR)
 
-    def arithmetic(self, poly, out_raster, raster_or_constant, operation=3, envelope=False, imageSR='', **kwargs):
+    def arithmetic(self, poly, out_raster, raster_or_constant, operation=RASTER_MULTIPLY, envelope=False, imageSR='', **kwargs):
         """perform arithmetic operations against a raster
 
         Required:
@@ -1232,7 +1174,7 @@ class ImageService(BaseImageService):
             raster_or_constant -- raster to perform opertion against or constant value
 
         Optional:
-            operation -- arithmetic operation to use (1|2|3)
+            operation -- arithmetic operation to use, default is multiply (3) all options: (1|2|3)
             envelope -- if true, will use bounding box of input features
             imageSR -- output image spatial reference
 
@@ -1242,11 +1184,11 @@ class ImageService(BaseImageService):
             3 -- esriRasterMultiply
         """
         ren = {
-                  "rasterFunction" : "Arithmetic",
-                  "rasterFunctionArguments" : {
-                       "Raster" : "$$",
-                       "Raster2": raster_or_constant,
-                       "Operation" : operation
-                     }
-                  }
+              "rasterFunction" : "Arithmetic",
+              "rasterFunctionArguments" : {
+                   "Raster" : "$$",
+                   "Raster2": raster_or_constant,
+                   "Operation" : operation
+                 }
+              }
         self.exportImage(poly, out_raster, rendering_rule=json.dumps(ren), imageSR=imageSR, **kwargs)

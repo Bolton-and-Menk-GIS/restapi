@@ -74,27 +74,27 @@ def exportFeatureSet(out_fc, feature_set):
         if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
             field_name = field.name.split('.')[-1]
             if field.domain and not isShp:
-                if field.domain['name'] not in gdb_domains:
+                if field.domain[NAME] not in gdb_domains:
                     if CODED_VALUES in field.domain:
                         dType = CODED
                     else:
                         dType = RANGE_UPPER
 
-                    arcpy.management.CreateDomain(ws, field.domain['name'],
-                                                  field.domain['name'],
+                    arcpy.management.CreateDomain(ws, field.domain[NAME],
+                                                  field.domain[NAME],
                                                   FTYPES[field.type],
                                                   dType)
                     if dType == CODED:
                         for cv in field.domain[CODED_VALUES]:
-                            arcpy.management.AddCodedValueToDomain(ws, field.domain['name'], cv['code'], cv['name'])
+                            arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv['code'], cv[NAME])
                     else:
                         _min, _max = field.domain[RANGE]
-                        arcpy.management.SetValueForRangeDomain(ws, field.domain['name'], _min, _max)
+                        arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
 
-                    gdb_domains.append(field.domain['name'])
-                    print('added domain "{}" to geodatabase: "{}"'.format(field.domain['name'], ws))
+                    gdb_domains.append(field.domain[NAME])
+                    print('added domain "{}" to geodatabase: "{}"'.format(field.domain[NAME], ws))
 
-                field_domain = field.domain['name']
+                field_domain = field.domain[NAME]
             else:
                 field_domain = ''
 
@@ -162,7 +162,7 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
             fields.append(oid_name)
 
     # get feature set
-    kwargs[RETURN_GEOMETRY] = 'true'
+    kwargs[RETURN_GEOMETRY] = TRUE
     cursor = lyr.cursor(fields, where, records=max_recs, add_params=kwargs, get_all=get_all)
     oid_index = [i for i,f in enumerate(cursor.field_objects) if f.type == OID][0]
 
@@ -242,7 +242,7 @@ def exportReplica(replica, out_folder):
         # download attachments
         att_dict = {}
         for attInfo in layer.attachments:
-            out_file = assignUniqueName(os.path.join(att_loc, attInfo['name']))
+            out_file = assignUniqueName(os.path.join(att_loc, attInfo[NAME]))
             with open(out_file, 'wb') as f:
                 f.write(urllib.urlopen(attInfo['url']).read())
             att_dict[attInfo['parentGlobalId']] = out_file
@@ -268,26 +268,26 @@ def exportReplica(replica, out_folder):
                 # set up domain if necessary
                 gdb_domains = []
                 if field.domain:
-                    if field.domain['name'] not in gdb_domains:
+                    if field.domain[NAME] not in gdb_domains:
                         if CODED_VALUES in field.domain:
                             dType = CODED
                         else:
                             dType = RANGE_UPPER
 
-                        arcpy.management.CreateDomain(gdb, field.domain['name'],
-                                                      field.domain['name'],
+                        arcpy.management.CreateDomain(gdb, field.domain[NAME],
+                                                      field.domain[NAME],
                                                       FTYPES[field.type],
                                                       dType)
                         if dType == CODED:
                             for cv in field.domain[CODED_VALUES]:
-                                arcpy.management.AddCodedValueToDomain(gdb, field.domain['name'], cv['code'], cv['name'])
+                                arcpy.management.AddCodedValueToDomain(gdb, field.domain[NAME], cv['code'], cv[NAME])
                         else:
                             _min, _max = field.domain[RANGE]
-                            arcpy.management.SetValueForRangeDomain(gdb, field.domain['name'], _min, _max)
+                            arcpy.management.SetValueForRangeDomain(gdb, field.domain[NAME], _min, _max)
 
-                        gdb_domains.append(field.domain['name'])
+                        gdb_domains.append(field.domain[NAME])
 
-                    field_domain = field.domain['name']
+                    field_domain = field.domain[NAME]
                 else:
                     field_domain = ''
 
@@ -304,8 +304,8 @@ def exportReplica(replica, out_folder):
 
             with arcpy.da.InsertCursor(fc, fld_names) as irows:
                 for rowD in layer.features:
-                    row = [rowD['attributes'][f] if f in rowD['attributes']
-                           else rowD['attributes'][guidFieldName]
+                    row = [rowD[ATTRIBUTES][f] if f in rowD[ATTRIBUTES]
+                           else rowD[ATTRIBUTES][guidFieldName]
                            for f in fld_names[1:]]
 
                     for i in date_indices:
@@ -449,7 +449,7 @@ class Geometry(object):
                     raise IOError('Not a valid JSON object!')
             if not self.geometryType and GEOMETRY_TYPE in geometry:
                 self.geometryType = geometry[GEOMETRY_TYPE]
-        if not SPATIAL_REFERENCE in self.json and self.spatialReference:
+        if not SPATIAL_REFERENCE in self.json and self.spatialReference is not None:
             self.json[SPATIAL_REFERENCE] = {WKID: self.spatialReference}
 
     def envelope(self):
@@ -486,7 +486,7 @@ class Geometry(object):
 
 class GeometryCollection(BaseGeometryCollection):
     """represents an array of restapi.Geometry objects"""
-    def __init__(self, geometries, use_envelopes=False):
+    def __init__(self, geometries, use_envelopes=False, spatialReference=None):
         """represents an array of restapi.Geometry objects
 
         Required:
@@ -497,6 +497,21 @@ class GeometryCollection(BaseGeometryCollection):
             use_envelopes -- if set to true, will use the bounding box of each geometry passed in
                 for the JSON attribute.
         """
+        self.spatialReference = spatialReference
+        if self.spatialReference:
+            if isinstance(self.spatialReference, int):
+                sr_dict = {SPATIAL_REFERENCE: {WKID}}
+            elif isinstance(self.spatialReference, dict):
+                sr_dict = self.spatialReference
+        else:
+            sr_dict = None
+        # if it is a dict, see if it is actually a feature set, then go through the rest of the filters
+        if isinstance(geometries, dict):
+            try:
+                geometries = FeatureSet(geometries)
+            except:
+                pass
+
         # it is a layer or feature class/shapefile
         if isinstance(geometries, (arcpy.mapping.Layer, basestring)):
             if arcpy.Exists(geometries):
@@ -547,9 +562,16 @@ class GeometryCollection(BaseGeometryCollection):
             raise ValueError('Inputs are not valid ESRI JSON Geometries!!!')
 
         if self.geometries:
-            self.json[GEOMETRIES] = [g.envelopeAsJSON() if use_envelopes else g.json for g in self.geometries]
+            self.json[GEOMETRIES] = []
+            for g in self.geometries:
+                if not g.spatialReference:
+                    g.spatialReference = self.spatialReference
+                self.json[GEOMETRIES].append(g.envelopeAsJSON() if use_envelopes else g.json)
+
             self.json[GEOMETRY_TYPE] = self.geometries[0].geometryType if not use_envelopes else ESRI_ENVELOPE
             self.geometryType = self.geometries[0].geometryType
+            if not self.spatialReference:
+                self.spatialReference = self.geometries[0].spatialReference
 
 class GeocodeHandler(object):
     """class to handle geocode results"""

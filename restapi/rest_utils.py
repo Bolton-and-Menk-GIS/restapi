@@ -132,9 +132,9 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
         if token and isinstance(token, Token) and token.domain.lower() in service.lower():
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-            cookies = {'agstoken': str(token)}
+            cookies = {AGS_TOKEN: str(token)}
         elif token:
-            cookies = {'agstoken': str(token)}
+            cookies = {AGS_TOKEN: str(token)}
 
     for pName, p in params.iteritems():
         if isinstance(p, dict):
@@ -204,7 +204,7 @@ def guess_proxy_url(domain):
 
     # try again looking to see if it is in a folder called "proxy"
     for ptype in types:
-        proxy_url = '/'.join([domain, 'proxy', 'proxy' + ptype])
+        proxy_url = '/'.join([domain, PROXY, PROXY + ptype])
         r = requests.get(proxy_url)
         try:
             if r.status_code == 400 or r.content:
@@ -305,20 +305,20 @@ def generate_token(url, user='', pw='', expiration=60):
         pw = getpass.getpass('Type password and hit Enter:\n')
     infoUrl = url.split('/rest')[0] + '/rest/info'
     infoResp = POST(infoUrl)
-    if 'authInfo' in infoResp and 'tokenServicesUrl' in infoResp['authInfo']:
-        base = infoResp['authInfo']['tokenServicesUrl']
+    if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
+        base = infoResp[AUTH_INFO][TOKEN_SERVICES_URL]
         setattr(sys.modules[__name__], 'PROTOCOL', base.split('://')[0])
         print('set PROTOCOL to "{}" from generate token'.format(PROTOCOL))
-        shortLived = infoResp['authInfo']['shortLivedTokenValidity']
+        shortLived = infoResp[AUTH_INFO][SHORT_LIVED_TOKEN_VALIDITY]
     else:
         base = url.split('/rest')[0] + '/tokens'
         shortLived = 100
 
     params = {F: JSON,
-              'username': user,
-              'password': pw,
-              'client': 'requestip',
-              'expiration': max([expiration, shortLived])}
+              USER_NAME: user,
+              PASSWORD: pw,
+              CLIENT: REQUEST_IP,
+              EXPIRATION: max([expiration, shortLived])}
 
     resp = POST(base, params)
     resp[DOMAIN] = base.split('/tokens')[0].lower() + '/rest/services'
@@ -347,6 +347,7 @@ class RESTEndpoint(object):
     json = {}
 
     def __init__(self, url, usr='', pw='', token='', proxy=None):
+
         if PROTOCOL:
             self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
         else:
@@ -380,7 +381,7 @@ class RESTEndpoint(object):
             if isinstance(self.token, Token) and self.token.domain.lower() in url.lower():
                 self._cookie = self.token._cookie
             else:
-                self._cookie = {'agstoken': self.token.token if isinstance(self.token, Token) else self.token}
+                self._cookie = {AGS_TOKEN: self.token.token if isinstance(self.token, Token) else self.token}
         if (not self.token or not self._cookie) and not self._proxy:
             if self.url in ID_MANAGER.proxies:
                 self._proxy = ID_MANAGER.proxies[self.url]
@@ -455,35 +456,33 @@ class SpatialReferenceMixin(object):
     """mixin to allow convenience methods for grabbing the spatial reference from a service"""
     json = {}
 
-    def getSR(self):
-        """return the spatial reference"""
+    @property
+    def _spatialReference(self):
+        """gets the spatial reference dict"""
         resp_d = {}
         if SPATIAL_REFERENCE in self.json:
             resp_d = self.json[SPATIAL_REFERENCE]
         elif EXTENT in self.json and SPATIAL_REFERENCE in self.json[EXTENT]:
             resp_d = self.json[EXTENT][SPATIAL_REFERENCE]
+        return munch.munchify(resp_d)
 
+    def getSR(self):
+        """return the spatial reference"""
+        resp_d = self._spatialReference
         for key in [LATEST_WKID, WKID, WKT]:
             if key in resp_d:
                 return resp_d[key]
 
     def getWKID(self):
         """returns the well known id for service spatial reference"""
-        try:
-            return self.spatialReference.get(LATEST_WKID) if self.spatialReference.get(LATEST_WKID) else self.spatialReference.get(WKID)
-        except:
-            return None
+        resp_d = self._spatialReference
+        for key in [LATEST_WKID, WKID]:
+            if key in resp_d:
+                return resp_d[key]
 
     def getWKT(self):
         """returns the well known text (if it exists) for a service"""
-        try:
-            wkt = self.spatialReference.get(WKT)
-            if wkt is not None:
-                return wkt
-            else:
-                return ''
-        except:
-            return ''
+        return self._spatialReference.get(WKT, '')
 
 class BaseService(RESTEndpoint, SpatialReferenceMixin):
     """base class for all services"""
@@ -491,14 +490,18 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
         super(BaseService, self).__init__(url, usr, pw, token, proxy)
         if NAME not in self.json:
             self.name = self.url.split('/')[-2]
+        self.name = self.name.split('/')[-1]
 
     def __repr__(self):
         """string representation with service name"""
-        qualified_name = '/'.join([self.url.split('/services/')[-1].split('/' + self.name)[0], self.name])
+        try:
+            qualified_name = '/'.join(filter(None, [self.url.split('/services/')[-1].split('/' + self.name)[0], self.name]))
+        except:
+            qualified_name = self.name
         return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
 
 class FeatureSet(SpatialReferenceMixin):
-    json = {}
+
     def __init__(self, in_json):
         """class to handle feature set
 
@@ -511,6 +514,8 @@ class FeatureSet(SpatialReferenceMixin):
             self.json = in_json.json
         else:
             self.json = munch.munchify(in_json)
+        if not all([self.json.get(k) for k in (FIELDS, FEATURES, GEOMETRY_TYPE)]):
+            raise ValueError('Not a valid Feature Set!')
 
     @property
     def count(self):
@@ -547,7 +552,7 @@ class FeatureSet(SpatialReferenceMixin):
     def __len__(self):
         return len(self.features)
 
-    def __nonzero__(self):
+    def __bool__(self):
         return bool(len(self))
 
     def __dir__(self):
@@ -566,9 +571,9 @@ class Token(object):
     """class to handle token authentication"""
     def __init__(self, response):
         """response JSON object from generate_token"""
-        self.token = response['token']
-        self.expires = mil_to_date(response['expires'])
-        self._cookie = {'agstoken': self.token}
+        self.token = response[TOKEN]
+        self.expires = mil_to_date(response[EXPIRES])
+        self._cookie = {AGS_TOKEN: self.token}
         self.domain = response[DOMAIN]
         self._response = response
 
@@ -610,7 +615,7 @@ class Folder(RESTEndpoint):
         """return number of services in folder"""
         return len(self.services)
 
-    def __nonzero__(self):
+    def __bool__(self):
         """return True if services are present"""
         return bool(len(self))
 
@@ -626,15 +631,15 @@ class GPResult(object):
 
     @property
     def results(self):
-        if 'results' in self.response:
-           return [namedTuple('Result', r) for r in self.response['results']]
+        if RESULTS in self.response:
+           return [namedTuple('Result', r) for r in self.response[RESULTS]]
         return []
 
     @property
     def value(self):
         """returns a value (if any) from results"""
-        if 'value' in self.response:
-            return self.response['value']
+        if VALUE in self.response:
+            return self.response[VALUE]
         return None
 
     @property
@@ -658,14 +663,14 @@ class GPResult(object):
         """return result at index, usually will only be 1"""
         return self.results[i]
 
-    def __nonzero__(self):
+    def __bool__(self):
         """return True if results"""
         return bool(len(self))
 
 class GeocodeResult(object):
     """class to handle Reverse Geocode Result"""
     __slots__ = ['response', SPATIAL_REFERENCE, TYPE, 'candidates',
-                LOCATIONS, 'address', 'results', 'result', 'Result']
+                LOCATIONS, 'address', RESULTS, 'result', 'Result']
 
     def __init__(self, res_dict, geo_type):
         """geocode response object
@@ -692,7 +697,7 @@ class GeocodeResult(object):
         if self.type == 'esri_reverseGeocode':
             addr_dict = {}
             addr_dict[LOCATION] = self.response[LOCATION]
-            addr_dict['attributes'] = self.response['address']
+            addr_dict[ATTRIBUTES] = self.response['address']
             address = self.response['address'].get('Address', None)
             if address is None:
                 add = self.response['address']
@@ -716,13 +721,13 @@ class GeocodeResult(object):
                         for att, val in res[k].iteritems():
                             if att == GEOMETRY:
                                 ref_dict[LOCATION] = val
-                            elif att == 'attributes':
+                            elif att == ATTRIBUTES:
                                 for att2, val2 in res[k][att].iteritems():
                                     if att2.lower() == 'score':
                                         ref_dict['score'] = val2
                                     else:
                                         atts_dict[att2] = val2
-                            ref_dict['attributes'] = atts_dict
+                            ref_dict[ATTRIBUTES] = atts_dict
                 self.locations.append(ref_dict)
 
         else:
@@ -766,7 +771,7 @@ class GeocodeResult(object):
         for r in self.results:
             yield r
 
-    def __nonzero__(self):
+    def __bool__(self):
         """returns True if results are returned"""
         return bool(len(self))
 
@@ -1010,15 +1015,15 @@ class BaseMapService(BaseService):
         all_layers = self.layers
         for layer in all_layers:
             if fnmatch.fnmatch(layer[NAME], name):
-                if 'subLayerIds' in layer:
-                    if grp_lyr and layer['subLayerIds'] != None:
-                        return layer['id']
-                    elif not grp_lyr and not layer['subLayerIds']:
-                        return layer['id']
-                return layer['id']
-        for tab in r['tables']:
+                if SUB_LAYER_IDS in layer:
+                    if grp_lyr and layer[SUB_LAYER_IDS] != None:
+                        return layer[ID]
+                    elif not grp_lyr and not layer[SUB_LAYER_IDS]:
+                        return layer[ID]
+                return layer[ID]
+        for tab in r[TABLES]:
             if fnmatch.fnmatch(tab[NAME], name):
-                return tab['id']
+                return tab[ID]
         print('No Layer found matching "{0}"'.format(name))
         return None
 
@@ -1091,7 +1096,7 @@ class BaseMapService(BaseService):
 
         # initial params
         params = {FORMAT: format,
-          F: 'image',
+          F: IMAGE,
           IMAGE_SR: imageSR,
           BBOX_SR: bboxSR,
           BBOX: bbox,
@@ -1321,7 +1326,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
         if int(distance):
             params[DISTANCE] = distance
-            params['units'] = units
+            params[UNITS] = units
 
         # add additional params
         for k,v in add_params.iteritems():
@@ -1356,7 +1361,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             **kwargs -- optional key word arguments to further limit query (i.e. add geometry interesect)
         """
         p = {RETURN_IDS_ONLY:TRUE,
-             RETURN_GEOMETRY: 'false',
+             RETURN_GEOMETRY: FALSE,
              OUT_FIELDS: ''}
 
         # add kwargs if specified
@@ -1392,10 +1397,10 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             if self.token:
                 add_tok = '?token={}'.format(self.token.token if isinstance(self.token, Token) else self.token)
 
-            if 'attachmentInfos' in r:
-                for attInfo in r['attachmentInfos']:
-                    attInfo['url'] = '{}/{}'.format(query_url, attInfo['id'])
-                    attInfo['urlWithToken'] = '{}/{}{}'.format(query_url, attInfo['id'], add_tok)
+            if ATTACHMENT_INFOS in r:
+                for attInfo in r[ATTACHMENT_INFOS]:
+                    attInfo[URL] = '{}/{}'.format(query_url, attInfo[ID])
+                    attInfo[URL_WITH_TOKEN] = '{}/{}{}'.format(query_url, attInfo[ID], add_tok)
 
                 class Attachment(namedtuple('Attachment', 'id name size contentType url urlWithToken')):
                     """class to handle Attachment object"""
@@ -1404,7 +1409,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                         return super(Attachment, cls).__new__(cls, **kwargs)
 
                     def __repr__(self):
-                        if hasattr(self, 'id') and hasattr(self, NAME):
+                        if hasattr(self, ID) and hasattr(self, NAME):
                             return '<Attachment ID: {} ({})>'.format(self.id, self.name)
                         else:
                             return '<Attachment> ?'
@@ -1431,7 +1436,7 @@ class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                             print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
                         return out_file
 
-                return [Attachment(**a) for a in r['attachmentInfos']]
+                return [Attachment(**a) for a in r[ATTACHMENT_INFOS]]
 
             return []
 
@@ -1483,7 +1488,7 @@ class GeocodeService(RESTEndpoint):
                 setattr(self, key, [Field(v) for v in value])
             elif key == 'singleLineAddressField':
                 setattr(self, key, Field(value))
-            elif key == 'locators':
+            elif key == LOCATORS:
                 for loc_dict in value:
                     self.locators.append(loc_dict[NAME])
             else:
@@ -1543,8 +1548,8 @@ class GeocodeService(RESTEndpoint):
         # validate recs, make sure OBECTID is present
         elif isinstance(recs, dict) and 'records' in recs:
             for i, atts in enumerate(recs['records']):
-                if not 'OBJECTID' in atts['attributes']:
-                    atts['attributes']['OBJECTID'] = i + 1 #do not start at 0
+                if not OBJECTID in atts[ATTRIBUTES]:
+                    atts[ATTRIBUTES][OBJECTID] = i + 1 #do not start at 0
 
         else:
             raise ValueError('Not a valid input for "recs" parameter!')
@@ -1570,7 +1575,7 @@ class GeocodeService(RESTEndpoint):
         params = {LOCATION: location,
                   DISTANCE: distance,
                   OUT_SR: outSR,
-                  'returnIntersection': str(returnIntersection).lower(),
+                  RETURN_INTERSECTION: returnIntersection,
                   F: JSON}
 
         return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
@@ -1641,12 +1646,12 @@ class GPTask(BaseService):
     @property
     def isSynchronous(self):
         """task is synchronous"""
-        return self.executionType == 'esriExecutionTypeSynchronous'
+        return self.executionType == SYNCHRONOUS
 
     @property
     def isAsynchronous(self):
         """task is asynchronous"""
-        return self.executionType == 'esriExecutionTypeAsynchronous'
+        return self.executionType == ASYNCHRONOUS
 
     @property
     def outputParameter(self):
@@ -1659,7 +1664,7 @@ class GPTask(BaseService):
     @property
     def outputParameters(self):
         """returns list of all output parameters"""
-        return [p for p in self.parameters if p.direction == 'esriGPParameterDirectionOutput']
+        return [p for p in self.parameters if p.direction == OUTPUT_PARAMETER]
 
 
     def list_parameters(self):
@@ -1682,9 +1687,9 @@ class GPTask(BaseService):
                 using the params_json dictionary.  Only valid if params_json dictionary is not supplied.
         """
         if self.isSynchronous:
-            runType = 'execute'
+            runType = EXECUTE
         else:
-            runType = 'submitJob'
+            runType = SUBMIT_JOB
         gp_exe_url = '/'.join([self.url, runType])
         if not params_json:
             params_json = {}
@@ -1692,8 +1697,8 @@ class GPTask(BaseService):
                 params_json[k] = v
         params_json['env:outSR'] = outSR
         params_json['env:processSR'] = processSR
-        params_json['returnZ'] = returnZ
-        params_json['returnM'] = returnZ
+        params_json[RETURN_Z] = returnZ
+        params_json[RETURN_M] = returnZ
         params_json[F] = JSON
         r = POST(gp_exe_url, params_json, ret_json=False, cookies=self._cookie)
         gp_elapsed = r.elapsed
@@ -1706,13 +1711,13 @@ class GPTask(BaseService):
             try:
                 default = self.outputParameter.defaultValue
                 feature_set = default
-                feature_set[FEATURES] = res['results'][0]['value'][FEATURES]
+                feature_set[FEATURES] = res[RESULTS][0][VALUE][FEATURES]
                 feature_set[FIELDS] = default['Fields'] if 'Fields' in default else default[FIELDS]
-                res['value'] = feature_set
+                res[VALUE] = feature_set
             except:
                 pass
         else:
-            res['value'] = res['results'][0]['value'] if 'value' in res['results'][0] else None
+            res[VALUE] = res[RESULTS][0].get(VALUE)
 
         print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
         return GPResult(res)
