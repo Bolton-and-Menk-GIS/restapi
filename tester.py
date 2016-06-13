@@ -26,7 +26,7 @@ cursor = restapi.Cursor(fs.json, fields + ['shape@'])
 rows = cursor.get_rows()
 row = rows.next()
 
-gp = restapi.rest_utils.GPService(gp_url)
+gp = restapi.GPService(gp_url)
 
 lcur = lyr.cursor(['Owner_Name', 'SHAPE@'])
 cur = cur = restapi.Cursor(fs)
@@ -208,5 +208,19 @@ gc2 = restapi.GeometryCollection(geometries)
 fs3 = restapi.FeatureSet(pts_json)
 
 gs = restapi.GeometryService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/Geometry/GeometryServer')
-buffers = gs.buffer(fs3, 3857, 100)
+buffers = gs.buffer(fs3, 3857, 100, unionResults=True)
 pros = gs.project(fs3, 3857, 26915)
+gc3 = restapi.GeometryCollection(geometries)
+##test = r'C:\TEMP\testing.gdb\rest_buffers3'
+##restapi.exportGeometryCollection(buffers, test)
+##@restapi.common_types.geometry_passthrough
+##def test(geom):
+##    """this is a test docstring"""
+##    return geom
+##
+##gc_dec = test(geometries)
+
+# feature editing tests
+
+    
+

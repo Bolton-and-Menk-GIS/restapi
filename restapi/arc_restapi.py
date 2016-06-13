@@ -9,12 +9,12 @@ from rest_utils import *
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
-def exportFeatureSet(out_fc, feature_set):
-    """export features (JSON result) to shapefile or feature class
+def exportFeatureSet(feature_set, out_fc):
+    """export FeatureSet (JSON result)  to shapefile or feature class
 
     Required:
+        feature_set -- JSON response obtained from a query or FeatureSet() object
         out_fc -- output feature class or shapefile
-        feature_set -- JSON response (feature set) obtained from a query
 
     at minimum, feature set must contain these keys:
         [u'features', u'fields', u'spatialReference', u'geometryType']
@@ -172,7 +172,7 @@ def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', toke
           SPATIAL_REFERENCE: lyr.response[EXTENT][SPATIAL_REFERENCE],
           GEOMETRY_TYPE: lyr.geometryType}
 
-    exportFeatureSet(out_fc, fs)
+    exportFeatureSet(fs, out_fc)
 
     # get attachments (OID will start at 1)
     att_folder = os.path.join(out_ws, '{}_Attachments'.format(os.path.basename(out_fc)))
@@ -338,9 +338,8 @@ def exportReplica(replica, out_folder):
 
     return out_folder
 
-class Geometry(object):
+class Geometry(SpatialReferenceMixin):
     """class to handle restapi.Geometry"""
-    default_url = 'http://sampleserver6.arcgisonline.com/arcgis/rest/services/Utilities/Geometry/GeometryServer'
 
     def __init__(self, geometry, **kwargs):
         """converts geometry input to restapi.Geometry object
@@ -350,12 +349,12 @@ class Geometry(object):
                 class, or JSON
         """
         self._inputGeometry = geometry
-        self.spatialReference = None
+        spatialReference = None
         self.geometryType = None
         for k, v in kwargs.iteritems():
             if k == SPATIAL_REFERENCE:
                 if isinstance(v, int):
-                    self.spatialReference = v
+                    spatialReference = v
                 elif isinstance(v, basestring):
                     try:
                         # it's a json string?
@@ -363,12 +362,12 @@ class Geometry(object):
                     except:
                         try:
                             v = int(v)
-                            self.spatialReference = v
+                            spatialReference = v
                         except:
                             pass
 
                 if isinstance(v, dict):
-                    self.spatialReference = v.get(LATEST_WKID) if v.get(LATEST_WKID) else v.get(WKID)
+                    spatialReference = v.get(LATEST_WKID) if v.get(LATEST_WKID) else v.get(WKID)
 
             elif k == GEOMETRY_TYPE and v.startswith('esri'):
                 self.geometryType = v
@@ -381,7 +380,7 @@ class Geometry(object):
             geometry = geometry.JSON
 
         if isinstance(geometry, arcpy.Geometry):
-            self.spatialReference = geometry.spatialReference.factoryCode
+            spatialReference = geometry.spatialReference.factoryCode
             self.geometryType = 'esriGeometry{}'.format(geometry.type.title())
             esri_json = json.loads(geometry.json)
             for k,v in sorted(esri_json.iteritems()):
@@ -397,7 +396,7 @@ class Geometry(object):
                 # maybe it's a shapefile/feature class?
                 if arcpy.Exists(geometry):
                     desc = arcpy.Describe(geometry)
-                    self.spatialReference = desc.spatialReference.factoryCode
+                    spatialReference = desc.spatialReference.factoryCode
                     self.geometryType = 'esriGeometry{}'.format(desc.shapeType.title())
                     with arcpy.da.SearchCursor(geometry, ['SHAPE@JSON']) as rows:
                         for row in rows:
@@ -416,10 +415,10 @@ class Geometry(object):
             if SPATIAL_REFERENCE in geometry:
                 sr_json = geometry[SPATIAL_REFERENCE]
                 if LATEST_WKID in sr_json:
-                    self.spatialReference = sr_json[LATEST_WKID]
+                    spatialReference = sr_json[LATEST_WKID]
                 else:
                     try:
-                        self.spatialReference = sr_json[WKID]
+                        spatialReference = sr_json[WKID]
                     except:
                         raise IOError('No spatial reference found in JSON object!')
             if FEATURES in geometry:
@@ -449,8 +448,19 @@ class Geometry(object):
                     raise IOError('Not a valid JSON object!')
             if not self.geometryType and GEOMETRY_TYPE in geometry:
                 self.geometryType = geometry[GEOMETRY_TYPE]
-        if not SPATIAL_REFERENCE in self.json and self.spatialReference is not None:
-            self.json[SPATIAL_REFERENCE] = {WKID: self.spatialReference}
+        if not SPATIAL_REFERENCE in self.json and spatialReference is not None:
+            self.spatialReference = spatialReference
+
+    @property
+    def spatialReference(self):
+        return self.getWKID()
+
+    @spatialReference.setter
+    def spatialReference(self, wkid):
+        if isinstance(wkid, int):
+            self.json[SPATIAL_REFERENCE] = {WKID: wkid}
+        elif isinstance(wkid, dict):
+            self.json[SPATIAL_REFERENCE] = wkid
 
     def envelope(self):
         """return an envelope from shape"""
@@ -497,12 +507,13 @@ class GeometryCollection(BaseGeometryCollection):
             use_envelopes -- if set to true, will use the bounding box of each geometry passed in
                 for the JSON attribute.
         """
-        self.spatialReference = spatialReference
-        if self.spatialReference:
-            if isinstance(self.spatialReference, int):
+        if isinstance(geometries, self.__class__):
+            geometries = geometries.json
+        if spatialReference:
+            if isinstance(spatialReference, int):
                 sr_dict = {SPATIAL_REFERENCE: {WKID}}
-            elif isinstance(self.spatialReference, dict):
-                sr_dict = self.spatialReference
+            elif isinstance(spatialReference, dict):
+                sr_dict = spatialReference
         else:
             sr_dict = None
         # if it is a dict, see if it is actually a feature set, then go through the rest of the filters
@@ -565,13 +576,25 @@ class GeometryCollection(BaseGeometryCollection):
             self.json[GEOMETRIES] = []
             for g in self.geometries:
                 if not g.spatialReference:
-                    g.spatialReference = self.spatialReference
+                    g.spatialReference = spatialReference
                 self.json[GEOMETRIES].append(g.envelopeAsJSON() if use_envelopes else g.json)
 
             self.json[GEOMETRY_TYPE] = self.geometries[0].geometryType if not use_envelopes else ESRI_ENVELOPE
             self.geometryType = self.geometries[0].geometryType
-            if not self.spatialReference:
+            if not spatialReference:
                 self.spatialReference = self.geometries[0].spatialReference
+
+    @property
+    def spatialReference(self):
+        try:
+            return self.geometries[0].spatialReference
+        except IndexError:
+            return None
+
+    @spatialReference.setter
+    def spatialReference(self, wkid):
+        for g in self.geometries:
+            g.spatialReference = wkid
 
 class GeocodeHandler(object):
     """class to handle geocode results"""

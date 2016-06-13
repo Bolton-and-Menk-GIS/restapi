@@ -5,6 +5,7 @@ import getpass
 import fnmatch
 import datetime
 import collections
+import mimetypes
 import urllib
 import time
 import codecs
@@ -138,7 +139,7 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
 
     for pName, p in params.iteritems():
         if isinstance(p, dict):
-            params[pName] = json.dumps(p)
+            params[pName] = json.dumps(p, cls=RestapiEncoder)
 
     if not F in params:
         params[F] = JSON
@@ -325,6 +326,15 @@ def generate_token(url, user='', pw='', expiration=60):
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
     return token
+
+class RestapiEncoder(json.JSONEncoder):
+    """encoder for restapi objects to make serializeable for JSON"""
+    def default(self, o):
+        if hasattr(o, 'json'):
+            return o.json
+        elif isinstance(o, dict):
+            return o
+        return o.__dict__
 
 class RESTEndpoint(object):
     """Base REST Endpoint Object to handle credentials and get JSON response
@@ -526,6 +536,10 @@ class FeatureSet(SpatialReferenceMixin):
         """returns a list of field names"""
         return [f.name for f in self.fields]
 
+    def dumps(self):
+        """dump as string"""
+        return self.json.dumps()
+
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""
         try:
@@ -669,8 +683,8 @@ class GPResult(object):
 
 class GeocodeResult(object):
     """class to handle Reverse Geocode Result"""
-    __slots__ = ['response', SPATIAL_REFERENCE, TYPE, 'candidates',
-                LOCATIONS, 'address', RESULTS, 'result', 'Result']
+    __slots__ = [RESPONSE, SPATIAL_REFERENCE, TYPE, CANDIDATES,
+                LOCATIONS, ADDRESS, RESULTS, 'result', 'Result']
 
     def __init__(self, res_dict, geo_type):
         """geocode response object
@@ -697,14 +711,14 @@ class GeocodeResult(object):
         if self.type == 'esri_reverseGeocode':
             addr_dict = {}
             addr_dict[LOCATION] = self.response[LOCATION]
-            addr_dict[ATTRIBUTES] = self.response['address']
-            address = self.response['address'].get('Address', None)
+            addr_dict[ATTRIBUTES] = self.response[ADDRESS]
+            address = self.response[ADDRESS].get('Address', None)
             if address is None:
-                add = self.response['address']
-                addr_dict['address'] = ' '.join(filter(None, [add.get('Street'), add.get('City'), add.get('ZIP')]))
+                add = self.response[ADDRESS]
+                addr_dict[ADDRESS] = ' '.join(filter(None, [add.get('Street'), add.get('City'), add.get('ZIP')]))
             else:
-                addr_dict['address'] = address
-            addr_dict['score'] = None
+                addr_dict[ADDRESS] = address
+            addr_dict[SCORE] = None
             self.address.append(addr_dict)
 
         # legacy response from find? <- deprecated?
@@ -715,16 +729,16 @@ class GeocodeResult(object):
                 ref_dict = {}
                 for k,v in res.iteritems():
                     if k == NAME:
-                        ref_dict['address'] = v
-                    elif k == 'feature':
+                        ref_dict[ADDRESS] = v
+                    elif k == FEATURE:
                         atts_dict = {}
                         for att, val in res[k].iteritems():
                             if att == GEOMETRY:
                                 ref_dict[LOCATION] = val
                             elif att == ATTRIBUTES:
                                 for att2, val2 in res[k][att].iteritems():
-                                    if att2.lower() == 'score':
-                                        ref_dict['score'] = val2
+                                    if att2.lower() == SCORE:
+                                        ref_dict[SCORE] = val2
                                     else:
                                         atts_dict[att2] = val2
                             ref_dict[ATTRIBUTES] = atts_dict
@@ -732,7 +746,7 @@ class GeocodeResult(object):
 
         else:
             if self.type == 'esri_findAddressCandidates':
-                self.candidates = self.response['candidates']
+                self.candidates = self.response[CANDIDATES]
 
             elif self.type == 'esri_geocodeAddresses':
                 self.locations = self.response[LOCATIONS]
@@ -777,22 +791,31 @@ class GeocodeResult(object):
 
 class EditResult(object):
     """class to handle Edit operation results"""
-    __slots__ = ['addResults', 'updateResults', 'deleteResults',
+    __slots__ = [ADD_RESULTS, UPDATE_RESULTS, DELETE_RESULTS, ADD_ATTACHMENT_RESULT,
                 'summary', 'affectedOIDs', 'failedOIDs', 'response']
-    def __init__(self, res_dict):
+    def __init__(self, res_dict, feature_id=None):
         RequestError(res_dict)
-        self.response = res_dict
+        self.response = munch.munchify(res_dict)
         self.failedOIDs = []
         self.addResults = []
         self.updateResults = []
         self.deleteResults = []
+        self.addAttachmentResult = {}
         for key, value in res_dict.iteritems():
+            if isinstance(value, dict):
+                value = [value]
             for v in value:
-                if v['success'] in (True, TRUE):
-                    getattr(self, key).append(v['objectId'])
+                res_id = v.get(RESULT_OBJECT_ID)
+                if res_id is None:
+                    res_id = v.get(RESULT_GLOBAL_ID)
+                if v[SUCCESS_STATUS] in (True, TRUE):
+                    if key == ADD_ATTACHMENT_RESULT:
+                        self.addAttachmentResult[feature_id] = res_id
+                    else:
+                        getattr(self, key).append(res_id)
                 else:
-                    self.failedOIDs.append(v['objectId'])
-        self.affectedOIDs = self.addResults + self.updateResults + self.deleteResults
+                    self.failedOIDs.append(res_id)
+        self.affectedOIDs = self.addResults + self.updateResults + self.deleteResults + self.addAttachmentResult.keys()
 
     def summary(self):
         """print summary of edit operation"""
@@ -803,6 +826,12 @@ class EditResult(object):
                 print('Updated {} feature(s)'.format(len(self.updateResults)))
             if self.deleteResults:
                 print('Deleted {} feature(s)'.format(len(self.deleteResults)))
+            if self.addAttachmentResult:
+                try:
+                    k,v = self.addAttachmentResult.items()[0]
+                    print("Added attachment '{}' for feature {}".format(v, k))
+                except IndexError: # should never happen?
+                    print('Added 1 attachment')
         if self.failedOIDs:
             print('Failed to edit {0} feature(s)!\n{1}'.format(len(self.failedOIDs), self.failedOIDs))
 
@@ -836,631 +865,6 @@ class BaseGeometryCollection(object):
     def __repr__(self):
         """represntation"""
         return '<restapi.GeometryCollection [{}]>'.format(self.geometryType)
-
-class BaseArcServer(RESTEndpoint):
-    """Class to handle ArcGIS Server Connection"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        super(BaseArcServer, self).__init__(url, usr, pw, token, proxy)
-        self.service_cache = []
-
-    @property
-    def mapServices(self):
-        """list of all MapServer objects"""
-        if not self.service_cache:
-            self.service_cache = self.list_services()
-        return [s for s in self.service_cache if s.endswith('MapServer')]
-
-    @property
-    def featureServices(self):
-        """list of all MapServer objects"""
-        if not self.service_cache:
-            self.service_cache = self.list_services()
-        return [s for s in self.service_cache if s.endswith('FeatureServer')]
-
-    @property
-    def imageServices(self):
-        """list of all MapServer objects"""
-        if not self.service_cache:
-            self.service_cache = self.list_services()
-        return [s for s in self.service_cache if s.endswith('ImageServer')]
-
-    @property
-    def gpServices(self):
-        """list of all MapServer objects"""
-        if not self.service_cache:
-            self.service_cache = self.list_services()
-        return [s for s in self.service_cache if s.endswith('GPServer')]
-
-
-    def list_services(self, filterer=True):
-        """returns a list of all services
-
-        Optional:
-            filterer -- default is true to exclude "Utilities" and "System" folders,
-                set to false to list all services.
-        """
-        return list(self.iter_services(filterer))
-
-    def iter_services(self, token='', filterer=True):
-        """returns a generator for all services
-
-        Required:
-            service -- full path to a rest services directory
-
-        Optional:
-            token -- token to handle security (only required if security is enabled)
-            filterer -- default is true to exclude "Utilities" and "System" folders,
-                set to false to list all services.
-        """
-        self.service_cache = []
-        for s in self.services:
-            full_service_url = '/'.join([self.url, s[NAME], s[TYPE]])
-            self.service_cache.append(full_service_url)
-            yield full_service_url
-        folders = self.folders
-        if filterer:
-            for fld in ('Utilities', 'System'):
-                try:
-                    folders.remove(fld)
-                except: pass
-        for s in folders:
-            new = '/'.join([self.url, s])
-            resp = POST(new, token=self.token)
-            for serv in resp[SERVICES]:
-                full_service_url =  '/'.join([self.url, serv[NAME], serv[TYPE]])
-                self.service_cache.append(full_service_url)
-                yield full_service_url
-
-    def get_service_url(self, wildcard='*', _list=False):
-        """method to return a service url
-
-        Optional:
-            wildcard -- wildcard used to grab service name (ex "moun*featureserver")
-            _list -- default is false.  If true, will return a list of all services
-                matching the wildcard.  If false, first match is returned.
-        """
-        if not self.service_cache:
-            self.list_services()
-        if '*' in wildcard:
-            if wildcard == '*':
-                return self.service_cache[0]
-            else:
-                if _list:
-                    return [s for s in self.service_cache if fnmatch.fnmatch(s, wildcard)]
-            for s in self.service_cache:
-                if fnmatch.fnmatch(s, wildcard):
-                    return s
-        else:
-            if _list:
-                return [s for s in self.service_cache if wildcard.lower() in s.lower()]
-            for s in self.service_cache:
-                if wildcard.lower() in s.lower():
-                    return s
-        print('"{0}" not found in services'.format(wildcard))
-        return ''
-
-    def get_folders(self):
-        """method to get folder objects"""
-        folder_objects = []
-        for folder in self.folders:
-            folder_url = '/'.join([self.url, folder])
-            folder_objects.append(Folder(folder_url, self.token))
-        return folder_objects
-
-    def walk(self, filterer=True):
-        """method to walk through ArcGIS REST Services. ArcGIS Server only supports single
-        folder heiarchy, meaning that there cannot be subdirectories within folders.
-
-        Optional:
-            filterer -- will filter Utilities, default is True. If
-              false, will list all services.
-
-        will return tuple of folders and services from the topdown.
-        (root, folders, services) example:
-
-        ags = restapi.ArcServer(url, username, password)
-        for root, folders, services in ags.walk():
-            print root
-            print folders
-            print services
-            print '\n\n'
-        """
-        self.service_cache = []
-        services = []
-        for s in self.services:
-            qualified_service = '/'.join([s[NAME], s[TYPE]])
-            full_service_url = '/'.join([self.url, qualified_service])
-            services.append(qualified_service)
-            self.service_cache.append(full_service_url)
-        folders = self.folders
-        if filterer:
-            for fld in ('Utilities', 'System'):
-                try:
-                    folders.remove(fld)
-                except: pass
-        yield (self.url, folders, services)
-
-        for f in folders:
-            new = '/'.join([self.url, f])
-            endpt = POST(new, token=self.token)
-            services = []
-            for serv in endpt[SERVICES]:
-                qualified_service = '/'.join([serv[NAME], serv[TYPE]])
-                full_service_url = '/'.join([self.url, qualified_service])
-                services.append(qualified_service)
-                self.service_cache.append(full_service_url)
-            yield (f, endpt[FOLDERS], services)
-
-    def __iter__(self):
-        """returns an generator for services"""
-        return self.list_services()
-
-    def __len__(self):
-        """returns number of services"""
-        return len(self.service_cache)
-
-class BaseMapService(BaseService):
-    """Class to handle map service and requests"""
-
-    def getLayerIdByName(self, name, grp_lyr=False):
-        """gets a mapservice layer ID by layer name from a service (returns an integer)
-
-        Required:
-            name -- name of layer from which to grab ID
-
-        Optional:
-            grp_lyr -- default is false, does not return layer ID for group layers.  Set
-                to true to search for group layers too.
-        """
-        all_layers = self.layers
-        for layer in all_layers:
-            if fnmatch.fnmatch(layer[NAME], name):
-                if SUB_LAYER_IDS in layer:
-                    if grp_lyr and layer[SUB_LAYER_IDS] != None:
-                        return layer[ID]
-                    elif not grp_lyr and not layer[SUB_LAYER_IDS]:
-                        return layer[ID]
-                return layer[ID]
-        for tab in r[TABLES]:
-            if fnmatch.fnmatch(tab[NAME], name):
-                return tab[ID]
-        print('No Layer found matching "{0}"'.format(name))
-        return None
-
-    def get_layer_url(self, name, grp_lyr=False):
-        """returns the fully qualified path to a layer url by pattern match on name,
-        will return the first match.
-
-        Required:
-            name -- name of layer from which to grab ID
-
-        Optional:
-            grp_lyr -- default is false, does not return layer ID for group layers.  Set
-                to true to search for group layers too.
-        """
-        return '/'.join([self.url, str(self.getLayerIdByName(name,grp_lyr))])
-
-    def list_layers(self):
-        """Method to return a list of layer names in a MapService"""
-        return [l.name for l in self.layers]
-
-    def list_tables(self):
-        """Method to return a list of layer names in a MapService"""
-        return [t.name for t in self.tables]
-
-    def getNameFromId(self, lyrID):
-        """method to get layer name from ID
-
-        Required:
-            lyrID -- id of layer for which to get name
-        """
-        return [l.name for l in self.layers if l.id == lyrID][0]
-
-    def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png8', transparent=True, **kwargs):
-        """exports a map image
-
-        Required:
-            out_image -- full path to output image
-
-        Optional:
-            imageSR -- spatial reference for exported image
-            bbox -- bounding box as comma separated string
-            bboxSR -- spatial reference for bounding box
-            size -- comma separated string for the size of image in pixels. It is advised not to use
-                this parameter and let this method generate it automatically
-            dpi -- output resolution, default is 96
-            format -- image format, default is png8
-            transparent -- option to support transparency in exported image, default is True
-            kwargs -- any additional keyword arguments for export operation (must be supported by REST API)
-
-        Keyword Arguments can be found here:
-            http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Export_Map/02r3000000v7000000/
-        """
-        query_url = self.url + '/export'
-
-        # defaults if params not specified
-        if bbox and not size:
-            if isinstance(bbox, (list, tuple)):
-                size = ','.join([abs(int(bbox[0]) - int(bbox[2])), abs(int(bbox[1]) - int(bbox[3]))])
-        if not bbox:
-            ie = self.initialExtent
-            bbox = ','.join(map(str, [ie.xmin, ie.ymin, ie.xmax, ie.ymax]))
-
-            if not size:
-                size = ','.join(map(str, [abs(int(ie.xmin) - int(ie.xmax)), abs(int(ie.ymin) - int(ie.ymax))]))
-
-            bboxSR = self.spatialReference
-
-        if not imageSR:
-            imageSR = self.spatialReference
-
-        # initial params
-        params = {FORMAT: format,
-          F: IMAGE,
-          IMAGE_SR: imageSR,
-          BBOX_SR: bboxSR,
-          BBOX: bbox,
-          TRANSPARENT: transparent,
-          DPI: dpi,
-          SIZE: size}
-
-        # add additional params from **kwargs
-        for k,v in kwargs.iteritems():
-            if k not in params:
-                params[k] = v
-
-        # do post
-        r = POST(query_url, params, ret_json=False)
-
-        # save image
-        with open(out_image, 'wb') as f:
-            f.write(r.content)
-
-        return r
-
-    def __iter__(self):
-        for lyr in self.layers:
-            yield lyr
-
-class BaseMapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
-    """Class to handle advanced layer properties"""
-    def __init__(self, url='', usr='', pw='', token='', proxy=None):
-        super(BaseMapServiceLayer, self).__init__(url, usr, pw, token, proxy)
-        try:
-            self.json[FIELDS] = [Field(f) for f in self.json[FIELDS]]
-        except:
-            self.fields = []
-
-    @property
-    def OID(self):
-        """OID field object"""
-        try:
-            return [f for f in self.fields if f.type == OID][0]
-        except:
-            return None
-
-    @property
-    def SHAPE(self):
-        """SHAPE field object"""
-        try:
-            return [f for f in self.fields if f.type == SHAPE][0]
-        except:
-            return None
-
-    def list_fields(self):
-        """method to list field names"""
-        return [f.name for f in self.fields]
-
-    def fix_fields(self, fields):
-        """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@")
-
-        Required:
-            fields -- list or comma delimited field list
-        """
-        field_list = []
-        if fields == '*':
-            return fields
-        elif isinstance(fields, basestring):
-            fields = fields.split(',')
-        if isinstance(fields, list):
-            all_fields = self.list_fields()
-            for f in fields:
-                if '@' in f:
-                    if f.upper() == SHAPE_TOKEN:
-                        if self.SHAPE:
-                            field_list.append(self.SHAPE.name)
-                    elif f.upper() == OID_TOKEN:
-                        if self.OID:
-                            field_list.append(self.OID.name)
-                else:
-                    if f in all_fields:
-                        field_list.append(f)
-        return ','.join(field_list)
-
-    def query_all(self, oid, max_recs, where='1=1', add_params={}, token=''):
-        """generator to form where clauses to query all records.  Will iterate through "chunks"
-        of OID's until all records have been returned (grouped by maxRecordCount)
-
-        *Thanks to Wayne Whitley for the brilliant idea to use itertools.izip_longest()
-
-        Required:
-            layer_url -- full path to layer url
-            oid -- oid field name
-            max_recs -- maximum amount of records returned
-
-        Optional:
-            where -- where clause for OID selection
-            add_params -- dictionary with any additional params you want to add
-            token -- token to handle security (only required if security is enabled)
-        """
-        if isinstance(add_params, dict):
-            add_params[RETURN_IDS_ONLY] = TRUE
-
-        # get oids
-        oids = sorted(self.query(where=where, add_params=add_params, token=token)[OBJECT_IDS])
-        print('total records: {0}'.format(len(oids)))
-
-        # set returnIdsOnly to False
-        add_params[RETURN_IDS_ONLY] = 'false'
-
-        # iterate through groups to form queries
-        for each in izip_longest(*(iter(oids),) * max_recs):
-            theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
-            _min, _max = min(theRange), max(theRange)
-            del each
-
-            yield '{0} >= {1} and {0} <= {2}'.format(oid, _min, _max)
-
-    def query(self, fields='*', where='1=1', add_params={}, records=None, get_all=False, f=JSON, kmz='', **kwargs):
-        """query layer and get response as JSON
-
-        Optional:
-            fields -- fields to return. Default is "*" to return all fields
-            where -- where clause
-            add_params -- extra parameters to add to query string passed as dict
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless get_all is True
-            get_all -- option to get all records in layer.  This option may be time consuming
-                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records.
-            kwargs -- extra parameters to add to query string passed as key word arguments,
-                will override add_params***
-
-        # default params for all queries
-        params = {'returnGeometry' : 'true', 'outFields' : fields,
-                  'where': where, 'f' : 'json'}
-        """
-        query_url = self.url + '/query'
-
-        # default params
-        params = {RETURN_GEOMETRY : TRUE, WHERE: where, F : f}
-
-        for k,v in add_params.iteritems():
-            params[k] = v
-
-        for k,v in kwargs.iteritems():
-            params[k] = v
-
-        # check for tokens (only shape and oid)
-        fields = self.fix_fields(fields)
-        params[OUT_FIELDS] = fields
-
-        # create kmz file if requested (does not support get_all parameter)
-        if f == 'kmz':
-            r = POST(query_url, params, ret_json=False, token=self.token)
-            r.encoding = 'zlib_codec'
-
-            # write kmz using codecs
-            if not kmz:
-                kmz = validate_name(os.path.join(os.path.expanduser('~'), 'Desktop', '{}.kmz'.format(self.name)))
-            with codecs.open(kmz, 'wb') as f:
-                f.write(r.content)
-            print('Created: "{0}"'.format(kmz))
-            return kmz
-
-        else:
-
-            server_response = {}
-
-            if get_all:
-                records = None
-                max_recs = self.json.get('maxRecordCount')
-                if not max_recs:
-                    # guess at 500 (default 1000 limit cut in half at 10.0 if returning geometry)
-                    max_recs = 500
-
-                for i, where2 in enumerate(self.query_all(oid_name, max_recs, where, add_params, self.token)):
-                    sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
-                    resp = POST(query_url, params, token=self.token)
-                    if i < 1:
-                        server_response = resp
-                    else:
-                        server_response[FEATURES] += resp[FEATURES]
-
-            else:
-                server_response = POST(query_url, params, token=self.token)
-
-            return FeatureSet(server_response)
-
-    def select_by_location(self, geometry, geometryType='', inSR='', spatialRel='esriSpatialRelIntersects', distance=0, units='esriSRUnit_Meter', add_params={}, **kwargs):
-        """Selects features by location of a geometry, returns a feature set
-
-        Required:
-            geometry -- geometry as JSON
-
-        Optional:
-            geometryType -- type of geometry object, this can be gleaned automatically from the geometry input
-            inSR -- input spatial reference
-            spatialRel -- spatial relationship applied on the input geometry when performing the query operation
-            distance -- distance for search
-            units -- units for distance, only used if distance > 0 and if supportsQueryWithDistance is True
-            add_params -- dict containing any other options that will be added to the query
-            kwargs -- keyword args to add to the query
-
-
-        Spatial Relationships:
-            esriSpatialRelIntersects | esriSpatialRelContains | esriSpatialRelCrosses | esriSpatialRelEnvelopeIntersects | esriSpatialRelIndexIntersects
-            | esriSpatialRelOverlaps | esriSpatialRelTouches | esriSpatialRelWithin | esriSpatialRelRelation
-
-        Unit Options:
-            esriSRUnit_Meter | esriSRUnit_StatuteMile | esriSRUnit_Foot | esriSRUnit_Kilometer | esriSRUnit_NauticalMile | esriSRUnit_USNauticalMile
-        """
-        if isinstance(geometry, basestring):
-            geometry = json.loads(geometry)
-
-        if not geometryType:
-            for key,gtype in GEOM_DICT.iteritems():
-                if key in geometry:
-                    geometryType = gtype
-                    break
-
-        if SPATIAL_REFERENCE in geometry:
-            sr_dict = geometry[SPATIAL_REFERENCE]
-            inSR = sr_dict.get(LATEST_WKID) if sr_dict.get(LATEST_WKID) else sr_dict.get(WKID)
-
-        params = {GEOMETRY: geometry,
-                  GEOMETRY_TYPE: geometryType,
-                  SPATIAL_REL: spatialRel,
-                  IN_SR: inSR,
-            }
-
-        if int(distance):
-            params[DISTANCE] = distance
-            params[UNITS] = units
-
-        # add additional params
-        for k,v in add_params.iteritems():
-            if k not in params:
-                params[k] = v
-
-        # add kwargs
-        for k,v in kwargs.iteritems():
-            if k not in params:
-                params[k] = v
-
-        return FeatureSet(self.query(add_params=params))
-
-    def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
-
-        Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
-        """
-        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
-
-    def getOIDs(self, where='1=1', max_recs=None, **kwargs):
-        """return a list of OIDs from feature layer
-
-        Optional:
-            where -- where clause for OID selection
-            max_recs -- maximimum number of records to return (maxRecordCount does not apply)
-            **kwargs -- optional key word arguments to further limit query (i.e. add geometry interesect)
-        """
-        p = {RETURN_IDS_ONLY:TRUE,
-             RETURN_GEOMETRY: FALSE,
-             OUT_FIELDS: ''}
-
-        # add kwargs if specified
-        for k,v in kwargs.iteritems():
-            if k not in p.keys():
-                p[k] = v
-
-        return sorted(self.query(where=where, add_params=p)[OBJECT_IDS])[:max_recs]
-
-    def getCount(self, where='1=1', **kwargs):
-        """get count of features, can use optional query and **kwargs to filter
-
-        Optional:
-            where -- where clause
-            kwargs -- keyword arguments for query operation
-        """
-        return len(self.getOIDs(where,  **kwargs))
-
-    def attachments(self, oid, gdbVersion=''):
-        """query attachments for an OBJECTDID
-
-        Required:
-            oid -- object ID
-
-        Optional:
-            gdbVersion -- Geodatabase version to query, only supported if self.isDataVersioned is true
-        """
-        if self.hasAttachments:
-            query_url = '{0}/{1}/attachments'.format(self.url, oid)
-            r = POST(query_url, cookies=self._cookie)
-
-            add_tok = ''
-            if self.token:
-                add_tok = '?token={}'.format(self.token.token if isinstance(self.token, Token) else self.token)
-
-            if ATTACHMENT_INFOS in r:
-                for attInfo in r[ATTACHMENT_INFOS]:
-                    attInfo[URL] = '{}/{}'.format(query_url, attInfo[ID])
-                    attInfo[URL_WITH_TOKEN] = '{}/{}{}'.format(query_url, attInfo[ID], add_tok)
-
-                class Attachment(namedtuple('Attachment', 'id name size contentType url urlWithToken')):
-                    """class to handle Attachment object"""
-                    __slots__ = ()
-                    def __new__(cls,  **kwargs):
-                        return super(Attachment, cls).__new__(cls, **kwargs)
-
-                    def __repr__(self):
-                        if hasattr(self, ID) and hasattr(self, NAME):
-                            return '<Attachment ID: {} ({})>'.format(self.id, self.name)
-                        else:
-                            return '<Attachment> ?'
-
-                    def download(self, out_path, name='', verbose=True):
-                        """download the attachment to specified path
-
-                        out_path -- output path for attachment
-
-                        optional:
-                            name -- name for output file.  If left blank, will be same as attachment.
-                            verbose -- if true will print sucessful download message
-                        """
-                        if not name:
-                            out_file = assignUniqueName(os.path.join(out_path, self.name))
-                        else:
-                            ext = os.path.splitext(self.name)[-1]
-                            out_file = os.path.join(out_path, name.split('.')[0] + ext)
-
-                        with open(out_file, 'wb') as f:
-                            f.write(urllib.urlopen(self.url).read())
-
-                        if verbose:
-                            print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
-                        return out_file
-
-                return [Attachment(**a) for a in r[ATTACHMENT_INFOS]]
-
-            return []
-
-        else:
-            raise NotImplementedError('Layer "{}" does not support attachments!'.format(self.name))
-
-    def __repr__(self):
-        """string representation with service name"""
-        return '<{}: "{}" (id: {})>'.format(self.__class__.__name__, self.name, self.id)
-
-class BaseImageService(BaseService):
-    """Class to handle Image service and requests"""
-
-    def adjustbbox(self, boundingBox):
-        """method to adjust bounding box for image clipping to maintain
-        cell size.
-
-        Required:
-            boundingBox -- bounding box string (comma separated)
-        """
-        cell_size = int(self.pixelSizeX)
-        if isinstance(boundingBox, basestring):
-            boundingBox = boundingBox.split(',')
-        return ','.join(map(str, map(lambda x: Round(x, cell_size), boundingBox)))
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""
@@ -1534,7 +938,7 @@ class GeocodeService(RESTEndpoint):
         geo_url = self.url + '/geocodeAddresses'
         if isinstance(recs, (list, tuple)):
             addr_list = recs[:]
-            recs = {"records": []}
+            recs = {RECORDS: []}
             if not address_field:
                 if hasattr(self, 'singleLineAddressField'):
                     address_field = self.singleLineAddressField.name
@@ -1542,19 +946,19 @@ class GeocodeService(RESTEndpoint):
                     address_field = self.addressFields[0].name
                     print('Warning, no singleLineAddressField found...Using "{}" field'.format(address_field))
             for i, addr in enumerate(addr_list):
-                recs['records'].append({"attributes": {"OBJECTID": i+1,
+                recs[RECORDS].append({ATTRIBUTES: {"OBJECTID": i+1,
                                                        address_field: addr}})
 
         # validate recs, make sure OBECTID is present
-        elif isinstance(recs, dict) and 'records' in recs:
-            for i, atts in enumerate(recs['records']):
+        elif isinstance(recs, dict) and RECORDS in recs:
+            for i, atts in enumerate(recs[RECORDS]):
                 if not OBJECTID in atts[ATTRIBUTES]:
                     atts[ATTRIBUTES][OBJECTID] = i + 1 #do not start at 0
 
         else:
             raise ValueError('Not a valid input for "recs" parameter!')
 
-        params = {'addresses': json.dumps(recs),
+        params = {ADDRESSES: json.dumps(recs),
                       OUT_SR: outSR,
                       F: JSON}
 
@@ -1593,7 +997,7 @@ class GeocodeService(RESTEndpoint):
         geo_url = self.url + '/findAddressCandidates'
         params = {OUT_SR: outSR,
                   OUT_FIELDS: outFields,
-                  'returnIntersection': str(returnIntersection).lower(),
+                  RETURN_INTERSECTION: returnIntersection,
                   F: JSON}
         if address:
             if hasattr(self, 'singleLineAddressField'):
@@ -1609,115 +1013,3 @@ class GeocodeService(RESTEndpoint):
     def __repr__(self):
         """string representation with service name"""
         return '<GeocodeService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
-
-
-class GPService(BaseService):
-    """GP Service object
-
-        Required:
-            url -- GP service url
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
-        """
-
-    def task(self, name):
-        """returns a GP Task object"""
-        return GPTask('/'.join([self.url, name]))
-
-class GPTask(BaseService):
-    """GP Task object
-
-    Required:
-        url -- GP Task url
-
-    Optional (below params only required if security is enabled):
-        usr -- username credentials for ArcGIS Server
-        pw -- password credentials for ArcGIS Server
-        token -- token to handle security (alternative to usr and pw)
-        proxy -- option to use proxy page to handle security, need to provide
-            full path to proxy url.
-     """
-
-    @property
-    def isSynchronous(self):
-        """task is synchronous"""
-        return self.executionType == SYNCHRONOUS
-
-    @property
-    def isAsynchronous(self):
-        """task is asynchronous"""
-        return self.executionType == ASYNCHRONOUS
-
-    @property
-    def outputParameter(self):
-        """returns the first output parameter (if there is one)"""
-        try:
-            return self.outputParameters[0]
-        except IndexError:
-            return None
-
-    @property
-    def outputParameters(self):
-        """returns list of all output parameters"""
-        return [p for p in self.parameters if p.direction == OUTPUT_PARAMETER]
-
-
-    def list_parameters(self):
-        """lists the parameter names"""
-        return [p.name for p in self.parameters]
-
-    def run(self, params_json={}, outSR='', processSR='', returnZ=False, returnM=False, **kwargs):
-        """Runs a Syncrhonous/Asynchronous GP task, automatically uses appropriate option
-
-        Required:
-            task -- name of task to run
-            params_json -- JSON object with {parameter_name: value, param2: value2, ...}
-
-        Optional:
-            outSR -- spatial reference for output geometries
-            processSR -- spatial reference used for geometry opterations
-            returnZ -- option to return Z values with data if applicable
-            returnM -- option to return M values with data if applicable
-            kwargs -- keyword arguments, can substitute this to pass in GP params by name instead of
-                using the params_json dictionary.  Only valid if params_json dictionary is not supplied.
-        """
-        if self.isSynchronous:
-            runType = EXECUTE
-        else:
-            runType = SUBMIT_JOB
-        gp_exe_url = '/'.join([self.url, runType])
-        if not params_json:
-            params_json = {}
-            for k,v in kwargs.iteritems():
-                params_json[k] = v
-        params_json['env:outSR'] = outSR
-        params_json['env:processSR'] = processSR
-        params_json[RETURN_Z] = returnZ
-        params_json[RETURN_M] = returnZ
-        params_json[F] = JSON
-        r = POST(gp_exe_url, params_json, ret_json=False, cookies=self._cookie)
-        gp_elapsed = r.elapsed
-
-        # get result object as JSON
-        res = r.json()
-
-        # determine if there's an output parameter: if feature set, push result value into defaultValue
-        if self.outputParameter and self.outputParameter.dataType == 'GPFeatureRecordSetLayer':
-            try:
-                default = self.outputParameter.defaultValue
-                feature_set = default
-                feature_set[FEATURES] = res[RESULTS][0][VALUE][FEATURES]
-                feature_set[FIELDS] = default['Fields'] if 'Fields' in default else default[FIELDS]
-                res[VALUE] = feature_set
-            except:
-                pass
-        else:
-            res[VALUE] = res[RESULTS][0].get(VALUE)
-
-        print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
-        return GPResult(res)
