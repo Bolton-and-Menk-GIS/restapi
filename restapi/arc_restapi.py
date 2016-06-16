@@ -57,6 +57,8 @@ def exportFeatureSet(feature_set, out_fc):
 
     # make new feature class
     fields = [Field(f) for f in feature_set.fields]
+    date_fields = [f.name for f in fields if f.type == DATE_FIELD]
+    long_fields = [f.name for f in fields if f.type == LONG_FIELD]
 
     sr_dict = feature_set.spatialReference
     outSR = feature_set.getWKID()
@@ -115,7 +117,15 @@ def exportFeatureSet(feature_set, out_fc):
     # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
     with arcpy.da.InsertCursor(out_fc, cur_fields + [SHAPE_TOKEN]) as irows:
         for feat in feature_set:
-            irows.insertRow([feat.attributes.get(f) for f in fMap] + [arcpy.AsShape(feat.geometry, True)])
+            vals = []
+            for f in fMap:
+                if f in date_fields:
+                    vals.append(mil_to_date(feat.attributes.get(f)))
+                elif f in long_fields:
+                    vals.append(feat.attributes.get(f))
+                else:
+                    vals.append(feat.attributes.get(f))
+            irows.insertRow(vals + [arcpy.AsShape(feat.geometry, True)])
 
     # if output is a shapefile
     if isShp:
@@ -349,6 +359,8 @@ class Geometry(SpatialReferenceMixin):
                 class, or JSON
         """
         self._inputGeometry = geometry
+        if isinstance(geometry, self.__class__):
+            geometry = geometry.json
         spatialReference = None
         self.geometryType = None
         for k, v in kwargs.iteritems():
@@ -475,7 +487,8 @@ class Geometry(SpatialReferenceMixin):
         else:
             coords = self.envelope().split(',')
         d = dict(zip(flds, coords))
-        d[SPATIAL_REFERENCE] = self.json[SPATIAL_REFERENCE]
+        if self.json.get(SPATIAL_REFERENCE):
+            d[SPATIAL_REFERENCE] = self.json[SPATIAL_REFERENCE]
         return d
 
     def dumps(self):
@@ -584,6 +597,8 @@ class GeometryCollection(BaseGeometryCollection):
             if not spatialReference:
                 self.spatialReference = self.geometries[0].spatialReference
 
+        self.json = munch.munchify(self.json)
+
     @property
     def spatialReference(self):
         try:
@@ -595,6 +610,10 @@ class GeometryCollection(BaseGeometryCollection):
     def spatialReference(self, wkid):
         for g in self.geometries:
             g.spatialReference = wkid
+        if isinstance(wkid, int):
+            self.json[SPATIAL_REFERENCE] = {WKID: wkid}
+        elif isinstance(wkid, dict):
+            self.json[SPATIAL_REFERENCE] = wkid
 
 class GeocodeHandler(object):
     """class to handle geocode results"""

@@ -148,7 +148,6 @@ class AdminRESTEndpoint(object):
         token -- token to handle security (alternative to usr and pw)
     """
     def __init__(self, url, usr='', pw='', token=''):
-        # validate url
         self.url = 'http://' + url.rstrip('/') if not url.startswith('http') \
                     and 'localhost' not in url.lower() else url.rstrip('/')
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
@@ -1241,6 +1240,7 @@ class Service(BaseDirectory):
         VERBOSE = False
         self.stop()
         self.start()
+        VERBOSE = verb
         return {'status': 'success'}
 
     @passthrough
@@ -2823,6 +2823,44 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         params = {'services': json.dumps(servicesAsJSON) if isinstance(servicesAsJSON, dict) else servicesAsJSON}
         return POST(query_url, params, token=self.token)
+
+    @passthrough
+    def restartServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
+        """restarts service or all services in a folder
+
+        Optional:
+            servicesAsJSON --list of services as JSON (example below)
+
+        *the following parameters are options to run on an individual folder (not valid params of the REST API)
+
+            folderName -- name of folder to start all services. Leave blank to start at root
+            serviceName -- name of service to start. Leave blank to start all in folder
+            type -- type of service to start (note: choosing MapServer will also stop FeatureServer):
+                valdid types: MapServer|GPServer|NAServer|GeocodeServer|ImageServer
+
+
+        servicesAsJSON example:
+            {
+                "services": [
+                    {
+                        "folderName": "",
+                        "serviceName": "SampleWorldCities",
+                        "type": "MapServer"
+                    },
+                    {
+                        "folderName": "Watermain",
+                        "serviceName": "CheckFireHydrants",
+                        "type": "GPServer"
+                    }
+                ]
+            }
+        """
+        verb = VERBOSE
+        VERBOSE = False
+        self.stopServices(servicesAsJSON, folderName, serviceName, type)
+        self.startServices(servicesAsJSON, folderName, serviceName, type)
+        VERBOSE = verb
+        return {'status': 'success'}
 
     def report(self):
         """return a list of service report objects"""

@@ -19,7 +19,7 @@ __all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'Fe
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
            'GeocodeService', 'GPService', 'GPTask', 'POST', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
            'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name', 'exportGeometryCollection',
-           'GeometryService', 'GeometryCollection'] + [d for d in dir(_strings) if not d.startswith('__')]
+           'GeometryService', 'GeometryCollection', 'getFeatureExtent'] + [d for d in dir(_strings) if not d.startswith('__')]
 
 @decorator
 def geometry_passthrough(func, *args, **kwargs):
@@ -33,6 +33,22 @@ def geometry_passthrough(func, *args, **kwargs):
     else:
         return gc
     return f
+
+def getFeatureExtent(in_features):
+    """gets the extent for a FeatureSet() or GeometryCollection(), must be convertible
+    to a GeometryCollection().  Returns an envelope json structure (extent)
+
+    Required:
+        in_features -- input features (Feature|FeatureSet|GeometryCollection|json)
+    """
+    if not isinstance(in_features, GeometryCollection):
+        in_features = GeometryCollection(in_features)
+
+    extents = [g.envelopeAsJSON() for g in iter(in_features)]
+    full_extent = {SPATIAL_REFERENCE: extents[0].get(SPATIAL_REFERENCE)}
+    for attr, op in {XMIN: min, YMIN: min, XMAX: max, YMAX: max}.iteritems():
+        full_extent[attr] = op([e.get(attr) for e in extents])
+    return munch.munchify(full_extent)
 
 def exportGeometryCollection(gc, output):
     """Exports a goemetry collection to shapefile or feature class
@@ -84,6 +100,13 @@ class Cursor(FeatureSet):
     def date_fields(self):
         """gets the names of any date fields within feature set"""
         return [f.name for f in self.fields if f.type == DATE_FIELD]
+
+    @property
+    def long_fields(self):
+        """field names of type Long Integer, need to know this for use with
+        arcpy.da.InsertCursor() as the values need to be cast to long
+        """
+        return [f.name for f in self.fields if f.type == LONG_FIELD]
 
     @property
     def field_names(self):
@@ -189,6 +212,8 @@ class Cursor(FeatureSet):
                 for i, field in enumerate(cursor.fieldOrder):
                     if field in cursor.date_fields:
                         vals.append(mil_to_date(self.feature.attributes[field]))
+                    elif field in cursor.long_fields:
+                        vals.append(long(self.feature.attributes[field]))
                     else:
                         if field == OID_TOKEN:
                             vals.append(self.oid)
@@ -548,14 +573,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
                 for i, where2 in enumerate(self.query_all(oid_name, max_recs, where, add_params, self.token)):
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
-                    resp = POST(query_url, params, token=self.token)
+                    resp = POST(query_url, params, cookies=self._cookie)
                     if i < 1:
                         server_response = resp
                     else:
                         server_response[FEATURES] += resp[FEATURES]
 
             else:
-                server_response = POST(query_url, params, token=self.token)
+                server_response = POST(query_url, params, cookies=self._cookie)
 
             if all([server_response.get(k) for k in (FIELDS, FEATURES, GEOMETRY_TYPE)]):
                 if records:
@@ -566,6 +591,23 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                     if isinstance(server_response, list):
                         return server_response[:records]
                 return server_response
+
+    def query_related_records(self, objectIds, relationshipId, outFields='*', definitionExpression=None, returnGeometry=None, outSR=None, **kwargs):
+        """
+
+        """
+        query_url = self.url + '/queryRelatedRecords'
+        params = {OBJECT_IDS: objectIds,
+                  RELATIONSHIP_ID: relationshipId,
+                  OUT_FIELDS: outFields,
+                  DEFINITION_EXPRESSION: definitionExpression,
+                  RETURN_GEOMETRY: returnGeometry,
+                  OUT_SR: outSR
+        }
+
+        for k,v in kwargs.iteritems():
+            params[k] = v
+        return RelatedRecords(POST(query_url, params, cookies=self._cookie))
 
     def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, add_params={}, **kwargs):
         """Selects features by location of a geometry, returns a feature set
@@ -1548,8 +1590,8 @@ class GeometryService(RESTEndpoint):
                 params[k] = v
 
         # perform operation
-        gc = GeometryCollection(POST(buff_url, params, cookies=self._cookie))
-        gc.spatialReference = outSR if outSR else inSR
+        gc = GeometryCollection(POST(buff_url, params, cookies=self._cookie),
+                                spatialReference=outSR if outSR else inSR)
         return gc
 
     @geometry_passthrough
@@ -1567,8 +1609,7 @@ class GeometryService(RESTEndpoint):
                   GEOMETRIES: geometries,
                   SR: sr
         }
-        gc = POST(query_url, params, cookies=self._cookie)
-        gc.spatialReference = sr
+        gc = GeometryCollection(POST(query_url, params, cookies=self._cookie), spatialReference=sr)
         return gc
 
     def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
@@ -1651,8 +1692,8 @@ class GeometryService(RESTEndpoint):
                   TRANSFORM_FORWARD: transformForward
                 }
 
-        gc = GeometryCollection(POST(self.url + '/project', params, token=self.token))
-        gc.spatialReference = outSR if outSR else inSR
+        gc = GeometryCollection(POST(self.url + '/project', params, token=self.token),
+                                spatialReference=outSR if outSR else inSR)
         return gc
 
     def __repr__(self):

@@ -1,5 +1,6 @@
 import restapi
 print restapi.__file__
+import json
 
 import _ags
 null = None
@@ -208,7 +209,7 @@ gc2 = restapi.GeometryCollection(geometries)
 fs3 = restapi.FeatureSet(pts_json)
 
 gs = restapi.GeometryService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/Geometry/GeometryServer')
-buffers = gs.buffer(fs3, 3857, 100, unionResults=True)
+buffers = gs.buffer(fs3, 3857, 100)
 pros = gs.project(fs3, 3857, 26915)
 gc3 = restapi.GeometryCollection(geometries)
 ##test = r'C:\TEMP\testing.gdb\rest_buffers3'
@@ -223,4 +224,18 @@ gc3 = restapi.GeometryCollection(geometries)
 # feature editing tests
 
     
+##can_url = 'http://gis.bolton-menk.com/arcgis/rest/services/CANB/Canb_Editor_REST/FeatureServer/0'
+##relatedID = 1277
+##can = restapi.FeatureLayer(can_url, usr, pw)
+##rr = can.query_related_records(1277, 0)
+##ft =  rr.get_related_records(1277)[0]
 
+
+##print_gp = restapi.GPService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/PrintingTools/GPServer/Export%20Web%20Map%20Task')
+##with open(r'\\ArcServer1\GIS\MPWD\_Basemap\ESRI\Scripts\Toolbox\mpwd_lib\bin\maplewood_webmap.json', 'r') as f:
+##    webmap = json.load(f)
+##
+##print_gp.run(Web_Map_as_JSON=webmap, Format='PNG32', Layout_Template=r'\\ArcServer1\GIS\MPWD\_Basemap\ESRI\Scripts\Toolbox\mpwd_lib\bin\template2.mxd', r'C:\Users\calebma\Desktop\map_from_rest.png')
+
+ext = restapi.getFeatureExtent(buffers)
+ext2 = restapi.getFeatureExtent(geometries)

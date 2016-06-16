@@ -336,7 +336,35 @@ class RestapiEncoder(json.JSONEncoder):
             return o
         return o.__dict__
 
-class RESTEndpoint(object):
+class JsonGetter(object):
+    """override getters to also check its json property"""
+    json = {}
+
+    def dumps(self):
+        """dump as string"""
+        return json.dumps(self.json)
+
+    def __getitem__(self, name):
+        """dict like access to json definition"""
+        if name in self.json:
+            return self.json[name]
+
+    def __getattr__(self, name):
+        """get normal class attributes and those from json response"""
+        try:
+            # it is a class attribute
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            # it is in the json definition, abstract it to the class level
+            if name in self.json:
+                return self.json[name]
+            else:
+                raise AttributeError(name)
+
+    def __str__(self):
+        return json.dumps(self.json, sort_keys=True, indent=2, ensure_ascii=False)
+
+class RESTEndpoint(JsonGetter):
     """Base REST Endpoint Object to handle credentials and get JSON response
 
     Required:
@@ -355,6 +383,8 @@ class RESTEndpoint(object):
     token = None
     elapsed = None
     json = {}
+    _cookie = None
+    _proxy = None
 
     def __init__(self, url, usr='', pw='', token='', proxy=None):
 
@@ -429,26 +459,6 @@ class RESTEndpoint(object):
         """refreshes the service"""
         self.__init__(self.url, token=self.token)
 
-    def __getitem__(self, name):
-        """dict like access to json definition"""
-        if name in self.json:
-            return self.json[name]
-
-    def __getattr__(self, name):
-        """get normal class attributes and those from json response"""
-        try:
-            # it is a class attribute
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            # it is in the json definition, abstract it to the class level
-            if name in self.json:
-                return self.json[name]
-            else:
-                raise AttributeError(name)
-
-    def __str__(self):
-        return json.dumps(self.json, sort_keys=True, indent=2, ensure_ascii=False)
-
     @classmethod
     def __get_cls(cls):
         return cls
@@ -510,6 +520,54 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
             qualified_name = self.name
         return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
 
+class Feature(JsonGetter):
+    def __init__(self, feature):
+        """represents a single feature
+
+        Required:
+            feature -- input json for feature
+        """
+        self.json = munch.munchify(feature)
+        self.geometry = self.json.get(GEOMETRY)
+
+    def get(self, field):
+        """gets an attribute from the feature
+
+        Required:
+            field -- name of field for which to get attribute
+        """
+        return self.json[ATTRIBUTES].get(field)
+
+
+class RelatedRecords(JsonGetter, SpatialReferenceMixin):
+    def __init__(self, in_json):
+        """related records response
+
+        Required:
+            in_json -- json response for query related records operation
+        """
+        self.json = munch.munchify(in_json)
+        self.geometryType = self.json.get(GEOMETRY_TYPE)
+        self.spatialReference = self.json.get(SPATIAL_REFERENCE)
+
+    def list_related_OIDs(self):
+        """returns a list of all related object IDs"""
+        return [f.get('objectId') for f in iter(self)]
+
+    def get_related_records(self, oid):
+        """gets the related records for an object id
+
+        Required:
+            oid -- object ID for related records
+        """
+        for group in iter(self):
+            if oid == group.get('objectId'):
+                return [Feature(f) for f in group[RELATED_RECORDS]]
+
+    def __iter__(self):
+        for group in self.json[RELATED_RECORD_GROUPS]:
+            yield group
+
 class FeatureSet(SpatialReferenceMixin):
 
     def __init__(self, in_json):
@@ -535,10 +593,6 @@ class FeatureSet(SpatialReferenceMixin):
     def list_fields(self):
         """returns a list of field names"""
         return [f.name for f in self.fields]
-
-    def dumps(self):
-        """dump as string"""
-        return self.json.dumps()
 
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""
