@@ -9,7 +9,7 @@ import json
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
-from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager
+from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter
 from ..decorator import decorator
 from ..munch import *
 
@@ -136,7 +136,7 @@ def generate_token(server='', usr='', pw='', expiration=60):
     ID_MANAGER.tokens[token.domain] = token
     return token
 
-class AdminRESTEndpoint(object):
+class AdminRESTEndpoint(JsonGetter):
     """Base REST Endpoint Object to handle credentials and get JSON response
 
     Required:
@@ -184,16 +184,8 @@ class AdminRESTEndpoint(object):
         self.raw_response = requests.post(self.url, params, verify=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
-        if 'error' in self.response:
-            self.print_info()
+        self.json = munchify(self.response)
 
-    def asJSON(self):
-        """return actual server response as JSON"""
-        return self.response
-
-    def print_info(self):
-        """Method to print all properties of service"""
-        _print_info(self)
 
     def refresh(self):
         """refreshes the service properties"""
@@ -1059,11 +1051,6 @@ class Cluster(AdminRESTEndpoint):
 
 class Folder(BaseDirectory):
     """class to handle simple folder objects"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(Folder, self).__init__(url, usr, pw, token)
-        for k,v in self.response.iteritems():
-            setattr(self, k, v)
-        objectize(self)
 
     def __str__(self):
         """folder name"""
@@ -1345,11 +1332,6 @@ class Service(BaseDirectory):
 
         return ServiceStatistics(**POST(self.url + '/statistics', token=self.token))
 
-    def asJSON(self):
-        """override to unbunchify self.json if any changes have been made, call
-        self.response to get last response from server"""
-        return unmunchify(self.json)
-
     #**********************************************************************************
     #
     # helper methods not available out of the box
@@ -1452,12 +1434,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         self._sysetemURL = self._adminURL + '/system'
         self._uploadsURL = self._adminURL + '/uploads'
         self._usagereportsURL = self._adminURL + '/usagereports'
-
-        for k,v in self.response.iteritems():
-            if k != 'services':
-                setattr(self, k, v)
-
-        self.services = self.list_services()
+        self.service_cache = []
 
     #----------------------------------------------------------------------
     # general methods and properties
@@ -1530,11 +1507,14 @@ class ArcServerAdmin(AdminRESTEndpoint):
             for service in folder.list_services():
                 services.append('/'.join(map(str, [self._servicesURL, folder, service])))
 
+        self.service_cache = services
         return services
 
     def iter_services(self):
         """iterate through Service Objects"""
-        for serviceName in self.services:
+        if not self.service_cache:
+            self.list_services()
+        for serviceName in self.service_cache:
             yield self.service(serviceName)
 
     def rehydrateServices(self):
@@ -1941,16 +1921,19 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         r = POST(query_url, params, token=self.token)
 
-        class LogQuery(object):
+        class LogQuery(JsonGetter):
             """class to handle LogQuery Report instance"""
             def __init__(self, resp):
                 """resp: JSON for log reports request"""
-                for k,v in resp.iteritems():
-                    if k not in ('startTime', 'endTime'):
-                        setattr(self, k, v)
-                self.startTime = mil_to_date(resp['startTime'])
-                self.endTime = mil_to_date(resp['endTime'])
-                objectize(self)
+                self.json = resp
+
+            @property
+            def getStartTime(self):
+                return mil_to_date(self.startTime)
+
+            @property
+            def getEndTime(self):
+                return mil_to_date(self.endTime)
 
             def __getitem__(self, index):
                 """allows for indexing of log files"""
@@ -1965,7 +1948,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 """get number of log messages returned by query"""
                 return len(self.logMessages)
 
-            def __nonzero__(self):
+            def __bool__(self):
                 """returns True if log messages were returned"""
                 return bool(len(self))
 

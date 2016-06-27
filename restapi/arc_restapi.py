@@ -56,12 +56,11 @@ def exportFeatureSet(feature_set, out_fc):
         isShp = False
 
     # make new feature class
-    fields = [Field(f) for f in feature_set.fields]
-    date_fields = [f.name for f in fields if f.type == DATE_FIELD]
-    long_fields = [f.name for f in fields if f.type == LONG_FIELD]
+    date_fields = [f.name for f in feature_set.fields if f.type == DATE_FIELD]
+    long_fields = [f.name for f in feature_set.fields if f.type == LONG_FIELD]
 
     sr_dict = feature_set.spatialReference
-    outSR = feature_set.getWKID()
+    outSR = feature_set.getSR()
 
     g_type = G_DICT[feature_set.geometryType]
     path, fc_name = os.path.split(out_fc)
@@ -72,10 +71,10 @@ def exportFeatureSet(feature_set, out_fc):
     cur_fields, fMap = [], []
     if not isShp:
         gdb_domains = arcpy.Describe(ws).domains
-    for field in fields:
+    for field in feature_set.fields:
         if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
             field_name = field.name.split('.')[-1]
-            if field.domain and not isShp:
+            if field.get(DOMAIN) and not isShp:
                 if field.domain[NAME] not in gdb_domains:
                     if CODED_VALUES in field.domain:
                         dType = CODED
@@ -88,7 +87,7 @@ def exportFeatureSet(feature_set, out_fc):
                                                   dType)
                     if dType == CODED:
                         for cv in field.domain[CODED_VALUES]:
-                            arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv['code'], cv[NAME])
+                            arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
                     else:
                         _min, _max = field.domain[RANGE]
                         arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
@@ -101,14 +100,14 @@ def exportFeatureSet(feature_set, out_fc):
                 field_domain = ''
 
             # need to filter even more as SDE sometimes yields weird field names...sigh
-            if not any(['shape_' in field.name.lower(),
+            if not any(['shape_' in field.name.lower() and out_fc.endswith('.shp'),
                         'shape.' in field.name.lower(),
                         '(shape)' in field.name.lower(),
                         'objectid' in field.name.lower(),
                         field.name.lower() == 'fid']):
 
                 arcpy.management.AddField(out_fc, field_name, FTYPES[field.type],
-                                            field_length=field.length,
+                                            field_length=field.get('length'),
                                             field_alias=field.alias,
                                             field_domain=field_domain)
                 cur_fields.append(field_name)
@@ -456,12 +455,17 @@ class Geometry(SpatialReferenceMixin):
                     self.json[X] = geometry[X]
                     self.json[Y] = geometry[Y]
                     self.geometryType = ESRI_POINT
+                elif all(map(lambda k: k in geometry, [XMIN, YMIN, XMAX, YMAX])):
+                    for k in [XMIN, YMIN, XMAX, YMAX]:
+                        self.json[k] = geometry[k]
+                    self.geometryType = ESRI_ENVELOPE
                 else:
                     raise IOError('Not a valid JSON object!')
             if not self.geometryType and GEOMETRY_TYPE in geometry:
                 self.geometryType = geometry[GEOMETRY_TYPE]
         if not SPATIAL_REFERENCE in self.json and spatialReference is not None:
             self.spatialReference = spatialReference
+        self.json = munch.munchify(self.json)
 
     @property
     def spatialReference(self):
@@ -476,17 +480,23 @@ class Geometry(SpatialReferenceMixin):
 
     def envelope(self):
         """return an envelope from shape"""
-        e = arcpy.AsShape(self.json, True).extent
-        return ','.join(map(str, [e.XMin, e.YMin, e.XMax, e.YMax]))
+        if self.geometryType != ESRI_ENVELOPE:
+            e = arcpy.AsShape(self.json, True).extent
+            return ','.join(map(str, [e.XMin, e.YMin, e.XMax, e.YMax]))
+        else:
+            return ','.join(map(str, [self.json[XMIN], self.json[YMIN], self.json[XMAX], self.json[YMAX]]))
 
     def envelopeAsJSON(self, roundCoordinates=False):
         """returns an envelope geometry object as JSON"""
-        flds = [XMIN, YMIN, XMAX, YMAX]
-        if roundCoordinates:
-            coords = map(int, [float(i) for i in self.envelope().split(',')])
+        if self.geometryType != ESRI_ENVELOPE:
+            flds = [XMIN, YMIN, XMAX, YMAX]
+            if roundCoordinates:
+                coords = map(int, [float(i) for i in self.envelope().split(',')])
+            else:
+                coords = self.envelope().split(',')
+            d = dict(zip(flds, coords))
         else:
-            coords = self.envelope().split(',')
-        d = dict(zip(flds, coords))
+            d = self.json
         if self.json.get(SPATIAL_REFERENCE):
             d[SPATIAL_REFERENCE] = self.json[SPATIAL_REFERENCE]
         return d
@@ -497,7 +507,16 @@ class Geometry(SpatialReferenceMixin):
 
     def asShape(self):
         """returns JSON as arcpy.Geometry() object"""
-        return arcpy.AsShape(self.json, True)
+        if self.geometryType != ESRI_ENVELOPE:
+            return arcpy.AsShape(self.json, True)
+        else:
+            ar = arcpy.Array([
+                arcpy.Point(self.json[XMIN], self.json[YMAX]),
+                arcpy.Point(self.json[XMAX], self.json[YMAX]),
+                arcpy.Point(self.json[XMAX], self.json[YMIN]),
+                arcpy.Point(self.json[XMIN], self.json[YMIN])
+            ])
+            return arcpy.Polygon(ar, arcpy.SpatialReference(self.spatialReference))
 
     def __str__(self):
         """dumps JSON to string"""

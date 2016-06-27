@@ -12,6 +12,7 @@ usr, pw = _ags.creds()
 ##token = restapi.generate_token(url, usr, pw)
 ##ags = restapi.ArcServer(url)
 
+ags_url = 'http://arcserver4.bolton-menk.com:6080/arcgis/admin/services'
 gp_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/ChickenPermits/GPServer'
 ms_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/Permits/MapServer'
 fs_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/Permits/FeatureServer'
@@ -239,3 +240,8 @@ gc3 = restapi.GeometryCollection(geometries)
 
 ext = restapi.getFeatureExtent(buffers)
 ext2 = restapi.getFeatureExtent(geometries)
+
+ags = restapi.admin.ArcServerAdmin(ags_url, usr, pw)
+
+print ext
+env = restapi.Geometry(ext)

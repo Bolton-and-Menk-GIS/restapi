@@ -15,12 +15,6 @@ from rest_utils import *
 from . import _strings
 from  .decorator import decorator
 
-__all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', '__opensource__',
-           'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
-           'GeocodeService', 'GPService', 'GPTask', 'POST', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
-           'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name', 'exportGeometryCollection',
-           'GeometryService', 'GeometryCollection', 'getFeatureExtent'] + [d for d in dir(_strings) if not d.startswith('__')]
-
 @decorator
 def geometry_passthrough(func, *args, **kwargs):
     """decorator to return a single geometry if a single geometry was returned
@@ -297,12 +291,7 @@ class ArcServer(RESTEndpoint):
 
 
     def list_services(self, filterer=True):
-        """returns a list of all services
-
-        Optional:
-            filterer -- default is true to exclude "Utilities" and "System" folders,
-                set to false to list all services.
-        """
+        """returns a list of all services"""
         return list(self.iter_services(filterer))
 
     def iter_services(self, token='', filterer=True):
@@ -313,23 +302,16 @@ class ArcServer(RESTEndpoint):
 
         Optional:
             token -- token to handle security (only required if security is enabled)
-            filterer -- default is true to exclude "Utilities" and "System" folders,
-                set to false to list all services.
         """
         self.service_cache = []
         for s in self.services:
             full_service_url = '/'.join([self.url, s[NAME], s[TYPE]])
             self.service_cache.append(full_service_url)
             yield full_service_url
-        folders = self.folders
-        if filterer:
-            for fld in ('Utilities', 'System'):
-                try:
-                    folders.remove(fld)
-                except: pass
-        for s in folders:
+
+        for s in self.folders:
             new = '/'.join([self.url, s])
-            resp = POST(new, token=self.token)
+            resp = POST(new, cookies=self._cookie)
             for serv in resp[SERVICES]:
                 full_service_url =  '/'.join([self.url, serv[NAME], serv[TYPE]])
                 self.service_cache.append(full_service_url)
@@ -371,21 +353,16 @@ class ArcServer(RESTEndpoint):
             folder_objects.append(Folder(folder_url, self.token))
         return folder_objects
 
-    def walk(self, filterer=True):
+    def walk(self):
         """method to walk through ArcGIS REST Services. ArcGIS Server only supports single
         folder heiarchy, meaning that there cannot be subdirectories within folders.
 
-        Optional:
-            filterer -- will filter Utilities, default is True. If
-              false, will list all services.
-
-        will return tuple of folders and services from the topdown.
-        (root, folders, services) example:
+        will return tuple of the root folder and services from the topdown.
+        (root, services) example:
 
         ags = restapi.ArcServer(url, username, password)
         for root, folders, services in ags.walk():
             print root
-            print folders
             print services
             print '\n\n'
         """
@@ -396,24 +373,18 @@ class ArcServer(RESTEndpoint):
             full_service_url = '/'.join([self.url, qualified_service])
             services.append(qualified_service)
             self.service_cache.append(full_service_url)
-        folders = self.folders
-        if filterer:
-            for fld in ('Utilities', 'System'):
-                try:
-                    folders.remove(fld)
-                except: pass
-        yield (self.url, folders, services)
+        yield (self.url, services)
 
-        for f in folders:
+        for f in self.folders:
             new = '/'.join([self.url, f])
-            endpt = POST(new, token=self.token)
+            endpt = POST(new, cookies=self._cookie)
             services = []
             for serv in endpt[SERVICES]:
                 qualified_service = '/'.join([serv[NAME], serv[TYPE]])
                 full_service_url = '/'.join([self.url, qualified_service])
                 services.append(qualified_service)
                 self.service_cache.append(full_service_url)
-            yield (f, endpt[FOLDERS], services)
+            yield (f, services)
 
     def __iter__(self):
         """returns an generator for services"""
@@ -425,13 +396,6 @@ class ArcServer(RESTEndpoint):
 
 class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
     """Class to handle advanced layer properties"""
-
-    def __init__(self, url='', usr='', pw='', token='', proxy=None):
-        super(MapServiceLayer, self).__init__(url, usr, pw, token, proxy)
-        try:
-            self.json[FIELDS] = [Field(f) for f in self.json[FIELDS]]
-        except:
-            self.fields = []
 
     @property
     def OID(self):
@@ -479,7 +443,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                         field_list.append(f)
         return ','.join(field_list)
 
-    def query_all(self, oid, max_recs, where='1=1', add_params={}, token=''):
+    def iter_queries(self, where='1=1', add_params={}, max_recs=None, **kwargs):
         """generator to form where clauses to query all records.  Will iterate through "chunks"
         of OID's until all records have been returned (grouped by maxRecordCount)
 
@@ -499,21 +463,23 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             add_params[RETURN_IDS_ONLY] = TRUE
 
         # get oids
-        oids = sorted(self.query(where=where, add_params=add_params, token=token)[OBJECT_IDS])
+        oids = sorted(self.query(where=where, add_params=add_params)[OBJECT_IDS])[:max_recs]
         print('total records: {0}'.format(len(oids)))
 
         # set returnIdsOnly to False
         add_params[RETURN_IDS_ONLY] = FALSE
 
         # iterate through groups to form queries
+        # overwrite max_recs here with transfer limit from service
+        max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
         for each in izip_longest(*(iter(oids),) * max_recs):
             theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
             _min, _max = min(theRange), max(theRange)
             del each
 
-            yield '{0} >= {1} and {0} <= {2}'.format(oid, _min, _max)
+            yield '{0} >= {1} and {0} <= {2}'.format(self.OID.name, _min, _max)
 
-    def query(self, fields='*', where='1=1', add_params={}, records=None, get_all=False, f=JSON, kmz='', **kwargs):
+    def query(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, f=JSON, kmz='', **kwargs):
         """query layer and get response as JSON
 
         Optional:
@@ -521,8 +487,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             where -- where clause
             add_params -- extra parameters to add to query string passed as dict
             records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless get_all is True
-            get_all -- option to get all records in layer.  This option may be time consuming
+                records within bounds of max record count unless exceed_limit is True
+            exceed_limit -- option to get all records in layer.  This option may be time consuming
                 because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
                 must be performed in chunks to get all records.
             kwargs -- extra parameters to add to query string passed as key word arguments,
@@ -547,7 +513,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         fields = self.fix_fields(fields)
         params[OUT_FIELDS] = fields
 
-        # create kmz file if requested (does not support get_all parameter)
+        # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
             r = POST(query_url, params, ret_json=False, token=self.token)
             r.encoding = 'zlib_codec'
@@ -564,15 +530,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
             server_response = {}
 
-            if get_all:
-                records = None
-                max_recs = self.json.get(MAX_RECORD_COUNT)
-                if not max_recs:
-                    # guess at 500 (default 1000 limit cut in half at 10.0 if returning geometry)
-                    max_recs = 500
+            if exceed_limit:
 
-                for i, where2 in enumerate(self.query_all(oid_name, max_recs, where, add_params, self.token)):
+                for i, where2 in enumerate(self.iter_queries(where, params, max_recs=records)):
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
+                    params[WHERE] = sql
                     resp = POST(query_url, params, cookies=self._cookie)
                     if i < 1:
                         server_response = resp
@@ -582,7 +544,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             else:
                 server_response = POST(query_url, params, cookies=self._cookie)
 
-            if all([server_response.get(k) for k in (FIELDS, FEATURES, GEOMETRY_TYPE)]):
+            if all([server_response.get(k) for k in (FIELDS, FEATURES, FIELD_ALIASES)]):
                 if records:
                     server_response[FEATURES] = server_response[FEATURES][:records]
                 return FeatureSet(server_response)
@@ -770,14 +732,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         else:
             raise NotImplementedError('Layer "{}" does not support attachments!'.format(self.name))
 
-    def cursor(self, fields='*', where='1=1', add_params={}, records=None, get_all=False):
+    def cursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False):
         """Run Cursor on layer, helper method that calls Cursor Object"""
         cur_fields = self.fix_fields(fields)
 
-        fs = self.query(cur_fields, where, add_params, records, get_all)
+        fs = self.query(cur_fields, where, add_params, records, exceed_limit)
         return Cursor(fs, fields)
 
-    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, get_all=False, sr=None):
+    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None):
         """Method to export a feature class from a service layer
 
         Required:
@@ -789,7 +751,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             fields -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             records -- number of records to return. Default is none, will return maxRecordCount
-            get_all -- option to get all records.  If true, will recursively query REST endpoint
+            exceed_limit -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
             sr -- output spatial refrence (WKID)
         """
@@ -821,7 +783,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                 params[OUT_SR] = sr
 
             # do query to get feature set
-            fs = self.query(cur_fields, where, params, records, get_all)
+            fs = self.query(cur_fields, where, params, records, exceed_limit)
+
+            # get any domain info
+            f_dict = {f.name: f for f in self.fields}
+            for field in fs.fields:
+                field.domain = f_dict[field.name].get(DOMAIN)
 
             return exportFeatureSet(fs, out_fc)
 
@@ -866,7 +833,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
              IN_SR : sr,
              OUT_SR: out_sr}
 
-        return self.layer_to_fc(output, fields, where, params=d, get_all=True, sr=out_sr)
+        return self.layer_to_fc(output, fields, where, params=d, exceed_limit=True, sr=out_sr)
 
     def __repr__(self):
         """string representation with service name"""
@@ -1006,7 +973,7 @@ class MapService(BaseService):
         else:
             print('Layer "{0}" not found!'.format(name_or_id))
 
-    def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, get_all=False):
+    def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, exceed_limit=False):
         """Cusor object to handle queries to rest endpoints
 
         Required:
@@ -1018,15 +985,15 @@ class MapService(BaseService):
             records -- number of records to return (within bounds of max record count)
             token --
             add_params -- option to add additional search parameters
-            get_all -- option to get all records in layer.  This option may be time consuming
+            exceed_limit -- option to get all records in layer.  This option may be time consuming
                 because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
                 must be performed in chunks to get all records
         """
         lyr = self.layer(layer_name)
-        return lyr.cursor(fields, where, add_params, records, get_all)
+        return lyr.cursor(fields, where, add_params, records, exceed_limit)
 
     def layer_to_fc(self, layer_name,  out_fc, fields='*', where='1=1',
-                    records=None, params={}, get_all=False, sr=None):
+                    records=None, params={}, exceed_limit=False, sr=None):
         """Method to export a feature class from a service layer
 
         Required:
@@ -1039,12 +1006,12 @@ class MapService(BaseService):
             fields -- list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string "field1,field2,.."
             records -- number of records to return. Default is none, will return maxRecordCount
-            get_all -- option to get all records.  If true, will recursively query REST endpoint
+            exceed_limit -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
             sr -- output spatial refrence (WKID)
         """
         lyr = self.layer(layer_name)
-        lyr.layer_to_fc(out_fc, fields, where,records, params, get_all, sr)
+        lyr.layer_to_fc(out_fc, fields, where,records, params, exceed_limit, sr)
 
     def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
         """Method to create kmz from query
@@ -1795,7 +1762,7 @@ class ImageService(BaseService):
         else:
             in_geom = Geometry(poly)
 
-        sr = in_geom.spatialReference
+        sr = in_geom.getSR()
 
         if envelope:
             geojson = in_geom.envelope()
@@ -1804,10 +1771,10 @@ class ImageService(BaseService):
             geojson = in_geom.dumps()
             geometryType = in_geom.geometryType
 
-        if sr != self.spatialReference:
-            self.geometry_service = GeometryService()
-            gc = self.geometry_service.project(in_geom, in_geom.spatialReference, self.getSR())
-            in_geom = gc
+##        if sr != self.spatialReference:
+##            self.geometry_service = GeometryService()
+##            gc = self.geometry_service.project(in_geom, in_geom.spatialReference, self.getSR())
+##            in_geom = gc
 
         # The adjust aspect ratio doesn't seem to fix the clean pixel issue
         bbox = self.adjustbbox(in_geom.envelope())
@@ -1839,13 +1806,13 @@ class ImageService(BaseService):
             matchType = NO_DATA_MATCH_ALL
 
         # set params
-        p = {F:PJSON,
+        p = {F: PJSON,
              RENDERING_RULE: rendering_rule,
              ADJUST_ASPECT_RATIO: TRUE,
              BBOX: bbox,
              FORMAT: TIFF,
              IMAGE_SR: imageSR,
-             BBOX_SR: self.spatialReference,
+             BBOX_SR: sr,
              SIZE: '{0},{1}'.format(width,height),
              PIXEL_TYPE: self.pixelType,
              NO_DATA_INTERPRETATION: '&'.join(map(str, filter(lambda x: x not in (None, ''),

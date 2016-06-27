@@ -11,6 +11,13 @@
 #-------------------------------------------------------------------------------
 import admin
 from common_types import *
+import _strings
+
+__all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', '__opensource__',
+           'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
+           'GeocodeService', 'GPService', 'GPTask', 'POST', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
+           'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name', 'exportGeometryCollection',
+           'GeometryService', 'GeometryCollection', 'getFeatureExtent'] + [d for d in dir(_strings) if not d.startswith('__')]
 
 # package info
 __author__ = 'Caleb Mackey'

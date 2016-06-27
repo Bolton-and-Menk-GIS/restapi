@@ -5,6 +5,15 @@ New Classes:
 	GeometryService
 	GeometryCollection
 	FeatureSet
+	RelatedRecords
+	Feature
+
+New Base Classes:
+
+	JsonGetter
+	RestapiEncoder
+	SpatialReferenceMixin
+	BaseGeometryCollection
 
 Deprecated Functions (many of these have been converted to class methods):
 	
@@ -25,6 +34,11 @@ Major changes:
 		at the root level.  A new property has been implemented called "service_cache", which is initially empty upon initialization
 		and gets populated whenever a call to iter_services, list_services, or walk is called.
 
-
+Misc changes:
+	FeatureLayer is now a subclass of MapServiceLayer, so now you get all the methods available in the MapServiceLayer that weren't previously 
+		available.
+	The query() method of MapServiceLayer/FeatureLayer "get_all" argument has been changed to "exceed_limit".  This parameter allows you to 
+		make repetitive calls to gather features by exceeding the maxRecordCount of the service.
+	
 
 admin sub package changes

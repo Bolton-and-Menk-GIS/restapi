@@ -70,21 +70,6 @@ class IdentityManager(object):
 # initialize Identity Manager
 ID_MANAGER = IdentityManager()
 
-def Field(f_dict={}):
-    """returns a list of safe field Munch() objects that will
-    always have the following keys:
-        ('name', 'length', 'type', 'domain')
-
-    Required:
-        f_dict -- dictionary containing Field properties
-    """
-    # make sure always has at least (name, length, type, domain)
-    for attr in (NAME, LENGTH, TYPE, DOMAIN):
-        if not attr in f_dict:
-            f_dict[attr] = None
-
-    return munch.munchify(f_dict)
-
 def namedTuple(name, pdict):
     """creates a named tuple from a dictionary
 
@@ -332,13 +317,29 @@ class RestapiEncoder(json.JSONEncoder):
     def default(self, o):
         if hasattr(o, 'json'):
             return o.json
-        elif isinstance(o, dict):
+        elif isinstance(o, (dict, list)):
             return o
         return o.__dict__
 
 class JsonGetter(object):
     """override getters to also check its json property"""
     json = {}
+
+    def get(self, name):
+        """gets an attribute from json"""
+        return self.json.get(name, None)
+
+    def dump(self, out_json_file, indent=2, **kwargs):
+        """dump as JSON file"""
+        if isinstance(out_json_file, file):
+            json.dump(self.json, out_json_file, indent=indent, **kwargs)
+        else:
+            head, tail = os.path.splitext(out_json_file)
+            if not tail == '.json':
+                out_json_file = head + '.json'
+            with open(out_json_file, 'w') as f:
+                json.dump(self.json, f, indent=indent, **kwargs)
+        return out_json_file
 
     def dumps(self):
         """dump as string"""
@@ -568,7 +569,7 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
         for group in self.json[RELATED_RECORD_GROUPS]:
             yield group
 
-class FeatureSet(SpatialReferenceMixin):
+class FeatureSet(JsonGetter, SpatialReferenceMixin):
 
     def __init__(self, in_json):
         """class to handle feature set
@@ -582,7 +583,7 @@ class FeatureSet(SpatialReferenceMixin):
             self.json = in_json.json
         else:
             self.json = munch.munchify(in_json)
-        if not all([self.json.get(k) for k in (FIELDS, FEATURES, GEOMETRY_TYPE)]):
+        if not all([self.json.get(k) for k in (FIELDS, FEATURES)]):
             raise ValueError('Not a valid Feature Set!')
 
     @property
