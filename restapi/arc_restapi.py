@@ -9,12 +9,16 @@ from rest_utils import *
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
-def exportFeatureSet(feature_set, out_fc):
+def exportFeatureSet(feature_set, out_fc, include_domains=False):
     """export FeatureSet (JSON result)  to shapefile or feature class
 
     Required:
         feature_set -- JSON response obtained from a query or FeatureSet() object
         out_fc -- output feature class or shapefile
+
+    Optional:
+        include_domains -- if True, will manually create the feature class and add domains to GDB
+            if output is in a geodatabase.
 
     at minimum, feature set must contain these keys:
         [u'features', u'fields', u'spatialReference', u'geometryType']
@@ -55,26 +59,21 @@ def exportFeatureSet(feature_set, out_fc):
     else:
         isShp = False
 
-    # make new feature class
-    date_fields = [f.name for f in feature_set.fields if f.type == DATE_FIELD]
-    long_fields = [f.name for f in feature_set.fields if f.type == LONG_FIELD]
+    # do proper export routine
+    tmp = feature_set.dump(tmp_json_file())
+    arcpy.conversion.JSONToFeatures(tmp, out_fc)
+    try:
+        os.remove(tmp)
+    except:
+        pass
 
-    sr_dict = feature_set.spatialReference
-    outSR = feature_set.getSR()
-
-    g_type = G_DICT[feature_set.geometryType]
-    path, fc_name = os.path.split(out_fc)
-    arcpy.CreateFeatureclass_management(path, fc_name, g_type,
-                                        spatial_reference=outSR)
-
-    # add all fields
-    cur_fields, fMap = [], []
-    if not isShp:
+    if not isShp and include_domains in (True, 1, 'true'):
         gdb_domains = arcpy.Describe(ws).domains
-    for field in feature_set.fields:
-        if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
-            field_name = field.name.split('.')[-1]
-            if field.get(DOMAIN) and not isShp:
+        dom_map = {}
+        for field in feature_set.fields:
+            if field.get(DOMAIN):
+                field_name = field.name.split('.')[-1]
+                dom_map[field_name] = field.domain[NAME]
                 if field.domain[NAME] not in gdb_domains:
                     if CODED_VALUES in field.domain:
                         dType = CODED
@@ -88,47 +87,22 @@ def exportFeatureSet(feature_set, out_fc):
                     if dType == CODED:
                         for cv in field.domain[CODED_VALUES]:
                             arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
-                    else:
+                    elif dType == RANGE_UPPER:
                         _min, _max = field.domain[RANGE]
                         arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
 
                     gdb_domains.append(field.domain[NAME])
-                    print('added domain "{}" to geodatabase: "{}"'.format(field.domain[NAME], ws))
+                    print('Added domain "{}" to database: "{}"'.format(field.domain[NAME], ws))
 
-                field_domain = field.domain[NAME]
-            else:
-                field_domain = ''
-
-            # need to filter even more as SDE sometimes yields weird field names...sigh
-            if not any(['shape_' in field.name.lower() and out_fc.endswith('.shp'),
-                        'shape.' in field.name.lower(),
-                        '(shape)' in field.name.lower(),
-                        'objectid' in field.name.lower(),
-                        field.name.lower() == 'fid']):
-
-                arcpy.management.AddField(out_fc, field_name, FTYPES[field.type],
-                                            field_length=field.get('length'),
-                                            field_alias=field.alias,
-                                            field_domain=field_domain)
-                cur_fields.append(field_name)
-                fMap.append(field.name)
-
-    # insert cursor to write rows (using arcpy.FeatureSet() is too buggy)
-    with arcpy.da.InsertCursor(out_fc, cur_fields + [SHAPE_TOKEN]) as irows:
-        for feat in feature_set:
-            vals = []
-            for f in fMap:
-                if f in date_fields:
-                    vals.append(mil_to_date(feat.attributes.get(f)))
-                elif f in long_fields:
-                    vals.append(feat.attributes.get(f))
-                else:
-                    vals.append(feat.attributes.get(f))
-            irows.insertRow(vals + [arcpy.AsShape(feat.geometry, True)])
-
-    # if output is a shapefile
-    if isShp:
-        out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
+        # if output is a shapefile
+        if isShp:
+            out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
+        else:
+            field_list = [f.name.split('.')[-1] for f in arcpy.ListFields(out_fc)]
+            for fld, dom_name in dom_map.iteritems():
+                if fld in field_list:
+                    arcpy.management.AssignDomainToField(out_fc, fld, dom_name)
+                    print('Assigned domain "{}" to field "{}"'.format(dom_name, fld))
 
     print('Created: "{0}"'.format(out_fc))
     return out_fc

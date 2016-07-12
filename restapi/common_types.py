@@ -418,7 +418,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         return [f.name for f in self.fields]
 
     def fix_fields(self, fields):
-        """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@")
+        """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
+        method used for cursors.
 
         Required:
             fields -- list or comma delimited field list
@@ -463,7 +464,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             add_params[RETURN_IDS_ONLY] = TRUE
 
         # get oids
-        oids = sorted(self.query(where=where, add_params=add_params)[OBJECT_IDS])[:max_recs]
+        resp = self.query(where=where, add_params=add_params)
+        oids = sorted(resp.get(OBJECT_IDS, []))[:max_recs]
+        oid_name = resp.get(OID_FIELD_NAME, OBJECTID)
         print('total records: {0}'.format(len(oids)))
 
         # set returnIdsOnly to False
@@ -474,10 +477,10 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
         for each in izip_longest(*(iter(oids),) * max_recs):
             theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
-            _min, _max = min(theRange), max(theRange)
-            del each
-
-            yield '{0} >= {1} and {0} <= {2}'.format(self.OID.name, _min, _max)
+            if theRange:
+                _min, _max = min(theRange), max(theRange)
+                del each
+                yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
 
     def query(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, f=JSON, kmz='', **kwargs):
         """query layer and get response as JSON
@@ -689,9 +692,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             if ATTACHMENT_INFOS in r:
                 for attInfo in r[ATTACHMENT_INFOS]:
                     attInfo[URL] = '{}/{}'.format(query_url, attInfo[ID])
-                    attInfo[URL_WITH_TOKEN] = '{}/{}{}'.format(query_url, attInfo[ID], add_tok)
 
-                class Attachment(namedtuple('Attachment', 'id name size contentType url urlWithToken')):
+                class Attachment(namedtuple('Attachment', 'id name size contentType url')):
                     """class to handle Attachment object"""
                     __slots__ = ()
                     def __new__(cls,  **kwargs):
@@ -739,7 +741,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         fs = self.query(cur_fields, where, add_params, records, exceed_limit)
         return Cursor(fs, fields)
 
-    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None):
+    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None, include_domains=False):
         """Method to export a feature class from a service layer
 
         Required:
@@ -754,43 +756,51 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             exceed_limit -- option to get all records.  If true, will recursively query REST endpoint
                 until all records have been gathered. Default is False.
             sr -- output spatial refrence (WKID)
+            include_domains -- if True, will manually create the feature class and add domains to GDB
+                if output is in a geodatabase.
         """
         if self.type == 'Feature Layer':
-            if not fields:
-                fields = '*'
-            if fields == '*':
-                _fields = self.fields
+            if not include_domains or include_domains == 'false':
+                # do query to get feature set
+                fs = self.query(fields, where, params, records, exceed_limit)
+                exportFeatureSet(fs, out_fc, include_domains=False)
+
             else:
-                if isinstance(fields, basestring):
-                    fields = fields.split(',')
-                _fields = [f for f in self.fields if f.name in fields]
+                if not fields:
+                    fields = '*'
+                if fields == '*':
+                    _fields = self.fields
+                else:
+                    if isinstance(fields, basestring):
+                        fields = fields.split(',')
+                    _fields = [f for f in self.fields if f.name in fields]
 
-            # filter fields for cusor object
-            cur_fields = []
-            for fld in _fields:
-                if fld.type not in [OID] + SKIP_FIELDS.keys():
-                    if not any(['shape_' in fld.name.lower(),
-                                'shape.' in fld.name.lower(),
-                                '(shape)' in fld.name.lower(),
-                                'objectid' in fld.name.lower(),
-                                fld.name.lower() == 'fid']):
-                        cur_fields.append(fld.name)
+                # filter fields for cusor object
+                cur_fields = []
+                for fld in _fields:
+                    if fld.type not in [OID] + SKIP_FIELDS.keys():
+                        if not any(['shape_' in fld.name.lower(),
+                                    'shape.' in fld.name.lower(),
+                                    '(shape)' in fld.name.lower(),
+                                    'objectid' in fld.name.lower(),
+                                    fld.name.lower() == 'fid']):
+                            cur_fields.append(fld.name)
 
-            # make new feature class
-            if not sr:
-                sr = self.getSR()
-            else:
-                params[OUT_SR] = sr
+                # make new feature class
+                if not sr:
+                    sr = self.getSR()
+                else:
+                    params[OUT_SR] = sr
 
-            # do query to get feature set
-            fs = self.query(cur_fields, where, params, records, exceed_limit)
+                # do query to get feature set
+                fs = self.query(cur_fields, where, params, records, exceed_limit)
 
-            # get any domain info
-            f_dict = {f.name: f for f in self.fields}
-            for field in fs.fields:
-                field.domain = f_dict[field.name].get(DOMAIN)
+                # get any domain info
+                f_dict = {f.name: f for f in self.fields}
+                for field in fs.fields:
+                    field.domain = f_dict[field.name].get(DOMAIN)
 
-            return exportFeatureSet(fs, out_fc)
+                return exportFeatureSet(fs, out_fc, include_domains)
 
         else:
             print('Layer: "{}" is not a Feature Layer!'.format(self.name))

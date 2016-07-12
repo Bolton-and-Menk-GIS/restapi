@@ -7,6 +7,7 @@ import datetime
 import collections
 import mimetypes
 import urllib
+import tempfile
 import time
 import codecs
 import json
@@ -70,6 +71,11 @@ class IdentityManager(object):
 # initialize Identity Manager
 ID_MANAGER = IdentityManager()
 
+# temp dir for json outputs
+TEMP_DIR = os.environ['TEMP']
+if not os.access(TEMP_DIR, os.W_OK| os.X_OK):
+    TEMP_DIR = None
+
 def namedTuple(name, pdict):
     """creates a named tuple from a dictionary
 
@@ -94,6 +100,12 @@ def namedTuple(name, pdict):
 def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
+
+def tmp_json_file():
+    """returns a valid path for a temporary json file"""
+    if TEMP_DIR is None:
+        setattr(sys.modules[__name__], 'TEMP_DIR', tempfile.mkdtemp())
+    return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
 def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None):
     """Post Request to REST Endpoint through query string, to post
@@ -331,9 +343,9 @@ class JsonGetter(object):
 
     def dump(self, out_json_file, indent=2, **kwargs):
         """dump as JSON file"""
-        if isinstance(out_json_file, file):
+        if hasattr(out_json_file, 'read'):
             json.dump(self.json, out_json_file, indent=indent, **kwargs)
-        else:
+        elif isinstance(out_json_file, basestring):
             head, tail = os.path.splitext(out_json_file)
             if not tail == '.json':
                 out_json_file = head + '.json'
@@ -585,6 +597,30 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
             self.json = munch.munchify(in_json)
         if not all([self.json.get(k) for k in (FIELDS, FEATURES)]):
             raise ValueError('Not a valid Feature Set!')
+
+    @property
+    def OID(self):
+        """OID field object"""
+        try:
+            return [f for f in self.fields if f.type == OID][0]
+        except:
+            return None
+
+    @property
+    def SHAPE(self):
+        """SHAPE field object"""
+        try:
+            return [f for f in self.fields if f.type == SHAPE][0]
+        except:
+            return None
+
+    @property
+    def hasGeometry(self):
+        """boolean for if it has geometry"""
+        if self.count:
+            if self.features[0].get(GEOMETRY):
+                return True
+        return False
 
     @property
     def count(self):

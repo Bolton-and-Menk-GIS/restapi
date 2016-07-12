@@ -1,8 +1,13 @@
 import restapi
 print restapi.__file__
 import json
-
+import tempfile
+import arcpy
 import _ags
+import time
+import os
+from datetime import datetime
+import shutil
 null = None
 true = True
 false = False
@@ -17,29 +22,29 @@ gp_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/ChickenPermits/GP
 ms_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/Permits/MapServer'
 fs_url = 'http://gis.bolton-menk.com/bmigis/rest/services/MPWD/Permits/FeatureServer'
 im_url = 'http://gis.bolton-menk.com/bmigis/rest/services/SSTP/dem_1m_ft/ImageServer'
-ms = restapi.MapService(ms_url)
 ##ms = restapi.MapService(ms_url)
-lyr = restapi.MapServiceLayer(ms_url + '/1')
-fts = restapi.FeatureService(fs_url)
-
-fields=['Num_Chickens',  'OBJECTID', 'Primary_Address']
-fs = lyr.query(fields=fields)
-cursor = restapi.Cursor(fs.json, fields + ['shape@'])
-rows = cursor.get_rows()
-row = rows.next()
-
-gp = restapi.GPService(gp_url)
-
-lcur = lyr.cursor(['Owner_Name', 'SHAPE@'])
-cur = cur = restapi.Cursor(fs)
-
+##ms = restapi.MapService(ms_url)
+##lyr = restapi.MapServiceLayer(ms_url + '/1')
+##fts = restapi.FeatureService(fs_url)
+##
+##fields=['Num_Chickens',  'OBJECTID', 'Primary_Address']
+##fs = lyr.query(fields=fields)
+##cursor = restapi.Cursor(fs.json, fields + ['shape@'])
+##rows = cursor.get_rows()
+##row = rows.next()
+##
+##gp = restapi.GPService(gp_url)
+##
+##lcur = lyr.cursor(['Owner_Name', 'SHAPE@'])
+##cur = cur = restapi.Cursor(fs)
+##
 ##out = r'C:\TEMP\water_resources.gdb\fs_test3'
-flyr = fts.layer(1)
+##flyr = fts.layer(1)
 ##flyr.layer_to_fc(out)
-gc = restapi.GeometryCollection(fs)
+##gc = restapi.GeometryCollection(fs)
 ##im = restapi.ImageService(im_url)
 ##print ms.compatible_with_version(10.3)
-
+##
 ##gs = restapi.GeometryService()
 ##g = gc[0]
 ##g2 = gs.project(g, g.spatialReference, outSR=4326)
@@ -204,15 +209,15 @@ pts_json = {
     }]
 }
 
-gc2 = restapi.GeometryCollection(geometries)
+##gc2 = restapi.GeometryCollection(geometries)
 ##e = im.pointIdentify(pt_fs)
 ##im.clip(gd, r'C:\TEMP\new_rst_dem.tif')
-fs3 = restapi.FeatureSet(pts_json)
-
-gs = restapi.GeometryService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/Geometry/GeometryServer')
-buffers = gs.buffer(fs3, 3857, 100)
-pros = gs.project(fs3, 3857, 26915)
-gc3 = restapi.GeometryCollection(geometries)
+##fs3 = restapi.FeatureSet(pts_json)
+##
+##gs = restapi.GeometryService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/Geometry/GeometryServer')
+##buffers = gs.buffer(fs3, 3857, 100)
+##pros = gs.project(fs3, 3857, 26915)
+##gc3 = restapi.GeometryCollection(geometries)
 ##test = r'C:\TEMP\testing.gdb\rest_buffers3'
 ##restapi.exportGeometryCollection(buffers, test)
 ##@restapi.common_types.geometry_passthrough
@@ -221,27 +226,62 @@ gc3 = restapi.GeometryCollection(geometries)
 ##    return geom
 ##
 ##gc_dec = test(geometries)
-
+##
 # feature editing tests
-
-    
+##
+##    
 ##can_url = 'http://gis.bolton-menk.com/arcgis/rest/services/CANB/Canb_Editor_REST/FeatureServer/0'
 ##relatedID = 1277
 ##can = restapi.FeatureLayer(can_url, usr, pw)
 ##rr = can.query_related_records(1277, 0)
 ##ft =  rr.get_related_records(1277)[0]
-
-
+##
+##
 ##print_gp = restapi.GPService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/PrintingTools/GPServer/Export%20Web%20Map%20Task')
 ##with open(r'\\ArcServer1\GIS\MPWD\_Basemap\ESRI\Scripts\Toolbox\mpwd_lib\bin\maplewood_webmap.json', 'r') as f:
 ##    webmap = json.load(f)
 ##
 ##print_gp.run(Web_Map_as_JSON=webmap, Format='PNG32', Layout_Template=r'\\ArcServer1\GIS\MPWD\_Basemap\ESRI\Scripts\Toolbox\mpwd_lib\bin\template2.mxd', r'C:\Users\calebma\Desktop\map_from_rest.png')
+##
+##ext = restapi.getFeatureExtent(buffers)
+##ext2 = restapi.getFeatureExtent(geometries)
+##
+##ags = restapi.admin.ArcServerAdmin(ags_url, usr, pw)
+##
+##print ext
+##env = restapi.Geometry(ext)
+url = 'https://maps.co.ramsey.mn.us/arcgis/rest/services/MapRamsey/MapRamseyOperationalLayersAll/MapServer/33'
+url = 'http://gis.bolton-menk.com/bmigis/rest/services/METC/METC_Intersection_Study_Webmap/MapServer/20'
+url = 'http://gis.bolton-menk.com/bmigis/rest/services/BMI/BMI_Photo_Logger/FeatureServer/0'
+lyr = restapi.MapServiceLayer(url, usr, pw)
+oids = lyr.getOIDs()
+att = lyr.attachments(oids[0])[0]
+print att.url
+import urllib
+with open(r'C:\Users\calebma\Desktop\test.jgp', 'wb') as f:
+    f.write(urllib.urlopen(att.url).read())
+print 'done'
+##ms_lyr = restapi.MapServiceLayer(url)
+pars = r'C:\TEMP\testing.gdb\photos2'
+##pars = r'C:\TEMP\test.gdb\ram_pars'
+##lyr.layer_to_fc(pars, records=3000, exceed_limit=True, include_domains=True)
+##fs = ms_lyr.query(exceed_limit=True, records=15000)
+##print 'shape ', fs.SHAPE
+##restapi.exportFeatureSet(fs, pars)
+##print 'starting'
+##st = datetime.now()
+##lyr.layer_to_fc(pars, exceed_limit=True, records=20000)
+##print 'done, elapsed: {}'.format(datetime.now() - st)
 
-ext = restapi.getFeatureExtent(buffers)
-ext2 = restapi.getFeatureExtent(geometries)
 
-ags = restapi.admin.ArcServerAdmin(ags_url, usr, pw)
-
-print ext
-env = restapi.Geometry(ext)
+##tmpd = tempfile.mkdtemp()
+##
+##tmp = os.path.join(tmpd, 'tmp_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
+##tmp = tempfile.NamedTemporaryFile(suffix='.json', prefix='restapi_')
+##print tmp.name
+####fs.dump(tmp)
+####print tmp
+##st = datetime.now()
+##arcpy.conversion.JSONToFeatures(tmp, pars)
+##print 'done: {}'.format(datetime.now() - st)
+##shutil.rmtree(tmpd)
