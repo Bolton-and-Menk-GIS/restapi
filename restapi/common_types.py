@@ -11,6 +11,8 @@ except ImportError:
     from open_restapi import *
     __opensource__ = True
 
+import sqlite3
+import contextlib
 from rest_utils import *
 from . import _strings
 from  .decorator import decorator
@@ -68,6 +70,117 @@ def exportGeometryCollection(gc, output):
 
     fs = FeatureSet(fs_dict)
     return exportFeatureSet(fs, output)
+
+class JsonReplica(JsonGetter):
+    def __init__(self, in_json):
+        super(JsonReplica, self).__init__()
+        self.json = munch.munchify(in_json)
+
+class SQLiteReplica(sqlite3.Connection):
+    """represents a replica stored as a SQLite database"""
+    def __init__(self, path):
+        """represents a replica stored as a SQLite database, this should ALWAYS
+        be used with a context manager.  For example:
+
+            with SQLiteReplica(r'C:\TEMP\replica.geodatabase') as con:
+                print con.list_tables()
+                # do other stuff
+
+        Required:
+            path -- full path to .geodatabase file (SQLite database)
+        """
+        self.db = path
+        super(SQLiteReplica, self).__init__(self.db)
+        self.isClosed = False
+
+    @contextlib.contextmanager
+    def execute(self, sql):
+        """Executes an SQL query.  This method must be used via a "with" statement
+        to ensure the cursor connection is closed.
+
+        Required:
+            sql -- sql statement to use
+
+        >>> with restapi.SQLiteReplica(r'C:\Temp\test.geodatabase') as db:
+        >>>     # now do a cursor using with statement
+        >>>     with db.execute('SELECT * FROM Some_Table') as cur:
+        >>>         for row in cur.fetchall():
+        >>>             print(row)
+        """
+        cursor = self.cursor()
+        try:
+            yield cursor.execute(sql)
+        finally:
+            cursor.close()
+
+    def list_tables(self, filter_esri=True):
+        """returns a list of tables found within sqlite table
+
+        Optional:
+            filter_esri -- filters out all the esri specific tables (GDB_*, ST_*), default is True.  If
+                False, all tables will be listed.
+        """
+        with self.execute("select name from sqlite_master where type = 'table'") as cursor:
+            tables = cursor.fetchall()
+        if filter_esri:
+            return [t[0] for t in tables if not any([t[0].startswith('st_'),
+                                                     t[0].startswith('GDB_'),
+                                                     t[0].startswith('sqlite_')])]
+        else:
+            return [t[0] for t in tables]
+
+    def list_fields(self, table_name):
+        """lists fields within a table, returns a list of tuples with the following attributes:
+
+        cid         name        type        notnull     dflt_value  pk
+        ----------  ----------  ----------  ----------  ----------  ----------
+        0           id          integer     99                      1
+        1           name                    0                       0
+
+        Required:
+            table_name -- name of table to get field list from
+        """
+        with self.execute('PRAGMA table_info({})'.format(table_name)) as cur:
+            return cur.fetchall()
+
+    def exportToGDB(self, out_gdb_path):
+        """exports the sqlite database (.geodatabase file) to a File Geodatabase, requires access to arcpy.
+        Warning:  All cursor connections must be closed before running this operation!  If there are open
+        cursors, this can lock down the database.
+
+        Required:
+            out_gdb_path -- full path to new file geodatabase (ex: r"C:\Temp\replica.gdb")
+        """
+        if __opensource__:
+            raise NotImplementedError('no access to arcpy!')
+        if not hasattr(arcpy.conversion, 'CopyRuntimeGdbToFileGdb'):
+            raise NotImplementedError('arcpy.conversion.CopyRuntimeGdbToFileGdb tool not available!')
+        self.cur.close()
+        if os.path.isdir(out_gdb_path):
+            out_gdb_path = os.path.join(out_gdb_path, self._fileName)
+        if not out_gdb_path.endswith('.gdb'):
+            out_gdb_path = os.path.splitext(out_gdb_path)[0] + '.gdb'
+        return arcpy.conversion.CopyRuntimeGdbToFileGdb(self.db, out_gdb_path).getOutput(0)
+
+    def __safe_cleanup(self):
+        try:
+            self.close()
+            self.isClosed = True
+            if TEMP_DIR in self.db:
+                os.remove(self.db)
+                self.db = None
+                print('Cleaned up temporary sqlite database')
+        except:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.__safe_cleanup()
+
+    def __del__(self):
+        self.__safe_cleanup()
 
 class Cursor(FeatureSet):
     """Class to handle Cursor object"""
@@ -547,7 +660,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             else:
                 server_response = POST(query_url, params, cookies=self._cookie)
 
-            if all([server_response.get(k) for k in (FIELDS, FEATURES, FIELD_ALIASES)]):
+            if all([server_response.get(k) for k in (FIELDS, FEATURES)]):
                 if records:
                     server_response[FEATURES] = server_response[FEATURES][:records]
                 return FeatureSet(server_response)
@@ -1119,7 +1232,7 @@ class FeatureService(MapService):
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
-    def createReplica(self, layers, replicaName, geometry='', geometryType='', inSR='', replicaSR='', **kwargs):
+    def createReplica(self, layers, replicaName, geometry='', geometryType='', inSR='', replicaSR='', dataFormat='json', returnReplicaObject=False, **kwargs):
         """query attachments, returns a JSON object
 
         Required:
@@ -1127,11 +1240,22 @@ class FeatureService(MapService):
             replicaName -- name of replica
 
         Optional:
-            geometry -- optional geometry to query features
+            geometry -- optional geometry to query features, if none supplied, will grab all features
             geometryType -- type of geometry
             inSR -- input spatial reference for geometry
             replicaSR -- output spatial reference for replica data
+            dataFormat -- output format for replica (sqlite|json)
             **kwargs -- optional keyword arguments for createReplica request
+
+        Special Optional Args:
+            returnReplicaObject -- option to return replica as an object (restapi.SQLiteReplica|restapi.JsonReplica)
+                based on the dataFormat of the replica.  If the data format is sqlite and this parameter
+                is False, the data will need to be fetched quickly because the server will automatically clean
+                out the directory. The default cleanup for a sqlite file is 10 minutes. This option is set to False
+                by default.  It is recommended to set this option to True if the output dataFormat is "sqlite".
+
+        Documentation on Server Directory Cleaning:
+            http://server.arcgis.com/en/server/latest/administer/linux/about-server-directories.htm
         """
         if hasattr(self, SYNC_ENABLED) and not self.syncEnabled:
             raise NotImplementedError('FeatureService "{}" does not support Sync!'.format(self.url))
@@ -1160,8 +1284,9 @@ class FeatureService(MapService):
             useGeometry = False
         else:
             useGeometry = True
-            if isinstance(geometry, dict) and SPATIAL_REFERENCE in geometry and not inSR:
-                inSR = geometry[SPATIAL_REFERENCE]
+            geometry = Geometry(geometry)
+            inSR = geometry.getSR()
+            geometryType = geometry.geometryType
 
 
         if not replicaSR:
@@ -1180,19 +1305,21 @@ class FeatureService(MapService):
                    RETURN_ATTACHMENTS_DATA_BY_URL: TRUE,
                    ASYNC:	FALSE,
                    F: PJSON,
-                   DATA_FORMAT: JSON,
+                   DATA_FORMAT: dataFormat,
                    REPLICA_OPTIONS: '',
                    }
 
         for k,v in kwargs.iteritems():
-            options[k] = v
-            if k == LAYER_QUERIES:
-                if options[k]:
-                    if isinstance(options[k], basestring):
-                        options[k] = json.loads(options[k])
-                    for key in options[k].keys():
-                        options[k][key][USE_GEOMETRY] = useGeometry
-                        options[k] = json.dumps(options[k])
+            if k != SYNC_MODEL:
+                if k == LAYER_QUERIES:
+                    if options[k]:
+                        if isinstance(options[k], basestring):
+                            options[k] = json.loads(options[k])
+                        for key in options[k].keys():
+                            options[k][key][USE_GEOMETRY] = useGeometry
+                            options[k] = json.dumps(options[k])
+                else:
+                    options[k] = v
 
         if self.syncCapabilities.supportsPerReplicaSync:
             options[SYNC_MODEL] = PER_REPLICA
@@ -1207,28 +1334,53 @@ class FeatureService(MapService):
             options[ASYNC] = 'false'
             st = POST(self.url + '/createReplica', options, cookies=self._cookie)
 
-        RequestError(st)
-        js = POST(st['URL'] if 'URL' in st else st[STATUS_URL], cookies=self._cookie)
-        RequestError(js)
+        if returnReplicaObject:
+            return self.fetchReplica(st)
+        else:
+            return st
 
-        if not replicaSR:
-            replicaSR = self.spatialReference
+    @staticmethod
+    def fetchReplica(rep_url):
+        """fetches a replica from a server resource.  This can be a url or a
+        dictionary/JSON object with a "URL" key.  Based on the file name of the
+        replica, this will return either a restapi.SQLiteReplica() or
+        restapi.JsonReplica() object.  The two valid file name extensions are ".json"
+        (restapi.JsonReplica) or ".geodatabase" (restapi.SQLiteReplica).
 
-        repLayers = []
-        for i,l in enumerate(js[LAYERS]):
-            l[LAYER_URL] = '/'.join([self.url, validated[i]])
-            layer_ob = FeatureLayer(l[LAYER_URL], token=self.token)
-            l[FIELDS] = layer_ob.fields
-            l[NAME] = layer_ob.name
-            l[GEOMETRY_TYPE] = layer_ob.geometryType
-            l[SPATIAL_REFERENCE] = replicaSR
-            if not ATTACHMENTS in l:
-                l[ATTACHMENTS] = []
-            repLayers.append(namedTuple('ReplicaLayer', l))
+        Required:
+            rep_url -- url or JSON object that contains url to replica file on server
 
-        rep_dict = js
-        rep_dict[LAYERS] = repLayers
-        return namedTuple('Replica', rep_dict)
+        If the file is sqlite, it is highly recommended to use a with statement to
+        work with the restapi.SQLiteReplica object so the connection is automatically
+        closed and the file is cleaned from disk.  Example:
+
+            >>> url = 'http://someserver.com/arcgis/rest/directories/TEST/SomeService_MapServer/_ags_data{B7893BA273C164D96B7BEE588627B3EBC}.geodatabase'
+            >>> with FeatureService.fetchReplica(url) as replica:
+            >>>     # this is a restapi.SQLiteReplica() object
+            >>>     # list tables in database
+            >>>     print(replica.list_tables())
+            >>>     # export to file geodatabase <- requires arcpy access
+            >>>     replica.exportToGDB(r'C\Temp\replica.gdb')
+        """
+        if isinstance(rep_url, dict):
+            rep_url = st.get('URL')
+
+        if dataFormat == SQLITE:
+            resp = requests.get(rep_url, stream=True, verify=False)
+            fileName = rep_url.split('/')[-1]
+            db = os.path.join(TEMP_DIR, fileName)
+            with open(db, 'wb') as f:
+                for chunk in resp.iter_content(1024 * 16):
+                    if chunk:
+                        f.write(chunk)
+            return SQLiteReplica(db)
+
+        elif dataFormat == JSON:
+            resp = requests.get(self.url, verify=False).json()
+            return JsonReplica(resp)
+
+        return None
+
 
     def replicaInfo(self, replicaID):
         """get replica information
@@ -1525,7 +1677,7 @@ class GeometryService(RESTEndpoint):
             use_envelopes -- option to use envelopes of all the input geometires
         """
         gc = GeometryCollection(geometries, use_envelopes)
-        return gc.json
+        return gc
 
     @geometry_passthrough
     def buffer(self, geometries, inSR, distances, unit='', outSR='', use_envelopes=False, **kwargs):
@@ -1548,7 +1700,6 @@ class GeometryService(RESTEndpoint):
                 otherwise this parameter is ignored.
         """
         buff_url = self.url + '/buffer'
-
         params = {F: PJSON,
                   GEOMETRIES: self.validateGeometries(geometries),
                   IN_SR: inSR,
@@ -1567,9 +1718,8 @@ class GeometryService(RESTEndpoint):
                 params[k] = v
 
         # perform operation
-        gc = GeometryCollection(POST(buff_url, params, cookies=self._cookie),
-                                spatialReference=outSR if outSR else inSR)
-        return gc
+        return GeometryCollection(POST(buff_url, params, cookies=self._cookie),
+                                  spatialReference=outSR if outSR else inSR)
 
     @geometry_passthrough
     def intersect(self, geometries, geometry, sr):
@@ -1586,8 +1736,7 @@ class GeometryService(RESTEndpoint):
                   GEOMETRIES: geometries,
                   SR: sr
         }
-        gc = GeometryCollection(POST(query_url, params, cookies=self._cookie), spatialReference=sr)
-        return gc
+        return GeometryCollection(POST(query_url, params, cookies=self._cookie), spatialReference=sr)
 
     def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
         """finds the most applicable transformation based on inSR and outSR
@@ -1669,9 +1818,8 @@ class GeometryService(RESTEndpoint):
                   TRANSFORM_FORWARD: transformForward
                 }
 
-        gc = GeometryCollection(POST(self.url + '/project', params, token=self.token),
+        return GeometryCollection(POST(self.url + '/project', params, token=self.token),
                                 spatialReference=outSR if outSR else inSR)
-        return gc
 
     def __repr__(self):
         try:

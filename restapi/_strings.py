@@ -177,6 +177,7 @@ ID = 'id'
 F = 'f' # format
 
 # misc
+SQLITE = 'sqlite'
 RECORDS = 'records'
 RESPONSE = 'response'
 PROXY = 'proxy'

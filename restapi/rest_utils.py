@@ -135,7 +135,7 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
             cookies = {AGS_TOKEN: str(token)}
 
     for pName, p in params.iteritems():
-        if isinstance(p, dict):
+        if isinstance(p, dict) or hasattr(p, 'json'):
             params[pName] = json.dumps(p, cls=RestapiEncoder)
 
     if not F in params:
@@ -155,8 +155,9 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
     else:
         if ret_json is True:
-            RequestError(r.json())
-            return munch.munchify(r.json())
+            _json = r.json()
+            RequestError(_json)
+            return munch.munchify(_json)
         else:
             return r
 
@@ -589,6 +590,7 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
         Required:
             in_json -- input json response from request
         """
+        super(FeatureSet, self).__init__()
         if isinstance(in_json, basestring):
             in_json = json.loads(in_json)
         elif isinstance(in_json, self.__class__):
@@ -702,7 +704,7 @@ class RequestError(object):
     """class to handle restapi request errors"""
     def __init__(self, err):
         if 'error' in err:
-            raise RuntimeError('\n' + '\n'.join('{} : {}'.format(k,v) for k,v in err['error'].items()))
+            raise RuntimeError(json.dumps(err, indent=2))
 
 class Folder(RESTEndpoint):
     """class to handle ArcGIS REST Folder"""
@@ -930,6 +932,13 @@ class EditResult(object):
         """return count of affected OIDs"""
         return len(self.affectedOIDs)
 
+class BaseGeometry(SpatialReferenceMixin):
+    """base geometry obect"""
+
+    def dumps(self):
+        """retuns JSON as a string"""
+        return json.dumps(self.json)
+
 class BaseGeometryCollection(object):
     """Base Geometry Collection"""
     geometries = []
@@ -939,6 +948,10 @@ class BaseGeometryCollection(object):
     @property
     def count(self):
         return len(self)
+
+    def dumps(self):
+        """retuns JSON as a string"""
+        return json.dumps(self.json)
 
     def __len__(self):
         return len(self.geometries)
@@ -954,8 +967,7 @@ class BaseGeometryCollection(object):
         return bool(len(self.geometries))
 
     def __repr__(self):
-        """represntation"""
-        return '<restapi.GeometryCollection [{}]>'.format(self.geometryType)
+        return '<restapi.GeometryCollection ({}): [{}]>'.format(self.count, self.geometryType)
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""

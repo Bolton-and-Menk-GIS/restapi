@@ -7,6 +7,7 @@ import _ags
 import time
 import os
 from datetime import datetime
+import requests
 import shutil
 null = None
 true = True
@@ -29,6 +30,10 @@ im_url = 'http://gis.bolton-menk.com/bmigis/rest/services/SSTP/dem_1m_ft/ImageSe
 ##
 ##fields=['Num_Chickens',  'OBJECTID', 'Primary_Address']
 ##fs = lyr.query(fields=fields)
+
+rep_url = 'https://gis.bolton-menk.com/bmigis/rest/directories/arcgisoutput/TEST/PhotAttachmentSync_MapServer/_Ags_Fs8727a336b86144379c2d56bd816e1fab.json'
+r = requests.get(rep_url, verify=False).json()
+rep = restapi.common_types.JsonReplica(r)
 ##cursor = restapi.Cursor(fs.json, fields + ['shape@'])
 ##rows = cursor.get_rows()
 ##row = rows.next()
@@ -212,10 +217,10 @@ pts_json = {
 ##gc2 = restapi.GeometryCollection(geometries)
 ##e = im.pointIdentify(pt_fs)
 ##im.clip(gd, r'C:\TEMP\new_rst_dem.tif')
-##fs3 = restapi.FeatureSet(pts_json)
-##
-##gs = restapi.GeometryService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/Geometry/GeometryServer')
-##buffers = gs.buffer(fs3, 3857, 100)
+fs3 = restapi.FeatureSet(pts_json)
+
+gs = restapi.GeometryService('http://gis.bolton-menk.com/bmigis/rest/services/Utilities/Geometry/GeometryServer')
+buffers = gs.buffer(fs3, 3857, 100)
 ##pros = gs.project(fs3, 3857, 26915)
 ##gc3 = restapi.GeometryCollection(geometries)
 ##test = r'C:\TEMP\testing.gdb\rest_buffers3'
@@ -250,19 +255,19 @@ pts_json = {
 ##
 ##print ext
 ##env = restapi.Geometry(ext)
-url = 'https://maps.co.ramsey.mn.us/arcgis/rest/services/MapRamsey/MapRamseyOperationalLayersAll/MapServer/33'
-url = 'http://gis.bolton-menk.com/bmigis/rest/services/METC/METC_Intersection_Study_Webmap/MapServer/20'
-url = 'http://gis.bolton-menk.com/bmigis/rest/services/BMI/BMI_Photo_Logger/FeatureServer/0'
-lyr = restapi.MapServiceLayer(url, usr, pw)
-oids = lyr.getOIDs()
-att = lyr.attachments(oids[0])[0]
-print att.url
-import urllib
-with open(r'C:\Users\calebma\Desktop\test.jgp', 'wb') as f:
-    f.write(urllib.urlopen(att.url).read())
-print 'done'
+##url = 'https://maps.co.ramsey.mn.us/arcgis/rest/services/MapRamsey/MapRamseyOperationalLayersAll/MapServer/33'
+##url = 'http://gis.bolton-menk.com/bmigis/rest/services/METC/METC_Intersection_Study_Webmap/MapServer/20'
+##url = 'http://gis.bolton-menk.com/bmigis/rest/services/BMI/BMI_Photo_Logger/FeatureServer/0'
+##lyr = restapi.MapServiceLayer(url, usr, pw)
+##oids = lyr.getOIDs()
+##att = lyr.attachments(oids[0])[0]
+##print att.url
+##import urllib
+##with open(r'C:\Users\calebma\Desktop\test.jgp', 'wb') as f:
+##    f.write(urllib.urlopen(att.url).read())
+##print 'done'
 ##ms_lyr = restapi.MapServiceLayer(url)
-pars = r'C:\TEMP\testing.gdb\photos2'
+##pars = r'C:\TEMP\testing.gdb\photos2'
 ##pars = r'C:\TEMP\test.gdb\ram_pars'
 ##lyr.layer_to_fc(pars, records=3000, exceed_limit=True, include_domains=True)
 ##fs = ms_lyr.query(exceed_limit=True, records=15000)

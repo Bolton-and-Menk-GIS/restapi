@@ -67,7 +67,7 @@ def exportFeatureSet(feature_set, out_fc, include_domains=False):
     except:
         pass
 
-    if not isShp and include_domains in (True, 1, 'true'):
+    if not isShp and include_domains in (True, 1, TRUE):
         gdb_domains = arcpy.Describe(ws).domains
         dom_map = {}
         for field in feature_set.fields:
@@ -321,7 +321,7 @@ def exportReplica(replica, out_folder):
 
     return out_folder
 
-class Geometry(SpatialReferenceMixin):
+class Geometry(BaseGeometry):
     """class to handle restapi.Geometry"""
 
     def __init__(self, geometry, **kwargs):
@@ -474,10 +474,6 @@ class Geometry(SpatialReferenceMixin):
         if self.json.get(SPATIAL_REFERENCE):
             d[SPATIAL_REFERENCE] = self.json[SPATIAL_REFERENCE]
         return d
-
-    def dumps(self):
-        """retuns JSON as a string"""
-        return json.dumps(self.json)
 
     def asShape(self):
         """returns JSON as arcpy.Geometry() object"""
