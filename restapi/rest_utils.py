@@ -325,6 +325,31 @@ def generate_token(url, user='', pw='', expiration=60):
     ID_MANAGER.tokens[token.domain] = token
     return token
 
+class TemporaryJsonFile(object):
+    def __init__(self):
+        global TEMP_DIR
+        if TEMP_DIR is None:
+            TEMP_DIR = tempfile.mkdtemp()
+        self.path = os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
+        self.file = open(self.path, 'w')
+
+    def _safe_cleanup(self):
+        self.file.close()
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
+
+    def __enter__(self):
+        return self.file
+
+    def __exit__(self, type, value, traceback):
+        self.__safe_cleanup()
+
+    def __del__(self):
+        self.__safe_cleanup()
+
+
 class RestapiEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
     def default(self, o):

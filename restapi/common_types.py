@@ -72,6 +72,7 @@ def exportGeometryCollection(gc, output):
     return exportFeatureSet(fs, output)
 
 class JsonReplica(JsonGetter):
+    """represents a JSON replica"""
     def __init__(self, in_json):
         super(JsonReplica, self).__init__()
         self.json = munch.munchify(in_json)
@@ -163,6 +164,7 @@ class SQLiteReplica(sqlite3.Connection):
         return arcpy.conversion.CopyRuntimeGdbToFileGdb(self.db, out_gdb_path).getOutput(0)
 
     def __safe_cleanup(self):
+        """close connection and remove temporary .geodatabase file"""
         try:
             self.close()
             self.isClosed = True
@@ -333,6 +335,7 @@ class Cursor(FeatureSet):
 
             def get(self, field):
                 """gets an attribute by field name
+
                 Required:
                     field -- name of field for which to get the value
                 """
@@ -671,9 +674,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                 return server_response
 
     def query_related_records(self, objectIds, relationshipId, outFields='*', definitionExpression=None, returnGeometry=None, outSR=None, **kwargs):
-        """
+        """Queries related records
 
         """
+        if not self.json.get(RELATIONSHIPS):
+            raise NotImplementedError('This Resource does not have any relationships!')
+
         query_url = self.url + '/queryRelatedRecords'
         params = {OBJECT_IDS: objectIds,
                   RELATIONSHIP_ID: relationshipId,
@@ -1232,7 +1238,7 @@ class FeatureService(MapService):
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
-    def createReplica(self, layers, replicaName, geometry='', geometryType='', inSR='', replicaSR='', dataFormat='json', returnReplicaObject=False, **kwargs):
+    def createReplica(self, layers, replicaName, geometry='', geometryType='', inSR='', replicaSR='', dataFormat='json', returnReplicaObject=True, **kwargs):
         """query attachments, returns a JSON object
 
         Required:
@@ -1251,7 +1257,7 @@ class FeatureService(MapService):
             returnReplicaObject -- option to return replica as an object (restapi.SQLiteReplica|restapi.JsonReplica)
                 based on the dataFormat of the replica.  If the data format is sqlite and this parameter
                 is False, the data will need to be fetched quickly because the server will automatically clean
-                out the directory. The default cleanup for a sqlite file is 10 minutes. This option is set to False
+                out the directory. The default cleanup for a sqlite file is 10 minutes. This option is set to True
                 by default.  It is recommended to set this option to True if the output dataFormat is "sqlite".
 
         Documentation on Server Directory Cleaning:
@@ -1363,9 +1369,9 @@ class FeatureService(MapService):
             >>>     replica.exportToGDB(r'C\Temp\replica.gdb')
         """
         if isinstance(rep_url, dict):
-            rep_url = st.get('URL')
+            rep_url = st.get(URL_UPPER)
 
-        if dataFormat == SQLITE:
+        if rep_url.endswith('.geodatabase'):
             resp = requests.get(rep_url, stream=True, verify=False)
             fileName = rep_url.split('/')[-1]
             db = os.path.join(TEMP_DIR, fileName)
@@ -1375,9 +1381,8 @@ class FeatureService(MapService):
                         f.write(chunk)
             return SQLiteReplica(db)
 
-        elif dataFormat == JSON:
-            resp = requests.get(self.url, verify=False).json()
-            return JsonReplica(resp)
+        elif rep_url.endswith('.json'):
+            return JsonReplica(requests.get(self.url, verify=False).json())
 
         return None
 
@@ -1644,10 +1649,9 @@ class GeometryService(RESTEndpoint):
 
     def __init__(self, url=None, usr=None, pw=None, token=None, proxy=None):
         if not url:
-            # do not require a url, use default arcgis online Geometry Service
-            super(GeometryService, self).__init__(self._default_url, usr, pw, token, proxy)
-        else:
-            super(GeometryService, self).__init__(url, usr, pw, token, proxy)
+            # use default arcgis online Geometry Service
+            url = self._default_url
+        super(GeometryService, self).__init__(url, usr, pw, token, proxy)
 
     @staticmethod
     def getLinearUnitWKID(unit_name):
