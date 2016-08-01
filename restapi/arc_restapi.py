@@ -39,25 +39,20 @@ def exportFeatureSet(feature_set, out_fc, include_domains=False):
             return path, desc.workspaceType
 
         # search until finding a valid workspace
-        SPLIT = filter(None, path.split(os.sep))
+        split = filter(None, path.split(os.sep))
         if path.startswith('\\\\'):
-            SPLIT[0] = r'\\{0}'.format(SPLIT[0])
+            split[0] = r'\\{0}'.format(split[0])
 
         # find valid workspace
-        for i in xrange(1, len(SPLIT)):
-            sub_dir = os.sep.join(SPLIT[:-i])
+        for i in xrange(1, len(split)):
+            sub_dir = os.sep.join(split[:-i])
             desc = arcpy.Describe(sub_dir)
             if hasattr(desc, 'workspaceType'):
                 return sub_dir, desc.workspaceType
 
     # find workspace type and path
     ws, wsType = find_ws_type(out_fc)
-    if wsType == 'FileSystem':
-        isShp = True
-        shp_name = out_fc
-        out_fc = r'in_memory\temp_xxx'
-    else:
-        isShp = False
+    isShp = wsType == 'FileSystem'
 
     # do proper export routine
     tmp = feature_set.dump(tmp_json_file())
@@ -94,10 +89,8 @@ def exportFeatureSet(feature_set, out_fc, include_domains=False):
                     gdb_domains.append(field.domain[NAME])
                     print('Added domain "{}" to database: "{}"'.format(field.domain[NAME], ws))
 
-        # if output is a shapefile
-        if isShp:
-            out_fc = arcpy.management.CopyFeatures(out_fc, shp_name)
-        else:
+        # add domains
+        if not isShp and include_domains:
             field_list = [f.name.split('.')[-1] for f in arcpy.ListFields(out_fc)]
             for fld, dom_name in dom_map.iteritems():
                 if fld in field_list:
@@ -292,7 +285,7 @@ class Geometry(BaseGeometry):
                 for k,v in d.iteritems():
                     self.json[k] = v
             elif GEOMETRY in geometry:
-                for k,v in geometry[GEOMETRY]:
+                for k,v in geometry[GEOMETRY].iteritems():
                     self.json[k] = v
             if not self.json:
                 if RINGS in geometry:
@@ -318,6 +311,15 @@ class Geometry(BaseGeometry):
                 self.geometryType = geometry[GEOMETRY_TYPE]
         if not SPATIAL_REFERENCE in self.json and spatialReference is not None:
             self.spatialReference = spatialReference
+        if not self.geometryType:
+            if RINGS in self.json:
+                self.geometryType = ESRI_POLYGON
+            elif PATHS in self.json:
+                self.geometryType = ESRI_POLYLINE
+            elif POINTS in self.json:
+                self.geometryType = ESRI_MULTIPOINT
+            elif X in self.json and Y in self.json:
+                self.geometryType = ESRI_POINT
         self.json = munch.munchify(self.json)
 
     @property

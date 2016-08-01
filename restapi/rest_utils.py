@@ -103,8 +103,9 @@ def Round(x, base=5):
 
 def tmp_json_file():
     """returns a valid path for a temporary json file"""
+    global TEMP_DIR
     if TEMP_DIR is None:
-        setattr(sys.modules[__name__], 'TEMP_DIR', tempfile.mkdtemp())
+        TEMP_DIR = tempfile.mkdtemp()
     return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
 def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None):
@@ -327,13 +328,10 @@ def generate_token(url, user='', pw='', expiration=60):
 
 class TemporaryJsonFile(object):
     def __init__(self):
-        global TEMP_DIR
-        if TEMP_DIR is None:
-            TEMP_DIR = tempfile.mkdtemp()
-        self.path = os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
+        self.path = tmp_json_file()
         self.file = open(self.path, 'w')
 
-    def _safe_cleanup(self):
+    def __safe_cleanup(self):
         self.file.close()
         try:
             os.remove(self.path)
@@ -348,7 +346,6 @@ class TemporaryJsonFile(object):
 
     def __del__(self):
         self.__safe_cleanup()
-
 
 class RestapiEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
@@ -996,35 +993,6 @@ class BaseGeometryCollection(object):
 
 class GeocodeService(RESTEndpoint):
     """class to handle Geocode Service"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        """Geocode Service object
-
-        Required:
-            url -- Geocode service url
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
-        """
-        super(GeocodeService, self).__init__(url, usr, pw, token, proxy)
-        self.name = self.url.split('/')[-2]
-
-        self.locators = []
-        for key, value in self.response.iteritems():
-            if key in ('addressFields',
-                       'candidateFields',
-                       'intersectionCandidateFields'):
-                setattr(self, key, [Field(v) for v in value])
-            elif key == 'singleLineAddressField':
-                setattr(self, key, Field(value))
-            elif key == LOCATORS:
-                for loc_dict in value:
-                    self.locators.append(loc_dict[NAME])
-            else:
-                setattr(self, key, value)
 
     def geocodeAddresses(self, recs, outSR=4326, address_field=''):
         """geocode a list of addresses.  If there is a singleLineAddress field present in the

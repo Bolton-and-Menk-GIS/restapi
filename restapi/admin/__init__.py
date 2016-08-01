@@ -2838,11 +2838,8 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 ]
             }
         """
-        verb = VERBOSE
-        VERBOSE = False
         self.stopServices(servicesAsJSON, folderName, serviceName, type)
         self.startServices(servicesAsJSON, folderName, serviceName, type)
-        VERBOSE = verb
         return {'status': 'success'}
 
     def report(self):
