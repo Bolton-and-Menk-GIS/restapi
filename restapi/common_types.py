@@ -427,7 +427,7 @@ class ArcServer(RESTEndpoint):
 
         for s in self.folders:
             new = '/'.join([self.url, s])
-            resp = POST(new, cookies=self._cookie)
+            resp = POST(new, token=self.token, cookies=self._cookie)
             for serv in resp[SERVICES]:
                 full_service_url =  '/'.join([self.url, serv[NAME], serv[TYPE]])
                 self.service_cache.append(full_service_url)
@@ -493,7 +493,7 @@ class ArcServer(RESTEndpoint):
 
         for f in self.folders:
             new = '/'.join([self.url, f])
-            endpt = POST(new, cookies=self._cookie)
+            endpt = POST(new, token=self.token, cookies=self._cookie)
             services = []
             for serv in endpt[SERVICES]:
                 qualified_service = '/'.join([serv[NAME], serv[TYPE]])
@@ -654,14 +654,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                 for i, where2 in enumerate(self.iter_queries(where, params, max_recs=records)):
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
                     params[WHERE] = sql
-                    resp = POST(query_url, params, cookies=self._cookie)
+                    resp = POST(query_url, params, token=self.token, cookies=self._cookie)
                     if i < 1:
                         server_response = resp
                     else:
                         server_response[FEATURES] += resp[FEATURES]
 
             else:
-                server_response = POST(query_url, params, cookies=self._cookie)
+                server_response = POST(query_url, params, token=self.token, cookies=self._cookie)
 
             if all([server_response.get(k) for k in (FIELDS, FEATURES)]):
                 if records:
@@ -691,7 +691,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
         for k,v in kwargs.iteritems():
             params[k] = v
-        return RelatedRecords(POST(query_url, params, cookies=self._cookie))
+        return RelatedRecords(POST(query_url, params, token=self.token, cookies=self._cookie))
 
     def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, add_params={}, **kwargs):
         """Selects features by location of a geometry, returns a feature set
@@ -802,7 +802,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         """
         if self.hasAttachments:
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
-            r = POST(query_url, cookies=self._cookie)
+            r = POST(query_url, token=self.token, cookies=self._cookie)
 
             add_tok = ''
             if self.token:
@@ -1201,7 +1201,7 @@ class FeatureService(MapService):
     def replicas(self):
         """returns a list of replica objects"""
         if self.syncEnabled:
-            reps = POST(self.url + '/replicas', cookies=self._cookie)
+            reps = POST(self.url + '/replicas', token=self.token, cookies=self._cookie)
             return [namedTuple('Replica', r) for r in reps]
         else:
             return []
@@ -1333,12 +1333,12 @@ class FeatureService(MapService):
             options[SYNC_MODEL] = PER_LAYER
 
         if options[ASYNC] in (TRUE, True) and self.syncCapabilities.supportsAsync:
-            st = POST(self.url + '/createReplica', options, cookies=self._cookie)
+            st = POST(self.url + '/createReplica', options, token=self.token, cookies=self._cookie)
             while STATUS_URL not in st:
                 time.sleep(1)
         else:
             options[ASYNC] = 'false'
-            st = POST(self.url + '/createReplica', options, cookies=self._cookie)
+            st = POST(self.url + '/createReplica', options, token=self.token, cookies=self._cookie)
 
         if returnReplicaObject:
             return self.fetchReplica(st)
@@ -1394,7 +1394,7 @@ class FeatureService(MapService):
             replicaID -- ID of replica
         """
         query_url = self.url + '/replicas/{}'.format(replicaID)
-        return namedTuple('ReplicaInfo', POST(query_url, cookies=self._cookie))
+        return namedTuple('ReplicaInfo', POST(query_url, token=self.token, cookies=self._cookie))
 
     def syncReplica(self, replicaID, **kwargs):
         """synchronize a replica.  Must be called to sync edits before a fresh replica
@@ -1422,7 +1422,7 @@ class FeatureService(MapService):
         for k,v in kwargs.iteritems():
             params[k] = v
 
-        return POST(query_url, params, cookies=self._cookie)
+        return POST(query_url, params, token=self.token, cookies=self._cookie)
 
 
     def unRegisterReplica(self, replicaID):
@@ -1433,7 +1433,7 @@ class FeatureService(MapService):
         """
         query_url = self.url + '/unRegisterReplica'
         params = {REPLICA_ID: replicaID}
-        return POST(query_url, params, cookies=self._cookie)
+        return POST(query_url, params, token=self.token, cookies=self._cookie)
 
 class FeatureLayer(MapServiceLayer):
     def __init__(self, url='', usr='', pw='', token='', proxy=None):
@@ -1475,7 +1475,7 @@ class FeatureLayer(MapServiceLayer):
                   F: PJSON}
 
         # add features
-        return self.__edit_handler(POST(add_url, params, cookies=self._cookie))
+        return self.__edit_handler(POST(add_url, params, token=self.token, cookies=self._cookie))
 
     def updateFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """update features in feature service layer
@@ -1503,7 +1503,7 @@ class FeatureLayer(MapServiceLayer):
                   F: JSON}
 
         # update features
-        return self.__edit_handler(POST(update_url, params, cookies=self._cookie))
+        return self.__edit_handler(POST(update_url, params, token=self.token, cookies=self._cookie))
 
     def deleteFeatures(self, oids='', where='', geometry='', geometryType='',
                        spatialRel='', inSR='', gdbVersion='', rollbackOnFailure=True):
@@ -1541,7 +1541,7 @@ class FeatureLayer(MapServiceLayer):
                   F: JSON}
 
         # delete features
-        return self.__edit_handler(POST(del_url, params, cookies=self._cookie))
+        return self.__edit_handler(POST(del_url, params, token=self.token, cookies=self._cookie))
 
     def applyEdits(self, adds=None, updates=None, deletes=None, gdbVersion=None, rollbackOnFailure=TRUE):
         """apply edits on a feature service layer
@@ -1564,7 +1564,7 @@ class FeatureLayer(MapServiceLayer):
                   GDB_VERSION: gdbVersion,
                   ROLLBACK_ON_FAILURE: rollbackOnFailure
         }
-        return self.__edit_handler(POST(edits_url, params, cookies=self._cookie))
+        return self.__edit_handler(POST(edits_url, params, token=self.token, cookies=self._cookie))
 
     def addAttachment(self, oid, attachment, content_type='', gdbVersion=''):
         """add an attachment to a feature service layer
@@ -1601,7 +1601,7 @@ class FeatureLayer(MapServiceLayer):
             params = {F: JSON}
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(requests.post(att_url, params, files=files, cookies=self._cookie, verify=False).json(), oid)
+            return self.__edit_handler(requests.post(att_url, params, files=files, token=self.token, cookies=self._cookie, verify=False).json(), oid)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
@@ -1628,7 +1628,7 @@ class FeatureLayer(MapServiceLayer):
                 CALC_EXPRESSION: json.dumps(exp),
                 SQL_FORMAT: sqlFormat}
 
-            return POST(calc_url, where=where, add_params=p, cookies=self._cookie)
+            return POST(calc_url, where=where, add_params=p, token=self.token, cookies=self._cookie)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support field calculations!'.format(self.name))
@@ -1722,7 +1722,7 @@ class GeometryService(RESTEndpoint):
                 params[k] = v
 
         # perform operation
-        return GeometryCollection(POST(buff_url, params, cookies=self._cookie),
+        return GeometryCollection(POST(buff_url, params, token=self.token, cookies=self._cookie),
                                   spatialReference=outSR if outSR else inSR)
 
     @geometry_passthrough
@@ -1740,7 +1740,7 @@ class GeometryService(RESTEndpoint):
                   GEOMETRIES: geometries,
                   SR: sr
         }
-        return GeometryCollection(POST(query_url, params, cookies=self._cookie), spatialReference=sr)
+        return GeometryCollection(POST(query_url, params, token=self.token, cookies=self._cookie), spatialReference=sr)
 
     def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
         """finds the most applicable transformation based on inSR and outSR
@@ -1900,7 +1900,7 @@ class ImageService(BaseService):
             if k not in params:
                 params[k] = v
 
-        j = POST(IDurl, params, cookies=self._cookie)
+        j = POST(IDurl, params, token=self.token, cookies=self._cookie)
         return j.get(VALUE)
 
     def exportImage(self, poly, out_raster, envelope=False, rendering_rule=None, interp=BILINEAR_INTERPOLATION, nodata=None, **kwargs):
@@ -1988,7 +1988,7 @@ class ImageService(BaseService):
                 p[k] = v
 
         # post request
-        r = POST(query_url, p, cookies=self._cookie)
+        r = POST(query_url, p, token=self.token, cookies=self._cookie)
 
         if r.get('href', None) is not None:
             tiff = POST(r.get('href').strip(), ret_json=False).content
@@ -2135,7 +2135,7 @@ class GPTask(BaseService):
         params_json[RETURN_Z] = returnZ
         params_json[RETURN_M] = returnZ
         params_json[F] = JSON
-        r = POST(gp_exe_url, params_json, ret_json=False, cookies=self._cookie)
+        r = POST(gp_exe_url, params_json, ret_json=False, token=self.token, cookies=self._cookie)
         gp_elapsed = r.elapsed
 
         # get result object as JSON

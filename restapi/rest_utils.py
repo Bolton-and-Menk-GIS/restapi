@@ -131,9 +131,11 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
         if token and isinstance(token, Token) and token.domain.lower() in service.lower():
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-            cookies = {AGS_TOKEN: str(token)}
+            if not token.isAGOL:
+                cookies = {AGS_TOKEN: str(token)}
         elif token:
-            cookies = {AGS_TOKEN: str(token)}
+            if not token.isAGOL:
+                cookies = {AGS_TOKEN: str(token)}
 
     for pName, p in params.iteritems():
         if isinstance(p, dict) or hasattr(p, 'json'):
@@ -144,6 +146,12 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
 
     if not token and not proxy:
         proxy = ID_MANAGER.findProxy(service)
+
+    if token:
+        if isinstance(token, Token):
+            if token.isAGOL:
+                params[TOKEN] = str(token)
+                cookies = None
 
     if proxy:
         r = do_proxy_request(proxy, service, params)
@@ -307,9 +315,16 @@ def generate_token(url, user='', pw='', expiration=60):
     infoResp = POST(infoUrl)
     if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
         base = infoResp[AUTH_INFO][TOKEN_SERVICES_URL]
+        is_agol = 'www.arcgis.com' in base
+        if is_agol:
+            base = AGOL_TOKEN_SERVICE
+
         setattr(sys.modules[__name__], 'PROTOCOL', base.split('://')[0])
         print('set PROTOCOL to "{}" from generate token'.format(PROTOCOL))
-        shortLived = infoResp[AUTH_INFO][SHORT_LIVED_TOKEN_VALIDITY]
+        try:
+            shortLived = infoResp[AUTH_INFO][SHORT_LIVED_TOKEN_VALIDITY]
+        except KeyError:
+            shortLived = 100
     else:
         base = url.split('/rest')[0] + '/tokens'
         shortLived = 100
@@ -319,9 +334,22 @@ def generate_token(url, user='', pw='', expiration=60):
               PASSWORD: pw,
               CLIENT: REQUEST_IP,
               EXPIRATION: max([expiration, shortLived])}
+    if is_agol:
+        params[REFERER] = AGOL_BASE
+        del params[CLIENT]
 
     resp = POST(base, params)
-    resp[DOMAIN] = base.split('/tokens')[0].lower() + '/rest/services'
+    if is_agol:
+        # now call portal sharing
+        portal_params = {TOKEN: resp.get(TOKEN)}
+        org_resp = POST(AGOL_PORTAL_SELF,portal_params)
+        org_referer = org_resp.get(URL_KEY) + ORG_MAPS
+        params[REFERER]= org_referer
+        resp = POST(AGOL_TOKEN_SERVICE, params)
+        resp[DOMAIN] = url.split('/services/')[0] + '/services'
+    else:
+        resp[DOMAIN] = base.split('/tokens')[0].lower() + '/rest/services'
+    resp[IS_AGOL] = is_agol
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
     return token
@@ -350,11 +378,14 @@ class TemporaryJsonFile(object):
 class RestapiEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
     def default(self, o):
-        if hasattr(o, 'json'):
-            return o.json
+        if hasattr(o, JSON):
+            return getattr(o, JSON)
         elif isinstance(o, (dict, list)):
             return o
-        return o.__dict__
+        try:
+            return o.__dict__
+        except:
+            return {}
 
 class JsonGetter(object):
     """override getters to also check its json property"""
@@ -462,7 +493,7 @@ class RESTEndpoint(JsonGetter):
             if self.url in ID_MANAGER.proxies:
                 self._proxy = ID_MANAGER.proxies[self.url]
 
-        self.raw_response = POST(self.url, params, ret_json=False, cookies=self._cookie, proxy=self._proxy)
+        self.raw_response = POST(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
@@ -696,27 +727,25 @@ class OrderedDict2(OrderedDict):
         """we want it to look like a dictionary"""
         return json.dumps(self, indent=2, ensure_ascii=False)
 
-class Token(object):
+class Token(JsonGetter):
     """class to handle token authentication"""
     def __init__(self, response):
         """response JSON object from generate_token"""
-        self.token = response[TOKEN]
-        self.expires = mil_to_date(response[EXPIRES])
+        self.json = munch.munchify(response)
         self._cookie = {AGS_TOKEN: self.token}
-        self.domain = response[DOMAIN]
-        self._response = response
+        self.isAGOL = self.json.get(IS_AGOL, False)
+
+    @property
+    def time_expires(self):
+        return mil_to_date(self.expires)
 
     @property
     def isExpired(self):
         """boolean value for expired or not"""
-        if datetime.datetime.now() > self.expires:
+        if datetime.datetime.now() > self.time_expires:
             return True
         else:
             return False
-
-    def asJSON(self):
-        """return original server response as JSON"""
-        return self._response
 
     def __str__(self):
         """return token as string representation"""
@@ -869,7 +898,6 @@ class GeocodeResult(object):
         defaults = 'address attributes location score'
         self.Result = collections.namedtuple('GeocodeResult_result', defaults)
 
-
     @property
     def results(self):
         """returns list of result objects"""
@@ -907,7 +935,7 @@ class GeocodeResult(object):
 class EditResult(object):
     """class to handle Edit operation results"""
     __slots__ = [ADD_RESULTS, UPDATE_RESULTS, DELETE_RESULTS, ADD_ATTACHMENT_RESULT,
-                'summary', 'affectedOIDs', 'failedOIDs', 'response']
+                SUMMARY, AFFECTED_OIDS, FAILED_OIDS, RESPONSE]
     def __init__(self, res_dict, feature_id=None):
         RequestError(res_dict)
         self.response = munch.munchify(res_dict)
@@ -1058,7 +1086,7 @@ class GeocodeService(RESTEndpoint):
                       OUT_SR: outSR,
                       F: JSON}
 
-        return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(POST(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
 
     def reverseGeocode(self, location, distance=100, outSR=4326, returnIntersection=False, langCode='eng'):
         """reverse geocodes an address by x, y coordinates
@@ -1078,7 +1106,7 @@ class GeocodeService(RESTEndpoint):
                   RETURN_INTERSECTION: returnIntersection,
                   F: JSON}
 
-        return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(POST(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
 
     def findAddressCandidates(self, address='', outSR=4326, outFields='*', returnIntersection=False, **kwargs):
         """finds address candidates for an anddress
@@ -1104,7 +1132,7 @@ class GeocodeService(RESTEndpoint):
             for fld_name, fld_query in kwargs.iteritems():
                 params[fld_name] = fld_query
 
-        return GeocodeResult(POST(geo_url, params, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(POST(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
 
     def __repr__(self):
         """string representation with service name"""
