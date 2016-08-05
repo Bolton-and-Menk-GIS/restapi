@@ -1,7 +1,6 @@
 """Helper functions and base classes for restapi module"""
 from __future__ import print_function
 import requests
-import getpass
 import fnmatch
 import datetime
 import collections
@@ -26,7 +25,7 @@ try:
 except NameError:
     basestring = str
 
-# disable ssl warnings (we are not verifying certs...maybe should look at trying to auto verify ssl in future)
+# disable ssl warnings (we are not verifying SSL certificates at this time...future ehnancement?)
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     requests.packages.urllib3.disable_warnings(warning)
 
@@ -296,7 +295,7 @@ def date_to_mil(date=None):
         epoch = datetime.datetime.utcfromtimestamp(0)
         return long((date - epoch).total_seconds() * 1000.0)
 
-def generate_token(url, user='', pw='', expiration=60):
+def generate_token(url, user, pw, expiration=60):
     """Generates a token to handle ArcGIS Server Security, this is
     different from generating a token from the admin side.  Meant
     for external use.
@@ -309,13 +308,11 @@ def generate_token(url, user='', pw='', expiration=60):
     Optional:
         expiration -- time (in minutes) for token lifetime.  Max is 100.
     """
-    if not pw:
-        pw = getpass.getpass('Type password and hit Enter:\n')
     infoUrl = url.split('/rest')[0] + '/rest/info'
     infoResp = POST(infoUrl)
     if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
         base = infoResp[AUTH_INFO][TOKEN_SERVICES_URL]
-        is_agol = 'www.arcgis.com' in base
+        is_agol = AGOL_BASE in base
         if is_agol:
             base = AGOL_TOKEN_SERVICE
 

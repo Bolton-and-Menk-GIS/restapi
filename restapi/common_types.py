@@ -1,9 +1,8 @@
 # look for arcpy access, otherwise use open source version
-# open source version may be faster?
 from __future__ import print_function
+
 try:
-    import imp
-    imp.find_module('arcpy')
+    import arcpy
     from arc_restapi import *
     __opensource__ = False
 
@@ -14,7 +13,6 @@ except ImportError:
 import sqlite3
 import contextlib
 from rest_utils import *
-from . import _strings
 from  .decorator import decorator
 
 @decorator
@@ -533,7 +531,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         """method to list field names"""
         return [f.name for f in self.fields]
 
-    def fix_fields(self, fields):
+    def __fix_fields(self, fields):
         """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
         method used for cursors.
 
@@ -610,6 +608,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             exceed_limit -- option to get all records in layer.  This option may be time consuming
                 because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
                 must be performed in chunks to get all records.
+            f -- return format, default is JSON.  (html|json|kmz)
+            kmz -- full path to output kmz file.  Only used if output format is "kmz".
             kwargs -- extra parameters to add to query string passed as key word arguments,
                 will override add_params***
 
@@ -629,7 +629,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             params[k] = v
 
         # check for tokens (only shape and oid)
-        fields = self.fix_fields(fields)
+        fields = self.__fix_fields(fields)
         params[OUT_FIELDS] = fields
 
         # create kmz file if requested (does not support exceed_limit parameter)
@@ -676,9 +676,22 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
     def query_related_records(self, objectIds, relationshipId, outFields='*', definitionExpression=None, returnGeometry=None, outSR=None, **kwargs):
         """Queries related records
 
+        Required:
+            objectIds -- list of object ids for related records
+            relationshipId -- id of relationship
+
+        Optional:
+            outFields -- output fields for related features
+            definitionExpression -- def query for output related records
+            returnGeometry -- option to return Geometry
+            outSR -- output spatial reference
+            kwargs -- optional key word args
         """
         if not self.json.get(RELATIONSHIPS):
             raise NotImplementedError('This Resource does not have any relationships!')
+
+        if isinstance(objectIds, (list, tuple)):
+            objectIds = ','.join(map(str, objectIds))
 
         query_url = self.url + '/queryRelatedRecords'
         params = {OBJECT_IDS: objectIds,
@@ -810,9 +823,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
             if ATTACHMENT_INFOS in r:
                 for attInfo in r[ATTACHMENT_INFOS]:
-                    attInfo[URL] = '{}/{}'.format(query_url, attInfo[ID])
+                    att_url = '{}/{}'.format(query_url, attInfo[ID])
+                    attInfo[URL] = att_url
+                    attInfo[URL_WITH_TOKEN] = att_url + '?token={}'.format(self.token) if self.token else ''
 
-                class Attachment(namedtuple('Attachment', 'id name size contentType url')):
+                class Attachment(namedtuple('Attachment', 'id name size contentType url urlWithToken')):
                     """class to handle Attachment object"""
                     __slots__ = ()
                     def __new__(cls,  **kwargs):
@@ -840,7 +855,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                             out_file = os.path.join(out_path, name.split('.')[0] + ext)
 
                         with open(out_file, 'wb') as f:
-                            f.write(urllib.urlopen(self.url).read())
+                            f.write(urllib.urlopen(getattr(self, URL_WITH_TOKEN)).read())
 
                         if verbose:
                             print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
@@ -855,7 +870,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
 
     def cursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False):
         """Run Cursor on layer, helper method that calls Cursor Object"""
-        cur_fields = self.fix_fields(fields)
+        cur_fields = self.__fix_fields(fields)
 
         fs = self.query(cur_fields, where, add_params, records, exceed_limit)
         return Cursor(fs, fields)
