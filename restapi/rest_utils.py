@@ -19,6 +19,7 @@ from collections import namedtuple, OrderedDict
 from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 from ._strings import *
 
+
 # python 3 compat
 try:
     basestring
@@ -28,6 +29,7 @@ except NameError:
 # disable ssl warnings (we are not verifying SSL certificates at this time...future ehnancement?)
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     requests.packages.urllib3.disable_warnings(warning)
+requests.packages.urllib3.disable_warnings()
 
 class IdentityManager(object):
     """Identity Manager for secured services.  This will allow the user to only have
@@ -182,12 +184,14 @@ def do_proxy_request(proxy, url, params={}):
         params -- query parameters, user is responsible for passing in the
             proper paramaters
     """
-    if not F in params:
-        params[F] = JSON
-    p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems() if k != F)
+    frmat = params.get(F, JSON)
+    if F in params:
+        del params[F]
 
-    # probably a better way to do this, but I couldn't figure out how to use the "proxies" kwarg
-    return requests.post('{}?{}?f={}&{}'.format(proxy, url, params[F], p).rstrip('&'), headers={'User-Agent': USER_AGENT})
+    p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems())
+
+    # probably a better way to do this...
+    return requests.post('{}?{}?f={}&{}'.format(proxy, url, frmat, p).rstrip('&'), verify=False, headers={'User-Agent': USER_AGENT})
 
 def guess_proxy_url(domain):
     """grade school level hack to see if there is a standard esri proxy available for a domain

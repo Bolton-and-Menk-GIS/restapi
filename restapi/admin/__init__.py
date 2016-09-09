@@ -6,6 +6,7 @@ import os
 import fnmatch
 import datetime
 import json
+import urlparse
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
@@ -2470,21 +2471,23 @@ class ArcServerAdmin(AdminRESTEndpoint):
             asList -- default is false.  If true, will return a list of all services
                 matching the wildcard.  If false, first match is returned.
         """
+        if not self.service_cache:
+            self.list_services()
         if '*' in wildcard:
             if not '.' in wildcard:
                 wildcard += '.*'
             if wildcard == '*':
-                return self.services[0]
+                return self.service_cache[0]
             else:
                 if asList:
-                    return [s for s in self.services if fnmatch.fnmatch(s, wildcard)]
-            for s in self.services:
+                    return [s for s in self.service_cache if fnmatch.fnmatch(s, wildcard)]
+            for s in self.service_cache:
                 if fnmatch.fnmatch(s, wildcard):
                     return s
         else:
             if asList:
-                return [s for s in self.services if wildcard.lower() in s.lower()]
-            for s in self.services:
+                return [s for s in self.service_cache if wildcard.lower() in s.lower()]
+            for s in self.service_cache:
                 if wildcard.lower() in s.lower():
                     return s
         print('"{0}" not found in services'.format(wildcard))
@@ -2503,7 +2506,11 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         service_name_or_wildcard -- name of service or wildcard
         """
-        service_url = self.get_service_url(service_name_or_wildcard, False)
+        val_url = urlparse.urlparse(service_name_or_wildcard)
+        if all([val_url.scheme, val_url.netloc, val_url.path]):
+            service_url = service_name_or_wildcard
+        else:
+            service_url = self.get_service_url(service_name_or_wildcard, False)
         if service_url:
             return Service(service_url, token=self.token)
         else:
@@ -2926,13 +2933,19 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     def __len__(self):
         """gets number of services"""
-        return len(self.services)
+        if not self.service_cache:
+            self.list_services()
+        return len(self.service_cache)
 
     def __iter__(self):
         """generator for service iteration"""
-        for s in self.services:
+        if not self.service_cache:
+            self.list_services()
+        for s in self.service_cache:
             yield s
 
     def __getitem__(self, i):
         """allows for service indexing"""
-        return self.services[i]
+        if not self.service_cache:
+            self.list_services()
+        return self.service_cache[i]

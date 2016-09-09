@@ -825,7 +825,10 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                 for attInfo in r[ATTACHMENT_INFOS]:
                     att_url = '{}/{}'.format(query_url, attInfo[ID])
                     attInfo[URL] = att_url
-                    attInfo[URL_WITH_TOKEN] = att_url + '?token={}'.format(self.token) if self.token else ''
+                    if self._proxy:
+                        attInfo[URL_WITH_TOKEN] = '?'.join([self._proxy, att_url])
+                    else:
+                        attInfo[URL_WITH_TOKEN] = att_url + '?token={}'.format(self.token) if self.token else ''
 
                 class Attachment(namedtuple('Attachment', 'id name size contentType url urlWithToken')):
                     """class to handle Attachment object"""
@@ -1614,9 +1617,11 @@ class FeatureLayer(MapServiceLayer):
             att_url = '{}/{}/addAttachment'.format(self.url, oid)
             files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
             params = {F: JSON}
+            if isinstance(self.token, Token) and self.token.isAGOL:
+                params[TOKEN] = str(self.token)
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(requests.post(att_url, params, files=files, token=self.token, cookies=self._cookie, verify=False).json(), oid)
+            return self.__edit_handler(requests.post(att_url, params, files=files, cookies=self._cookie, verify=False).json(), oid)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))

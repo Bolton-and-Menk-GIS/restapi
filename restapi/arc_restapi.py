@@ -239,7 +239,7 @@ class Geometry(BaseGeometry):
         if isinstance(geometry, arcpy.Geometry):
             spatialReference = geometry.spatialReference.factoryCode
             self.geometryType = 'esriGeometry{}'.format(geometry.type.title())
-            esri_json = json.loads(geometry.json)
+            esri_json = json.loads(geometry.JSON)
             for k,v in sorted(esri_json.iteritems()):
                 if k != SPATIAL_REFERENCE:
                     self.json[k] = v
