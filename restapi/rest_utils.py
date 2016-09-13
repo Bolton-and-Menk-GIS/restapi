@@ -312,15 +312,21 @@ def generate_token(url, user, pw, expiration=60):
     Optional:
         expiration -- time (in minutes) for token lifetime.  Max is 100.
     """
-    infoUrl = url.split('/rest')[0] + '/rest/info'
+    if '/rest/' in url.lower():
+        infoUrl = url.split('/rest/')[0] + '/rest/info'
+    elif '/admin/' in url.lower():
+        infoUrl = url.split('/admin/')[0] + '/rest/info'
+
     infoResp = POST(infoUrl)
+    is_agol = False
     if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
         base = infoResp[AUTH_INFO][TOKEN_SERVICES_URL]
         is_agol = AGOL_BASE in base
         if is_agol:
             base = AGOL_TOKEN_SERVICE
 
-        setattr(sys.modules[__name__], 'PROTOCOL', base.split('://')[0])
+        global PROTOCOL
+        PROTOCOL =  base.split('://')[0]
         print('set PROTOCOL to "{}" from generate token'.format(PROTOCOL))
         try:
             shortLived = infoResp[AUTH_INFO][SHORT_LIVED_TOKEN_VALIDITY]
@@ -335,6 +341,7 @@ def generate_token(url, user, pw, expiration=60):
               PASSWORD: pw,
               CLIENT: REQUEST_IP,
               EXPIRATION: max([expiration, shortLived])}
+
     if is_agol:
         params[REFERER] = AGOL_BASE
         del params[CLIENT]

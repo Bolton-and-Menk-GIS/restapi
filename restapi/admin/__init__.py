@@ -10,13 +10,15 @@ import urlparse
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
-from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter
+from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, generate_token
 from ..decorator import decorator
 from ..munch import *
+from .._strings import *
 
 # Globals
-BASE_PATTERN = '*:*/arcgis/admin*'
+BASE_PATTERN = '*:*/arcgis/*admin*'
 VERBOSE = True
+AGOL_ADMIN_BASE_PATTERN = 'http*://*/rest/admin/services*'
 
 # VERBOSE is set to true by default, this will echo the status of all operations
 #  i.e. reporting an administrative change was successful.  To turn this off, simply
@@ -26,7 +28,7 @@ VERBOSE = True
 #    restapi.admin.VERBOSE = False
 
 __all__ = ['ArcServerAdmin', 'Service', 'Folder', 'Cluster', 'POST',
-           'generate_token', 'VERBOSE', 'mil_to_date', 'date_to_mil']
+           'generate_token', 'VERBOSE', 'mil_to_date', 'date_to_mil', 'AGOLAdmin']
 
 class IdentityManagerAdmin(IdentityManager):
     """Administrative Identity Manager"""
@@ -109,7 +111,7 @@ def POST(service, params={'f': 'json'}, token='', ret_json=True):
         else:
             return r
 
-def generate_token(server='', usr='', pw='', expiration=60):
+def generate_token1(server='', usr='', pw='', expiration=60):
     """generates a token for adminstrative functions
 
     Required:
@@ -181,6 +183,10 @@ class AdminRESTEndpoint(JsonGetter):
                 params['token'] = self.token
             else:
                 raise TypeError('Token <{}> of {} must be Token object or String!'.format(self.token, type(self.token)))
+
+        # validate protocol
+        if isinstance(self.token, Token):
+            self.url = self.token.domain.split('://')[0] + '://' + self.url.split('://')[-1]
 
         self.raw_response = requests.post(self.url, params, verify=False)
         self.elapsed = self.raw_response.elapsed
@@ -2724,22 +2730,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
             folder = Folder(self._servicesURL + '/{}'.format(folderName), token=self.token)
             if not serviceName and not type:
                 for serv in folder.services:
-                    serv_json = serv.asJSON()
-                    serv_json.pop('description')
-                    if serv_json['type'] != 'FeatureServer':
-                        servicesAsJSON['services'].append(serv_json)
+                    serv.json.pop('description')
+                    if serv.json['type'] != 'FeatureServer':
+                        servicesAsJSON['services'].append(serv.json)
             elif serviceName and not type:
                 try:
-                    serv_json = [s.asJSON() for s in folder.services if s.name.lower() == serviceName.lower()][0]
-                    serv_json.pop('description')
-                    servicesAsJSON.append(serv_json)
+                    serv.json = [s.json for s in folder.services if s.name.lower() == serviceName.lower()][0]
+                    serv.json.pop('description')
+                    servicesAsJSON.append(serv.json)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service named: "{}"'.format(serviceName)})
             elif type and not serviceName:
                 try:
-                    serv_json = [s.asJSON() for s in folder.services if s.type.lower() == type.lower()][0]
-                    serv_json.pop('description')
-                    servicesAsJSON.append(serv_json)
+                    serv.json = [s.json for s in folder.services if s.type.lower() == type.lower()][0]
+                    serv.json.pop('description')
+                    servicesAsJSON.append(serv.json)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service types: "{}"'.format(serviceName)})
 
@@ -2789,22 +2794,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
             folder = Folder(self._servicesURL + '/{}'.format(folderName), token=self.token)
             if not serviceName and not type:
                 for serv in folder.services:
-                    serv_json = serv.asJSON()
-                    serv_json.pop('description')
-                    if serv_json['type'] != 'FeatureServer':
-                        servicesAsJSON['services'].append(serv_json)
+                    serv.json.pop('description')
+                    if serv.json['type'] != 'FeatureServer':
+                        servicesAsJSON['services'].append(serv.json)
             elif serviceName and not type:
                 try:
-                    serv_json = [s.asJSON() for s in folder.services if s.name.lower() == serviceName.lower()][0]
-                    serv_json.pop('description')
-                    servicesAsJSON.append(serv_json)
+                    serv.json = [s.json for s in folder.services if s.name.lower() == serviceName.lower()][0]
+                    serv.json.pop('description')
+                    servicesAsJSON.append(serv.json)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service named: "{}"'.format(serviceName)})
             elif type and not serviceName:
                 try:
-                    serv_json = [s.asJSON() for s in folder.services if s.type.lower() == type.lower()][0]
-                    serv_json.pop('description')
-                    servicesAsJSON.append(serv_json)
+                    serv.json = [s.json for s in folder.services if s.type.lower() == type.lower()][0]
+                    serv.json.pop('description')
+                    servicesAsJSON.append(serv.json)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service types: "{}"'.format(serviceName)})
 
@@ -2949,3 +2953,107 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if not self.service_cache:
             self.list_services()
         return self.service_cache[i]
+
+class AGOLAdmin(AdminRESTEndpoint):
+    """class to handle AGOL Hosted Services Admin capabilities"""
+    def __init__(self, url, usr='', pw='', token=''):
+        if '/admin/' not in url.lower():
+            url = url.split('/rest')[0] + '/rest/admin/services'
+        print(url)
+        super(AGOLAdmin, self).__init__(url, usr, pw, token)
+
+    def list_services(self):
+        """returns a list of services"""
+        try:
+            return [s.adminServiceInfo.name for s in self.json.services]
+        except AttributeError:
+            return []
+
+class AGOLFeatureLayer(AdminRESTEndpoint):
+
+    @passthrough
+    def addToDefinition(self, addToDefinition, async=FALSE):
+        """adds a definition property in a feature layer
+
+        Required:
+            addToDefinition -- The service update to the layer definition property
+                for a feature service layer.
+
+        Optional:
+            async -- option to run this process asynchronously
+        """
+        url = '/'.join([self.url, ADD_TO_DEFINITION])
+        params = {
+            F: JSON,
+            ADD_TO_DEFINITION: addToDefinition,
+            ASYNC: async
+        }
+
+        return POST(url, params, token=self.token)
+
+    @passthrough
+    def deleteFromDefinition(self, deleteFromDefinition, async=FALSE):
+        """deletes a definition property in a feature layer
+
+        Required:
+            deleteFromDefinition -- The service update to the layer definition property
+                for a feature service layer.
+
+        Optional:
+            async -- option to run this process asynchronously
+        """
+        url = '/'.join([self.url, DELETE_FROM_DEFINITION])
+        params = {
+            F: JSON,
+            DELETE_FROM_DEFINITION: deleteFromDefinition,
+            ASYNC: async
+        }
+
+        return POST(url, params, token=self.token)
+
+    @passthrough
+    def updateDefinition(self, updateDefinition, async=FALSE):
+        """deletes a definition property in a feature layer
+
+        Required:
+            updateDefinition -- The service update to the layer definition property
+                for a feature service layer.
+
+        Optional:
+            async -- option to run this process asynchronously
+        """
+        url = '/'.join([self.url, UPDATE_DEFINITION])
+        params = {
+            F: JSON,
+            UPDATE_DEFINITION: updateDefinition,
+            ASYNC: async
+        }
+
+        return POST(url, params, token=self.token)
+
+    @passthrough
+    def refresh(self):
+        """refreshes server cache for this layer"""
+        return POST(self.url + '/refresh', token=self.token)
+
+    @passthrough
+    def truncate(self, attachmentOnly=TRUE, async=FALSE):
+        """truncates the feature layer by removing all features
+
+        Optional:
+            attachmentOnly -- delete all attachments only
+            async -- option to run this process asynchronously
+        """
+        url = '/'.join([self.url, TRUNCATE])
+        params = {
+            ATTACHMENT_ONLY: attachmentOnly,
+            ASYNC: async
+        }
+
+        return POST(url, params, token=self.token)
+
+    def status(self):
+        """returns the status on service (whether it is topped or started)"""
+        url = self.url.split('/FeatureServer')[0] + '/FeatureServer/status'
+        return POST(url, token=self.token)
+

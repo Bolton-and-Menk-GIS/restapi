@@ -254,6 +254,14 @@ ESRI_KILOMETER = 'esriSRUnit_Kilometer'
 ESRI_NAUTICAL_MILE = 'esriSRUnit_NauticalMile'
 ESRI_US_NAUTICAL_MILE = 'esriSRUnit_USNauticalMile'
 
+# admin constants (AGOL)
+ADD_TO_DEFINITION = 'addToDefinition'
+DELETE_FROM_DEFINITION = 'deleteFromDefinition'
+STATUS = 'status'
+REFRESH = 'refresh'
+UPDATE_DEFINITION = 'updateDefinition'
+TRUNCATE = 'truncate'
+ATTACHMENT_ONLY = 'attachmentOnly'
 
 # dictionaries
 FTYPES = {DATE_FIELD:'DATE',
