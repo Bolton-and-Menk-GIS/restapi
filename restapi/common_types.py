@@ -13,7 +13,7 @@ except ImportError:
 import sqlite3
 import contextlib
 from rest_utils import *
-from  .decorator import decorator
+from .decorator import decorator
 
 @decorator
 def geometry_passthrough(func, *args, **kwargs):
@@ -152,8 +152,8 @@ class SQLiteReplica(sqlite3.Connection):
         """
         if __opensource__:
             raise NotImplementedError('no access to arcpy!')
-        if not hasattr(arcpy.conversion, 'CopyRuntimeGdbToFileGdb'):
-            raise NotImplementedError('arcpy.conversion.CopyRuntimeGdbToFileGdb tool not available!')
+        if not hasattr(arcpy.conversion, COPY_RUNTIME_GDB_TO_FILE_GDB):
+            raise NotImplementedError('arcpy.conversion.{} tool not available!'.format(COPY_RUNTIME_GDB_TO_FILE_GDB))
         self.cur.close()
         if os.path.isdir(out_gdb_path):
             out_gdb_path = os.path.join(out_gdb_path, self._fileName)
@@ -1487,7 +1487,9 @@ class FeatureLayer(MapServiceLayer):
                      {"Utility_Type":2,"Five_Yr_Plan":"No","Rating":None,"Inspection_Date":1429885595000}}]
         """
         add_url = self.url + '/addFeatures'
-        params = {FEATURES: json.dumps(features) if isinstance(features, list) else features,
+        if isinstance(features, (list, tuple)):
+            features = json.dumps(features)
+        params = {FEATURES: features,
                   GDB_VERSION: gdbVersion,
                   ROLLBACK_ON_FAILURE: rollbackOnFailure,
                   F: PJSON}
@@ -1514,8 +1516,10 @@ class FeatureLayer(MapServiceLayer):
             "attributes":
                 {"Five_Yr_Plan":"Yes","Rating":90,"OBJECTID":1}}] #only fields that were changed!
         """
+        if isinstance(features, (list, tuple)):
+            features = json.dumps(features)
         update_url = self.url + '/updateFeatures'
-        params = {FEATURES: json.dumps(features),
+        params = {FEATURES: features,
                   GDB_VERSION: gdbVersion,
                   ROLLBACK_ON_FAILURE: rollbackOnFailure,
                   F: JSON}
@@ -1574,8 +1578,14 @@ class FeatureLayer(MapServiceLayer):
         edits_url = self.url + '/applyEdits'
         if isinstance(adds, FeatureSet):
             adds = adds.features
+        if isinstance(adds, (list, tuple)):
+            adds = json.dumps(adds)
         if isinstance(updates, FeatureSet):
             updates = updates.features
+        if isinstance(updates, (list, tuple)):
+            updates = json.dumps(updates)
+        if isinstance(deletes, (list, tuple)):
+            deletes = ', '.join(map(str, deletes))
         params = {ADDS: adds,
                   UPDATES: updates,
                   DELETES: deletes,
@@ -1640,7 +1650,7 @@ class FeatureLayer(MapServiceLayer):
             exp = [{"field" : "Quality", "value" : 3}]
             exp =[{"field" : "A", "sqlExpression" : "B*3"}]
         """
-        if hasattr(self, SUPPORTS_CALCULATE) and self.supportsCalculate:
+        if self.json.get(SUPPORTS_CALCULATE, False):
             calc_url = self.url + '/calculate'
             p = {RETURN_IDS_ONLY:TRUE,
                 RETURN_GEOMETRY: 'false',

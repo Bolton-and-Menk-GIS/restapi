@@ -10,15 +10,15 @@ import urlparse
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
-from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, generate_token
+from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, generate_token, ID_MANAGER, POST
 from ..decorator import decorator
 from ..munch import *
 from .._strings import *
 
 # Globals
 BASE_PATTERN = '*:*/arcgis/*admin*'
-VERBOSE = True
 AGOL_ADMIN_BASE_PATTERN = 'http*://*/rest/admin/services*'
+VERBOSE = True
 
 # VERBOSE is set to true by default, this will echo the status of all operations
 #  i.e. reporting an administrative change was successful.  To turn this off, simply
@@ -28,29 +28,8 @@ AGOL_ADMIN_BASE_PATTERN = 'http*://*/rest/admin/services*'
 #    restapi.admin.VERBOSE = False
 
 __all__ = ['ArcServerAdmin', 'Service', 'Folder', 'Cluster', 'POST',
-           'generate_token', 'VERBOSE', 'mil_to_date', 'date_to_mil', 'AGOLAdmin']
-
-class IdentityManagerAdmin(IdentityManager):
-    """Administrative Identity Manager"""
-
-    def findToken(self, url):
-        """override find token to fix url appropriately. Returns a token for a specific
-        domain from token store if one has been generated for the ArcGIS Server site
-
-        Required:
-            url -- url for secured resource
-        """
-        url = url.lower().split('/arcgis')[0] + '/arcgis/admin'
-        if url in self.tokens:
-            if not self.tokens[url].isExpired:
-                return self.tokens[url]
-            else:
-                raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-        else:
-            return None
-
-# initialize Identity Manager
-ID_MANAGER = IdentityManagerAdmin()
+           'generate_token', 'VERBOSE', 'mil_to_date', 'date_to_mil',
+           'AGOLAdmin', 'AGOLFeatureService', 'AGOLFeatureLayer', 'AGOLMapService']
 
 @decorator
 def passthrough(f, *args, **kwargs):
@@ -68,76 +47,6 @@ def passthrough(f, *args, **kwargs):
             print('{}: {}'.format(k,v))
 
     return o
-
-def POST(service, params={'f': 'json'}, token='', ret_json=True):
-    """Post Request to REST Endpoint through query string, to post
-    request with data in body, use requests.post(url, data={k : v}).
-
-    Required:
-    service -- full path to REST endpoint of service
-
-    Optional:
-    _params -- parameters for posting a request
-    token -- token to handle security (only required if security is enabled)
-    ret_json -- return the response as JSON.  Default is True.
-    """
-    if isinstance(params, Munch):
-        params = params.toDict()
-
-    for pName, p in params.iteritems():
-        if isinstance(p, dict):
-            params[pName] = json.dumps(p)
-
-    if not token:
-        token = ID_MANAGER.findToken(service)
-    if token and isinstance(token, Token) and token.domain.lower() in service.lower():
-        if isinstance(token, Token) and token.isExpired:
-            raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-        else:
-            params['token'] = token.token if isinstance(token, Token) else token
-
-    if not 'f' in params:
-        params['f'] = 'json'
-
-    r = requests.post(service, params, verify=False)
-
-    # make sure return
-    if r.status_code != 200:
-        raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
-    else:
-        RequestError(r.json())
-        if ret_json:
-            return r.json()
-        else:
-            return r
-
-def generate_token1(server='', usr='', pw='', expiration=60):
-    """generates a token for adminstrative functions
-
-    Required:
-        server -- domain name
-        usr -- username
-        pw -- password
-
-    Optional:
-        port -- port number. Default is 6080
-        expiration -- expiration for token (in minutes)
-    """
-    server = server.lower().split('/arcgis')[0]
-    if not server.startswith('http'):
-        server = 'http://' + server
-
-    params = {'username': usr,
-              'password': pw,
-              'expiration': expiration,
-              'client': 'requestip'}
-
-    url = server + '/arcgis/admin/generateToken'.format(server)
-    resp = POST(url, params)
-    resp['domain'] = url.split('/generateToken')[0].lower()
-    token = Token(resp)
-    ID_MANAGER.tokens[token.domain] = token
-    return token
 
 class AdminRESTEndpoint(JsonGetter):
     """Base REST Endpoint Object to handle credentials and get JSON response
@@ -200,16 +109,15 @@ class AdminRESTEndpoint(JsonGetter):
 
 class BaseDirectory(AdminRESTEndpoint):
     """base class to handle objects in service directory"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(BaseDirectory, self).__init__(url, usr, pw, token)
-        self._permissionsURL = self.url + '/permissions'
+
+    @property
+    def _permissionsURL(self):
+        return self.url + '/permissions'
 
     @property
     def permissions(self):
         """return permissions for service"""
-        query_url = self.url + '/permissions'
-
-        perms = POST(query_url, token=self.token)['permissions']
+        perms = POST(self._permissionsURL, token=self.token)['permissions']
         return [Permission(r) for r in perms]
 
     @passthrough
@@ -263,25 +171,10 @@ class BaseDirectory(AdminRESTEndpoint):
         """generate a report for resource"""
         return [Report(r) for r in POST(self.url + '/report', token=self.token)['reports']]
 
-class BaseResource(object):
-    def __init__(self, kwargs):
-        self.json = munchify(kwargs)
-
-    def __getattr__(self, name):
-        """get normal class attributes and json abstraction at object level"""
-        try:
-            # it is a class attribute
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            # it is in the json definition
-            if name in self.json:
-                return self.json[name]
-            else:
-                raise AttributeError(name)
-
-    def __repr__(self):
-        """present as JSON"""
-        return '<%s>: %s' %(self.__class__.__name__, json.dumps(self.json, indent=4))
+class BaseResource(JsonGetter):
+    def __init__(self, in_json):
+        super(BaseResource, self).__init__(in_json)
+        self.json = munchify(in_json)
 
 class Report(BaseResource):
     pass
@@ -294,19 +187,11 @@ class Permission(BaseResource):
 
 class SSLCertificate(AdminRESTEndpoint):
     """class to handle SSL Certificate"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(SSLCertificate, self).__init__(url, usr, pw, token)
-
-        for k,v in self.response:
-            setattr(self, k, v)
+    pass
 
 class Machine(AdminRESTEndpoint):
     """class to handle ArcGIS Server Machine"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(Machine, self).__init__(url, usr, pw, token)
-
-        for k,v in self.response:
-            setattr(self, k, v)
+    pass
 
 class DataItem(BaseResource):
 
@@ -396,8 +281,6 @@ class RoleStore(AdminRESTEndpoint):
     """Role Store object"""
     def __init__(self, url, usr='', pw='', token=''):
         super(RoleStore, self).__init__(url, usr, pw, token)
-        for k,v in self.response.iteritems():
-            setattr(self, k, v)
 
         self.role_cache = POST(self.url + '/search', token=self.token)['roles']
         self.roles = [namedTuple('Role', r) for r in self.role_cache]
@@ -1415,9 +1298,7 @@ class Service(BaseDirectory):
 
 
 class Site(AdminRESTEndpoint):
-    def __init__(self, url, usr='', pw='', token=None):
-        super(Site, self).__init__(url, usr, pw, token)
-        pass
+    pass
 
 class ArcServerAdmin(AdminRESTEndpoint):
     """Class to handle internal ArcGIS Server instance"""
@@ -2730,21 +2611,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
             folder = Folder(self._servicesURL + '/{}'.format(folderName), token=self.token)
             if not serviceName and not type:
                 for serv in folder.services:
-                    serv.json.pop('description')
-                    if serv.json['type'] != 'FeatureServer':
-                        servicesAsJSON['services'].append(serv.json)
+                    serv.pop(DESCRIPTION)
+                    if serv.get(TYPE) != 'FeatureServer':
+                        servicesAsJSON['services'].append(serv)
             elif serviceName and not type:
                 try:
-                    serv.json = [s.json for s in folder.services if s.name.lower() == serviceName.lower()][0]
-                    serv.json.pop('description')
-                    servicesAsJSON.append(serv.json)
+                    serv = [s for s in folder.services if s.get(NAME).lower() == serviceName.lower()][0]
+                    serv.pop(DESCRIPTION)
+                    servicesAsJSON.append(serv)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service named: "{}"'.format(serviceName)})
             elif type and not serviceName:
                 try:
-                    serv.json = [s.json for s in folder.services if s.type.lower() == type.lower()][0]
-                    serv.json.pop('description')
-                    servicesAsJSON.append(serv.json)
+                    serv = [s for s in folder.services if s.type.lower() == type.lower()][0]
+                    serv.pop(DESCRIPTION)
+                    servicesAsJSON.append(serv)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service types: "{}"'.format(serviceName)})
 
@@ -2794,21 +2675,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
             folder = Folder(self._servicesURL + '/{}'.format(folderName), token=self.token)
             if not serviceName and not type:
                 for serv in folder.services:
-                    serv.json.pop('description')
-                    if serv.json['type'] != 'FeatureServer':
-                        servicesAsJSON['services'].append(serv.json)
+                    serv.pop(DESCRIPTION)
+                    if serv.get(TYPE) != 'FeatureServer':
+                        servicesAsJSON['services'].append(serv)
             elif serviceName and not type:
                 try:
-                    serv.json = [s.json for s in folder.services if s.name.lower() == serviceName.lower()][0]
-                    serv.json.pop('description')
-                    servicesAsJSON.append(serv.json)
+                    serv = [s for s in folder.services if s.get(NAME).lower() == serviceName.lower()][0]
+                    serv.pop(DESCRIPTION)
+                    servicesAsJSON.append(serv)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service named: "{}"'.format(serviceName)})
             elif type and not serviceName:
                 try:
-                    serv.json = [s.json for s in folder.services if s.type.lower() == type.lower()][0]
-                    serv.json.pop('description')
-                    servicesAsJSON.append(serv.json)
+                    serv = [s for s in folder.services if s.type.lower() == type.lower()][0]
+                    serv.pop(DESCRIPTION)
+                    servicesAsJSON.append(serv)
                 except IndexError:
                     RequestError({'error': 'Folder "{}" has no service types: "{}"'.format(serviceName)})
 
@@ -2954,13 +2835,14 @@ class ArcServerAdmin(AdminRESTEndpoint):
             self.list_services()
         return self.service_cache[i]
 
-class AGOLAdmin(AdminRESTEndpoint):
-    """class to handle AGOL Hosted Services Admin capabilities"""
-    def __init__(self, url, usr='', pw='', token=''):
+class AGOLAdminInitializer(AdminRESTEndpoint):
+     def __init__(self, url, usr='', pw='', token=''):
         if '/admin/' not in url.lower():
-            url = url.split('/rest')[0] + '/rest/admin/services'
-        print(url)
-        super(AGOLAdmin, self).__init__(url, usr, pw, token)
+            url = url.split('/rest/')[0] + '/rest/admin/' + url.split('/rest/')[-1]
+        super(AGOLAdminInitializer, self).__init__(url, usr, pw, token)
+
+class AGOLAdmin(AGOLAdminInitializer):
+    """class to handle AGOL Hosted Services Admin capabilities"""
 
     def list_services(self):
         """returns a list of services"""
@@ -2969,7 +2851,57 @@ class AGOLAdmin(AdminRESTEndpoint):
         except AttributeError:
             return []
 
-class AGOLFeatureLayer(AdminRESTEndpoint):
+class AGOLFeatureService(AGOLAdminInitializer):
+    """AGOL Feature Service"""
+
+    @staticmethod
+    def createNewGlobalIdFieldJSON():
+        """will add a new global id field json defition"""
+        return munchify({
+            NAME: 'GlobalID',
+            TYPE: GLOBALID,
+            ALIAS: 'GlobalID',
+            SQL_TYPE: SQL_TYPE_OTHER,
+            NULLABLE: FALSE,
+            EDITABLE: FALSE,
+            DOMAIN: NULL,
+            DEFAULT_VALUE: SQL_GLOBAL_ID_EXP
+        })
+
+    @staticmethod
+    def createNewGlobalIdFieldJSON(name, alias='', autoUpdate=False):
+        """Will create a json definition for a new date field
+
+        Required:
+            name -- name of new date field
+
+        Optional:
+            alias -- field name for alias
+            autoUpdate -- option to automatically populate the field with the current
+                date/time when a new record is added or updated (like editor tracking).
+                The default is False.
+        """
+        return munchify({
+            NAME: name,
+            TYPE: DATE_FIELD,
+            ALIAS: alias or name,
+            SQL_TYPE: SQL_TYPE_OTHER,
+            NULLABLE: FALSE,
+            EDITABLE: FALSE,
+            DOMAIN: NULL,
+            DEFAULT_VALUE: SQL_AUTO_DATE_EXP if autoUpdate else NULL
+        })
+
+    @staticmethod
+    def clearLastEditedDate(in_json):
+        """clears the lastEditDate within json, will throw an error if updating
+        a service JSON definition if this value is not an empty string.
+
+        Required:
+            in_json -- input json
+        """
+        if EDITING_INFO in in_json:
+            in_json[EDITING_INFO][LAST_EDIT_DATE] = ''
 
     @passthrough
     def addToDefinition(self, addToDefinition, async=FALSE):
@@ -2982,14 +2914,19 @@ class AGOLFeatureLayer(AdminRESTEndpoint):
         Optional:
             async -- option to run this process asynchronously
         """
+        self.clearLastEditedDate(addToDefinition)
         url = '/'.join([self.url, ADD_TO_DEFINITION])
+
         params = {
             F: JSON,
             ADD_TO_DEFINITION: addToDefinition,
             ASYNC: async
         }
 
-        return POST(url, params, token=self.token)
+        result = POST(url, params, token=self.token)
+        self.refresh()
+        self.reload()
+        return result
 
     @passthrough
     def deleteFromDefinition(self, deleteFromDefinition, async=FALSE):
@@ -3002,6 +2939,7 @@ class AGOLFeatureLayer(AdminRESTEndpoint):
         Optional:
             async -- option to run this process asynchronously
         """
+        self.clearLastEditedDate(deleteFromDefinition)
         url = '/'.join([self.url, DELETE_FROM_DEFINITION])
         params = {
             F: JSON,
@@ -3009,7 +2947,10 @@ class AGOLFeatureLayer(AdminRESTEndpoint):
             ASYNC: async
         }
 
-        return POST(url, params, token=self.token)
+        result = POST(url, params, token=self.token)
+        self.refresh()
+        self.reload()
+        return result
 
     @passthrough
     def updateDefinition(self, updateDefinition, async=FALSE):
@@ -3022,6 +2963,7 @@ class AGOLFeatureLayer(AdminRESTEndpoint):
         Optional:
             async -- option to run this process asynchronously
         """
+        self.clearLastEditedDate(updateDefinition)
         url = '/'.join([self.url, UPDATE_DEFINITION])
         params = {
             F: JSON,
@@ -3029,12 +2971,35 @@ class AGOLFeatureLayer(AdminRESTEndpoint):
             ASYNC: async
         }
 
-        return POST(url, params, token=self.token)
+        result = POST(url, params, token=self.token)
+        self.refresh()
+        self.reload()
+        return result
 
     @passthrough
     def refresh(self):
         """refreshes server cache for this layer"""
         return POST(self.url + '/refresh', token=self.token)
+
+    def reload(self):
+        """reloads the service to catch any changes"""
+        self.__init__(self.url, self.token)
+
+    def status(self):
+        """returns the status on service (whether it is topped or started)"""
+        url = self.url + '/status'
+        return POST(url, token=self.token)
+
+    def __repr__(self):
+        return '<{}: "{}">'.format(self.__class__.__name__, self.url.split('/')[-2])
+
+class AGOLFeatureLayer(AGOLFeatureService):
+    """AGOL Feature Layer"""
+
+    def status(self):
+        """returns the status on service (whether it is topped or started)"""
+        url = self.url.split('/FeatureServer/')[0] + '/FeatureServer/status'
+        return POST(url, token=self.token)
 
     @passthrough
     def truncate(self, attachmentOnly=TRUE, async=FALSE):
@@ -3044,6 +3009,9 @@ class AGOLFeatureLayer(AdminRESTEndpoint):
             attachmentOnly -- delete all attachments only
             async -- option to run this process asynchronously
         """
+        if not self.json.get(SUPPORTS_TRUNCATE, False):
+            raise NotImplementedError('This resource does not support the Truncate method')
+
         url = '/'.join([self.url, TRUNCATE])
         params = {
             ATTACHMENT_ONLY: attachmentOnly,
@@ -3052,8 +3020,10 @@ class AGOLFeatureLayer(AdminRESTEndpoint):
 
         return POST(url, params, token=self.token)
 
-    def status(self):
-        """returns the status on service (whether it is topped or started)"""
-        url = self.url.split('/FeatureServer')[0] + '/FeatureServer/status'
-        return POST(url, token=self.token)
+    def __repr__(self):
+        return '<{}: "{}">'.format(self.__class__.__name__, self.name)
+
+class AGOLMapService(AdminRESTEndpoint):
+    # TODO
+    pass
 

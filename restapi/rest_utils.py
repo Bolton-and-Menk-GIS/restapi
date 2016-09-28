@@ -19,7 +19,6 @@ from collections import namedtuple, OrderedDict
 from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 from ._strings import *
 
-
 # python 3 compat
 try:
     basestring
@@ -29,7 +28,6 @@ except NameError:
 # disable ssl warnings (we are not verifying SSL certificates at this time...future ehnancement?)
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     requests.packages.urllib3.disable_warnings(warning)
-requests.packages.urllib3.disable_warnings()
 
 class IdentityManager(object):
     """Identity Manager for secured services.  This will allow the user to only have
@@ -46,7 +44,10 @@ class IdentityManager(object):
             url -- url for secured resource
         """
         if self.tokens:
-            url = url.lower().split('/rest/services')[0] + '/rest/services'
+            if '/admin/' in url:
+                url = url.split('/admin/services')[0] + '/admin/services'
+            else:
+                url = url.lower().split('/rest/services')[0] + '/rest/services'
             if url in self.tokens:
                 if not self.tokens[url].isExpired:
                     return self.tokens[url]
@@ -132,11 +133,17 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
         if token and isinstance(token, Token) and token.domain.lower() in service.lower():
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-            if not token.isAGOL:
+            if not token.isAGOL and not token.isAdmin:
                 cookies = {AGS_TOKEN: str(token)}
+            else:
+                if TOKEN not in params:
+                    params[TOKEN] = str(token)
         elif token:
-            if not token.isAGOL:
+            if not token.isAGOL and not token.isAdmin:
                 cookies = {AGS_TOKEN: str(token)}
+            else:
+                if TOKEN not in params:
+                    params[TOKEN] = str(token)
 
     for pName, p in params.iteritems():
         if isinstance(p, dict) or hasattr(p, 'json'):
@@ -174,15 +181,17 @@ def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy
 def do_proxy_request(proxy, url, params={}):
     """make request against ArcGIS service through a proxy.  This is designed for a
     proxy page that stores access credentials in the configuration to handle authentication.
-    It is also assumed that the proxy is a standard Esri proxy (i.e. retrieved from their
-    repo on GitHub)
+    It is also assumed that the proxy is a standard Esri proxy, i.e. retrieved from their
+    repo on GitHub @:
+
+        https://github.com/Esri/resource-proxy
 
     Required:
         proxy -- full url to proxy
         url -- service url to make request against
     Optional:
         params -- query parameters, user is responsible for passing in the
-            proper paramaters
+            proper parameters
     """
     frmat = params.get(F, JSON)
     if F in params:
@@ -312,11 +321,16 @@ def generate_token(url, user, pw, expiration=60):
     Optional:
         expiration -- time (in minutes) for token lifetime.  Max is 100.
     """
-    if '/rest/' in url.lower():
-        infoUrl = url.split('/rest/')[0] + '/rest/info'
-    elif '/admin/' in url.lower():
-        infoUrl = url.split('/admin/')[0] + '/rest/info'
-
+    suffix = '/rest/info'
+    isAdmin = False
+    if '/admin/' in url:
+        isAdmin = True
+        if '/rest/admin/' in url:
+            infoUrl = url.split('/rest/')[0] + suffix
+        else:
+            infoUrl = url.split('/admin/')[0] + suffix
+    else:
+        infoUrl = url.split('/rest/')[0] + suffix
     infoResp = POST(infoUrl)
     is_agol = False
     if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
@@ -354,34 +368,13 @@ def generate_token(url, user, pw, expiration=60):
         org_referer = org_resp.get(URL_KEY) + ORG_MAPS
         params[REFERER]= org_referer
         resp = POST(AGOL_TOKEN_SERVICE, params)
-        resp[DOMAIN] = url.split('/services/')[0] + '/services'
-    else:
-        resp[DOMAIN] = base.split('/tokens')[0].lower() + '/rest/services'
+
+    resp[DOMAIN] = url.split('/services/')[0] + '/services'
     resp[IS_AGOL] = is_agol
+    resp[IS_ADMIN] = isAdmin
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
     return token
-
-class TemporaryJsonFile(object):
-    def __init__(self):
-        self.path = tmp_json_file()
-        self.file = open(self.path, 'w')
-
-    def __safe_cleanup(self):
-        self.file.close()
-        try:
-            os.remove(self.path)
-        except OSError:
-            pass
-
-    def __enter__(self):
-        return self.file
-
-    def __exit__(self, type, value, traceback):
-        self.__safe_cleanup()
-
-    def __del__(self):
-        self.__safe_cleanup()
 
 class RestapiEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
@@ -742,6 +735,7 @@ class Token(JsonGetter):
         self.json = munch.munchify(response)
         self._cookie = {AGS_TOKEN: self.token}
         self.isAGOL = self.json.get(IS_AGOL, False)
+        self.isAdmin = self.json.get(IS_ADMIN, False)
 
     @property
     def time_expires(self):
@@ -943,7 +937,7 @@ class GeocodeResult(object):
 class EditResult(object):
     """class to handle Edit operation results"""
     __slots__ = [ADD_RESULTS, UPDATE_RESULTS, DELETE_RESULTS, ADD_ATTACHMENT_RESULT,
-                SUMMARY, AFFECTED_OIDS, FAILED_OIDS, RESPONSE]
+                SUMMARY, AFFECTED_OIDS, FAILED_OIDS, RESPONSE, JSON]
     def __init__(self, res_dict, feature_id=None):
         RequestError(res_dict)
         self.response = munch.munchify(res_dict)
@@ -967,6 +961,7 @@ class EditResult(object):
                 else:
                     self.failedOIDs.append(res_id)
         self.affectedOIDs = self.addResults + self.updateResults + self.deleteResults + self.addAttachmentResult.keys()
+        self.json = munch.munchify(res_dict)
 
     def summary(self):
         """print summary of edit operation"""

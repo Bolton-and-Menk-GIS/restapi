@@ -16,6 +16,8 @@ LONG_FIELD = 'esriFieldTypeInteger'
 GUID_FIELD = 'esriFieldTypeGUID'
 RASTER_FIELD = 'esriFieldTypeRaster'
 BLOB_FIELD = 'esriFieldTypeBlob'
+SQL_TYPE = 'sqlType'
+SQL_TYPE_OTHER = 'sqlTypeOther'
 
 # geometries
 ESRI_POLYGON = 'esriGeometryPolygon'
@@ -162,6 +164,8 @@ OUTPUT_PARAMETER = 'esriGPParameterDirectionOutput'
 BILINEAR_INTERPOLATION = 'RSP_BilinearInterpolation'
 TRANSPARENT = 'transparent'
 RESULTS = 'results'
+EDITING_INFO = 'editingInfo'
+LAST_EDIT_DATE = 'lastEditDate'
 VALUE = 'value'
 EXTENT = 'extent'
 XMIN = 'xmin'
@@ -177,8 +181,11 @@ ALIAS = 'alias'
 SR = 'sr'
 ID = 'id'
 F = 'f' # format
+NULLABLE = 'nullable'
+EDITABLE = 'editable'
 
 # misc
+DESCRIPTION = 'description'
 SQLITE = 'sqlite'
 RECORDS = 'records'
 RESPONSE = 'response'
@@ -218,12 +225,17 @@ PATHS = 'paths'
 POINTS = 'points'
 X = 'x'
 Y = 'y'
+COPY_RUNTIME_GDB_TO_FILE_GDB = 'CopyRuntimeGdbToFileGdb'
+DEFAULT_VALUE = 'defaultValue'
+SQL_GLOBAL_ID_EXP = 'NEWID() WITH VALUES'
+SQL_AUTO_DATE_EXP = 'GetDate() WITH VALUES'
 
 # AGOL
 AGOL_BASE = 'www.arcgis.com'
 AGOL_TOKEN_SERVICE = 'https://www.arcgis.com/sharing/rest/generateToken'
 AGOL_PORTAL_SELF = 'https://www.arcgis.com/sharing/portals/self'
 IS_AGOL = 'isAGOL'
+IS_ADMIN = 'isAdmin'
 URL_KEY = 'urlKey'
 ORG_MAPS = '.maps.arcgis.com'
 
@@ -262,6 +274,7 @@ REFRESH = 'refresh'
 UPDATE_DEFINITION = 'updateDefinition'
 TRUNCATE = 'truncate'
 ATTACHMENT_ONLY = 'attachmentOnly'
+SUPPORTS_TRUNCATE = 'supportsTruncate'
 
 # dictionaries
 FTYPES = {DATE_FIELD:'DATE',
