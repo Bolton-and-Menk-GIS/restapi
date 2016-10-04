@@ -1577,12 +1577,12 @@ class FeatureLayer(MapServiceLayer):
         """
         edits_url = self.url + '/applyEdits'
         if isinstance(adds, FeatureSet):
-            adds = adds.features
-        if isinstance(adds, (list, tuple)):
+            adds = json.dumps(adds.features)
+        elif isinstance(adds, (list, tuple)):
             adds = json.dumps(adds)
         if isinstance(updates, FeatureSet):
-            updates = updates.features
-        if isinstance(updates, (list, tuple)):
+            updates = json.dumps(updates.features)
+        elif isinstance(updates, (list, tuple)):
             updates = json.dumps(updates)
         if isinstance(deletes, (list, tuple)):
             deletes = ', '.join(map(str, deletes))

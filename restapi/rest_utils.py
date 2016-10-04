@@ -606,6 +606,8 @@ class Feature(JsonGetter):
         """
         return self.json[ATTRIBUTES].get(field)
 
+    def __repr__(self):
+        return str(self)
 
 class RelatedRecords(JsonGetter, SpatialReferenceMixin):
     def __init__(self, in_json):
@@ -702,13 +704,13 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
     def __getitem__(self, key):
         """supports grabbing feature by index and json keys by name"""
         if isinstance(key, int):
-            return self.features[key]
+            return Feature(self.json.features[key])
         else:
-            return self.json.get(key)
+            return Feature(self.json.get(key))
 
     def __iter__(self):
-        for feature in self.features:
-            yield feature
+        for feature in self.json.features:
+            yield Feature(feature)
 
     def __len__(self):
         return len(self.features)
