@@ -193,7 +193,7 @@ def exportReplica(replica, out_folder):
         # download attachments
         att_dict = {}
         for attInfo in layer.attachments:
-            out_file = assignUniqueName(os.path.join(att_loc, attInfo[NAME]))
+            out_file = assign_unique_name(os.path.join(att_loc, attInfo[NAME]))
             with open(out_file, 'wb') as f:
                 f.write(urllib.urlopen(attInfo['url']).read())
             att_dict[attInfo['parentGlobalId']] = out_file.strip()

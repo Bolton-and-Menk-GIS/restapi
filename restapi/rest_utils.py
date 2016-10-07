@@ -110,7 +110,7 @@ def tmp_json_file():
         TEMP_DIR = tempfile.mkdtemp()
     return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
-def POST(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None):
+def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -244,7 +244,7 @@ def validate_name(file_name):
         root = root.replace(f,r)
     return os.path.join(path, '_'.join(root.split()) + ext)
 
-def guessWKID(wkt):
+def guess_wkid(wkt):
     """attempts to guess a well-known ID from a well-known text imput (WKT)
 
     Required:
@@ -261,7 +261,7 @@ def guessWKID(wkt):
     return 0
 
 
-def assignUniqueName(fl):
+def assign_unique_name(fl):
     """assigns a unique file name
 
     Required:
@@ -331,7 +331,7 @@ def generate_token(url, user, pw, expiration=60):
             infoUrl = url.split('/admin/')[0] + suffix
     else:
         infoUrl = url.split('/rest/')[0] + suffix
-    infoResp = POST(infoUrl)
+    infoResp = do_post(infoUrl)
     is_agol = False
     if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
         base = infoResp[AUTH_INFO][TOKEN_SERVICES_URL]
@@ -360,14 +360,14 @@ def generate_token(url, user, pw, expiration=60):
         params[REFERER] = AGOL_BASE
         del params[CLIENT]
 
-    resp = POST(base, params)
+    resp = do_post(base, params)
     if is_agol:
         # now call portal sharing
         portal_params = {TOKEN: resp.get(TOKEN)}
-        org_resp = POST(AGOL_PORTAL_SELF,portal_params)
+        org_resp = do_post(AGOL_PORTAL_SELF,portal_params)
         org_referer = org_resp.get(URL_KEY) + ORG_MAPS
         params[REFERER]= org_referer
-        resp = POST(AGOL_TOKEN_SERVICE, params)
+        resp = do_post(AGOL_TOKEN_SERVICE, params)
 
     resp[DOMAIN] = url.split('/services/')[0] + '/services'
     resp[IS_AGOL] = is_agol
@@ -494,7 +494,7 @@ class RESTEndpoint(JsonGetter):
             if self.url in ID_MANAGER.proxies:
                 self._proxy = ID_MANAGER.proxies[self.url]
 
-        self.raw_response = POST(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy)
+        self.raw_response = do_post(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
@@ -1091,7 +1091,7 @@ class GeocodeService(RESTEndpoint):
                       OUT_SR: outSR,
                       F: JSON}
 
-        return GeocodeResult(POST(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(do_post(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
 
     def reverseGeocode(self, location, distance=100, outSR=4326, returnIntersection=False, langCode='eng'):
         """reverse geocodes an address by x, y coordinates
@@ -1111,7 +1111,7 @@ class GeocodeService(RESTEndpoint):
                   RETURN_INTERSECTION: returnIntersection,
                   F: JSON}
 
-        return GeocodeResult(POST(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(do_post(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
 
     def findAddressCandidates(self, address='', outSR=4326, outFields='*', returnIntersection=False, **kwargs):
         """finds address candidates for an anddress
@@ -1137,7 +1137,7 @@ class GeocodeService(RESTEndpoint):
             for fld_name, fld_query in kwargs.iteritems():
                 params[fld_name] = fld_query
 
-        return GeocodeResult(POST(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(do_post(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
 
     def __repr__(self):
         """string representation with service name"""

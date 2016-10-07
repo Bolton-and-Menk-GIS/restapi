@@ -229,6 +229,7 @@ COPY_RUNTIME_GDB_TO_FILE_GDB = 'CopyRuntimeGdbToFileGdb'
 DEFAULT_VALUE = 'defaultValue'
 SQL_GLOBAL_ID_EXP = 'NEWID() WITH VALUES'
 SQL_AUTO_DATE_EXP = 'GetDate() WITH VALUES'
+ADMIN_URL = 'adminURL'
 
 # AGOL
 AGOL_BASE = 'www.arcgis.com'
