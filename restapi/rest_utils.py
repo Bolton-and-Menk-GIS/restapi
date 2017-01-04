@@ -33,8 +33,9 @@ class IdentityManager(object):
     """Identity Manager for secured services.  This will allow the user to only have
     to sign in once (until the token expires) when accessing a services directory or
     individual service on an ArcGIS Server Site"""
-    tokens = {}
-    proxies = {}
+    def __init__(self):
+        self.tokens = {}
+        self.proxies = {}
 
     def findToken(self, url):
         """returns a token for a specific domain from token store if one has been
@@ -45,7 +46,7 @@ class IdentityManager(object):
         """
         if self.tokens:
             if '/admin/' in url:
-                url = url.split('/admin/services')[0] + '/admin/services'
+                url = url.split('/admin/')[0] + '/admin/services'
             else:
                 url = url.lower().split('/rest/services')[0] + '/rest/services'
             if url in self.tokens:
@@ -125,12 +126,13 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
         proxy -- option to use proxy page to handle security, need to provide
             full path to proxy url.
     """
+    global PROTOCOL
     if PROTOCOL != '':
         service = '{}://{}'.format(PROTOCOL, service.split('://')[-1])
     if not cookies and not proxy:
         if not token:
             token = ID_MANAGER.findToken(service)
-        if token and isinstance(token, Token) and token.domain.lower() in service.lower():
+        if token and isinstance(token, Token):# and token.domain.lower() in service.lower():
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
             if not token.isAGOL and not token.isAdmin:
@@ -145,6 +147,14 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
                 if TOKEN not in params:
                     params[TOKEN] = str(token)
 
+    # auto fill in geometry params if a restapi.Geometry object is passed in (derived from BaseGeometry)
+    if params.get(GEOMETRY) and isinstance(params.get(GEOMETRY), BaseGeometry):
+        geometry = params.get(GEOMETRY)
+        if not GEOMETRY_TYPE in params and hasattr(geometry, GEOMETRY_TYPE):
+            params[GEOMETRY_TYPE] = getattr(geometry, GEOMETRY_TYPE)
+        if not IN_SR in params:
+            params[IN_SR] = geometry.getWKID() or geometry.getWKT()
+
     for pName, p in params.iteritems():
         if isinstance(p, dict) or hasattr(p, 'json'):
             params[pName] = json.dumps(p, cls=RestapiEncoder)
@@ -157,7 +167,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
 
     if token:
         if isinstance(token, Token):
-            if token.isAGOL:
+            if token.isAGOL or token.isAdmin:
                 params[TOKEN] = str(token)
                 cookies = None
 
@@ -369,7 +379,12 @@ def generate_token(url, user, pw, expiration=60):
         params[REFERER]= org_referer
         resp = do_post(AGOL_TOKEN_SERVICE, params)
 
-    resp[DOMAIN] = url.split('/services/')[0] + '/services'
+    if '/services' in url:
+        resp[DOMAIN] = url.split('/services')[0] + '/services'
+    elif '/admin' in url:
+        resp[DOMAIN] = url.split('/admin')[0] + '/admin'
+    else:
+        resp[DOMAIN] = url + '/services'
     resp[IS_AGOL] = is_agol
     resp[IS_ADMIN] = isAdmin
     token = Token(resp)
@@ -379,6 +394,8 @@ def generate_token(url, user, pw, expiration=60):
 class RestapiEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
     def default(self, o):
+        if isinstance(o, datetime.datetime):
+            return date_to_mil(o)
         if hasattr(o, JSON):
             return getattr(o, JSON)
         elif isinstance(o, (dict, list)):
@@ -709,7 +726,7 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
             return Feature(self.json.get(key))
 
     def __iter__(self):
-        for feature in self.json.features:
+        for feature in self.features:
             yield Feature(feature)
 
     def __len__(self):

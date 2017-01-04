@@ -339,7 +339,7 @@ class Cursor(FeatureSet):
                 """
                 try:
                     return self.feature.attributes.get(field)
-                Except AttributeError:
+                except AttributeError:
                     return None
 
             def __getitem__(self, i):
@@ -833,7 +833,13 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                     else:
                         attInfo[URL_WITH_TOKEN] = att_url + '?token={}'.format(self.token) if self.token else ''
 
-                class Attachment(namedtuple('Attachment', 'id name size contentType url urlWithToken')):
+                keys = []
+                if r[ATTACHMENT_INFOS]:
+                    keys = r[ATTACHMENT_INFOS][0].keys()
+
+                props = list(set(['id', 'name', 'size', 'contentType', 'url', 'urlWithToken'] + keys))
+
+                class Attachment(namedtuple('Attachment', ' '.join(props))):
                     """class to handle Attachment object"""
                     __slots__ = ()
                     def __new__(cls,  **kwargs):

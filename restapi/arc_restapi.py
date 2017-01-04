@@ -55,7 +55,7 @@ def exportFeatureSet(feature_set, out_fc, include_domains=False):
     isShp = wsType == 'FileSystem'
 
     # do proper export routine
-    tmp = feature_set.dump(tmp_json_file())
+    tmp = feature_set.dump(tmp_json_file(), indent=None)
     arcpy.conversion.JSONToFeatures(tmp, out_fc)
     try:
         os.remove(tmp)

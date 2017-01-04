@@ -171,7 +171,6 @@ class BaseDirectory(AdminRESTEndpoint):
 
 class BaseResource(JsonGetter):
     def __init__(self, in_json):
-        super(BaseResource, self).__init__(in_json)
         self.json = munchify(in_json)
 
 class Report(BaseResource):
@@ -647,7 +646,7 @@ class DataStore(AdminRESTEndpoint):
         super(DataStore, self).__init__(url, usr, pw, token)
         for k,v in self.response.iteritems():
             setattr(self, k, v)
-        self.url = self.url.split('/config')[0]
+        self.url = self.url.split('/data')[0] + '/data'
         self.items = self.getItems()
 
     @passthrough
@@ -1357,7 +1356,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     @property
     def dataStore(self):
         """returns a DataStore object"""
-        return DataStore(self._dataURL + '/config', token=self.token)
+        return DataStore(self._dataURL, token=self.token)
 
     @property
     def publicKey(self):
@@ -1716,6 +1715,32 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if not datastoreConfig:
             datastoreConfig = '{"blockDataCopy":"true"}'
         return do_post(query_url, {'datastoreConfig': datastoreConfig}, token=self.token)
+
+    @passthrough
+    def copyDataStore(self, other):
+        if not isinstance(other, (self.__class__, DataStore)):
+            raise TypeError('type: {} is not supported!'.format(type(other)))
+        if isinstance(other, self.__class__):
+            other = other.dataStore
+
+        # iterate through data store
+        global VERBOSE
+        results = []
+        ds = self.dataStore
+        for d in other:
+            ni = {
+                'path': d.path,
+                'type': d.type,
+                'clientPath': d.clientPath,
+                'info': d.info
+            }
+            st = ds.registerItem(ni)
+            ni['result'] = st
+            results.append(ni)
+            if VERBOSE:
+                print(json.dumps(ni))
+
+        return results
 
     #----------------------------------------------------------------------
     # LOGS
