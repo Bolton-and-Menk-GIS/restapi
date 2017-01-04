@@ -72,8 +72,8 @@ def exportGeometryCollection(gc, output):
 class JsonReplica(JsonGetter):
     """represents a JSON replica"""
     def __init__(self, in_json):
-        super(JsonReplica, self).__init__()
         self.json = munch.munchify(in_json)
+        super(self.__class__, self).__init__()
 
 class SQLiteReplica(sqlite3.Connection):
     """represents a replica stored as a SQLite database"""
@@ -866,8 +866,10 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                             ext = os.path.splitext(self.name)[-1]
                             out_file = os.path.join(out_path, name.split('.')[0] + ext)
 
+                        resp = requests.get(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
                         with open(out_file, 'wb') as f:
-                            f.write(urllib.urlopen(getattr(self, URL_WITH_TOKEN)).read())
+                            for chunk in resp.iter_content(1024 * 16):
+                                f.write(chunk)
 
                         if verbose:
                             print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
