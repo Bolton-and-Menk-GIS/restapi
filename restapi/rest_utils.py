@@ -357,7 +357,7 @@ def generate_token(url, user, pw, expiration=60):
         except KeyError:
             shortLived = 100
     else:
-        base = url.split('/rest')[0] + '/tokens'
+        base = url.split('/rest/')[0] + '/tokens'
         shortLived = 100
 
     params = {F: JSON,
@@ -379,12 +379,12 @@ def generate_token(url, user, pw, expiration=60):
         params[REFERER]= org_referer
         resp = do_post(AGOL_TOKEN_SERVICE, params)
 
-    if '/services' in url:
-        resp[DOMAIN] = url.split('/services')[0] + '/services'
-    elif '/admin' in url:
-        resp[DOMAIN] = url.split('/admin')[0] + '/admin'
+    if '/services/' in url:
+        resp[DOMAIN] = url.split('/services/')[0] + '/services'
+    elif '/admin/' in url:
+        resp[DOMAIN] = url.split('/admin/')[0] + '/admin'
     else:
-        resp[DOMAIN] = url + '/services'
+        resp[DOMAIN] = url
     resp[IS_AGOL] = is_agol
     resp[IS_ADMIN] = isAdmin
     token = Token(resp)
@@ -409,9 +409,9 @@ class JsonGetter(object):
     """override getters to also check its json property"""
     json = {}
 
-    def get(self, name):
+    def get(self, name, default=None):
         """gets an attribute from json"""
-        return self.json.get(name, None)
+        return self.json.get(name, default)
 
     def dump(self, out_json_file, indent=2, **kwargs):
         """dump as JSON file"""

@@ -530,6 +530,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         except:
             return None
 
+    @property
+    def fieldLookup(self):
+        """convenience property for field lookups"""
+        return {f.name: f for f in self.fields}
+
     def list_fields(self):
         """method to list field names"""
         return [f.name for f in self.fields]
@@ -599,7 +604,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                 del each
                 yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
 
-    def query(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, f=JSON, kmz='', **kwargs):
+    def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, f=JSON, kmz='', **kwargs):
         """query layer and get response as JSON
 
         Optional:
@@ -649,9 +654,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             return kmz
 
         else:
-
             server_response = {}
-
             if exceed_limit:
 
                 for i, where2 in enumerate(self.iter_queries(where, params, max_recs=records)):
@@ -886,7 +889,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         """Run Cursor on layer, helper method that calls Cursor Object"""
         cur_fields = self.__fix_fields(fields)
 
-        fs = self.query(cur_fields, where, add_params, records, exceed_limit)
+        fs = self.query(where, cur_fields, add_params, records, exceed_limit)
         return Cursor(fs, fields)
 
     def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None, include_domains=False):
@@ -910,7 +913,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         if self.type == 'Feature Layer':
             if not include_domains or include_domains == 'false':
                 # do query to get feature set
-                fs = self.query(fields, where, params, records, exceed_limit)
+                fs = self.query(where, fields, params, records, exceed_limit)
                 exportFeatureSet(fs, out_fc, include_domains=False)
 
             else:
@@ -941,7 +944,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                     params[OUT_SR] = sr
 
                 # do query to get feature set
-                fs = self.query(cur_fields, where, params, records, exceed_limit)
+                fs = self.query(where, cur_fields, params, records, exceed_limit)
 
                 # get any domain info
                 f_dict = {f.name: f for f in self.fields}
@@ -1663,13 +1666,11 @@ class FeatureLayer(MapServiceLayer):
         """
         if self.json.get(SUPPORTS_CALCULATE, False):
             calc_url = self.url + '/calculate'
-            p = {RETURN_IDS_ONLY:TRUE,
-                RETURN_GEOMETRY: 'false',
-                OUT_FIELDS: '',
+            p = {WHERE: where,
                 CALC_EXPRESSION: json.dumps(exp),
                 SQL_FORMAT: sqlFormat}
 
-            return do_post(calc_url, where=where, add_params=p, token=self.token, cookies=self._cookie)
+            return do_post(calc_url, params=p, token=self.token, cookies=self._cookie)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support field calculations!'.format(self.name))
