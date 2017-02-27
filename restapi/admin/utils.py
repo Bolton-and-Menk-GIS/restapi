@@ -162,7 +162,7 @@ else:
 
         @staticmethod
         def form_connection_string(ws):
-            """esri's describe workspace connection string does not work at 10.4, bug???"""
+            """form connection string by parsing .sde connection files"""
             if ws.endswith('.sde'):
                 with open(ws, 'rb') as f:
                     data = f.read()
