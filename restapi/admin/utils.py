@@ -247,7 +247,7 @@ class ServerAdministrator(AdiminstratorBase):
                         if self.test_connection_string(con_str, db.onServerConnectionString) or self.test_connection_string(con_str, db.onPremiseConnectionString):
                             service_map['workspace'].append(MunchEncoder({
                                 'name': service.serviceName,
-                                'serviceObj': service
+                                'service': service
                             }))
                             if service not in toStop:
                                 toStop.append(service)
@@ -258,7 +258,7 @@ class ServerAdministrator(AdiminstratorBase):
                                 if lyr_name in service_map['feature_classes']:
                                     service_map['feature_classes'][lyr_name].append(MunchEncoder({
                                         'name': service.serviceName,
-                                        'serviceObj': service
+                                        'service': service
                                     }))
                                     if service not in toStop:
                                         toStop.append(service)
