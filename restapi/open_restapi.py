@@ -12,6 +12,8 @@ from collections import OrderedDict
 from rest_utils import *
 from shapefile import shapefile
 
+__opensource__ = True
+
 # field types for shapefile module
 SHP_FTYPES = munch.munchify({
           DATE_FIELD:'D',

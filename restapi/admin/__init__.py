@@ -172,6 +172,7 @@ class BaseDirectory(AdminRESTEndpoint):
 class BaseResource(JsonGetter):
     def __init__(self, in_json):
         self.json = munchify(in_json)
+        super(BaseResource, self).__init__()
 
 class Report(BaseResource):
     pass
@@ -1205,8 +1206,8 @@ class Service(BaseDirectory):
     def manifest(self):
         """get service manifest.  This  documents the data and other resources that define the
         service origins and power the service"""
-        query_url = self.url + 'iteminfo/manifest/manifest.json'
-        return namedTuple('ServiceManifest', do_post(query_url, token=self.token))
+        query_url = self.url + '/iteminfo/manifest/manifest.json'
+        return BaseResource(do_post(query_url, token=self.token))
 
     def statistics(self):
         """return service statistics object"""

@@ -104,6 +104,12 @@ def Round(x, base=5):
     """round to nearest n"""
     return int(base * round(float(x)/base))
 
+def iter_chunks(iterable, n):
+    """iterate an array in chunks"""
+    args = [iter(iterable)] * n
+    for group in izip_longest(*args, fillvalue=None):
+        yield filter(None, group)
+
 def tmp_json_file():
     """returns a valid path for a temporary json file"""
     global TEMP_DIR
@@ -405,6 +411,11 @@ class RestapiEncoder(json.JSONEncoder):
         except:
             return {}
 
+class NameEncoder(json.JSONEncoder):
+    """encoder for restapi objects to make serializeable for JSON"""
+    def default(self, o):
+        return o.__repr__()
+
 class JsonGetter(object):
     """override getters to also check its json property"""
     json = {}
@@ -422,12 +433,16 @@ class JsonGetter(object):
             if not tail == '.json':
                 out_json_file = head + '.json'
             with open(out_json_file, 'w') as f:
+                if not 'cls' in kwargs:
+                    kwargs['cls'] = RestapiEncoder
                 json.dump(self.json, f, indent=indent, **kwargs)
         return out_json_file
 
-    def dumps(self):
+    def dumps(self, **kwargs):
         """dump as string"""
-        return json.dumps(self.json)
+        if not 'cls' in kwargs:
+            kwargs['cls'] = RestapiEncoder
+        return json.dumps(self.json, **kwargs)
 
     def __getitem__(self, name):
         """dict like access to json definition"""
@@ -447,7 +462,10 @@ class JsonGetter(object):
                 raise AttributeError(name)
 
     def __str__(self):
-        return json.dumps(self.json, sort_keys=True, indent=2, ensure_ascii=False)
+        return json.dumps(self.json, sort_keys=True, indent=2, cls=RestapiEncoder, ensure_ascii=False)
+
+    def __repr__(self):
+        return json.dumps(self.json, sort_keys=True, indent=2, cls=NameEncoder, ensure_ascii=False)
 
 class RESTEndpoint(JsonGetter):
     """Base REST Endpoint Object to handle credentials and get JSON response

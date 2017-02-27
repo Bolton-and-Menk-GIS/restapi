@@ -4,11 +4,10 @@ from __future__ import print_function
 try:
     import arcpy
     from arc_restapi import *
-    __opensource__ = False
-
+    has_arcpy = True
 except ImportError:
     from open_restapi import *
-    __opensource__ = True
+    has_arcpy = False
 
 import sqlite3
 import contextlib
@@ -911,31 +910,33 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                 if output is in a geodatabase.
         """
         if self.type == 'Feature Layer':
+
+            # filter fields first
+            if not fields:
+                fields = '*'
+            if fields == '*':
+                _fields = self.fields
+            else:
+                if isinstance(fields, basestring):
+                    fields = fields.split(',')
+                _fields = [f for f in self.fields if f.name in fields]
+
+            # filter fields for cusor object
+            cur_fields = []
+            for fld in _fields:
+                if fld.type not in SKIP_FIELDS.keys():
+                    if not any(['shape_' in fld.name.lower(),
+                                'shape.' in fld.name.lower(),
+                                '(shape)' in fld.name.lower()
+                                ]):
+                        cur_fields.append(fld.name)
+
             if not include_domains or include_domains == 'false':
                 # do query to get feature set
-                fs = self.query(where, fields, params, records, exceed_limit)
-                exportFeatureSet(fs, out_fc, include_domains=False)
+                fs = self.query(where, cur_fields, params, records, exceed_limit)
+                exportFeatureSet(fs, out_fc, include_domains)
 
             else:
-                if not fields:
-                    fields = '*'
-                if fields == '*':
-                    _fields = self.fields
-                else:
-                    if isinstance(fields, basestring):
-                        fields = fields.split(',')
-                    _fields = [f for f in self.fields if f.name in fields]
-
-                # filter fields for cusor object
-                cur_fields = []
-                for fld in _fields:
-                    if fld.type not in [OID] + SKIP_FIELDS.keys():
-                        if not any(['shape_' in fld.name.lower(),
-                                    'shape.' in fld.name.lower(),
-                                    '(shape)' in fld.name.lower(),
-                                    'objectid' in fld.name.lower(),
-                                    fld.name.lower() == 'fid']):
-                            cur_fields.append(fld.name)
 
                 # make new feature class
                 if not sr:
@@ -956,7 +957,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         else:
             print('Layer: "{}" is not a Feature Layer!'.format(self.name))
 
-    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False):
+    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False, exceed_limit=True):
         """Method for spatial Query, exports geometry that intersect polygon or
         envelope features.
 
@@ -1021,9 +1022,9 @@ class MapService(BaseService):
                     elif not grp_lyr and not layer[SUB_LAYER_IDS]:
                         return layer[ID]
                 return layer[ID]
-        for tab in r[TABLES]:
-            if fnmatch.fnmatch(tab[NAME], name):
-                return tab[ID]
+        for tab in self.tables:
+            if fnmatch.fnmatch(tab.get(NAME), name):
+                return tab.get(ID)
         print('No Layer found matching "{0}"'.format(name))
         return None
 
