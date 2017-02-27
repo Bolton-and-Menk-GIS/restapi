@@ -4,6 +4,8 @@ from ..rest_utils import JsonGetter, NameEncoder
 import os
 import json
 
+__all__  = ['ServerAdministrator']
+
 if has_arcpy:
     import arcpy
 
