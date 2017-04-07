@@ -38,141 +38,9 @@ def project(SHAPEFILE, wkid):
     # write .prj file
     prj_file = os.path.splitext(SHAPEFILE)[0] + '.prj'
     with open(prj_file, 'w') as f:
-        f.write(PROJECTIONS[str(wkid)].replace("'", '"'))
+        f.write(PROJECTIONS.get(str(wkid), '').replace("'", '"'))
     return prj_file
 
-def exportFeatureSet(out_fc, feature_set, outSR=None):
-    """export features (JSON result) to shapefile or feature class
-
-    Required:
-        out_fc -- output feature class or shapefile
-        feature_set -- JSON response (feature set) obtained from a query
-
-    Optional:
-        outSR -- optional output spatial reference.  If none set, will default
-            to SR of result_query feature set.
-    """
-    # validate features input (should be list or dict, preferably list)
-    if isinstance(feature_set, basestring):
-        try:
-            feature_set = json.loads(feature_set)
-        except:
-            raise IOError('Not a valid input for "features" parameter!')
-
-    if not isinstance(feature_set, dict) or not FEATURES in feature_set:
-        raise IOError('Not a valid input for "features" parameter!')
-
-    # make new shapefile
-    fields = [Field(f) for f in feature_set[FIELDS]]
-
-    if not outSR:
-        sr_dict = feature_set[SPATIAL_REFERNCE]
-        if LATEST_WKID in sr_dict:
-            outSR = int(sr_dict[LATEST_WKID])
-        else:
-            outSR = int(sr_dict[WKID])
-
-    g_type = feature_set[GEOMETRY_TYPE]
-
-    # add all fields
-    w = shp_helper.ShpWriter(G_DICT[g_type].upper(), out_fc)
-    field_map = []
-    for fld in fields:
-        if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
-            if not any(['shape_' in fld.name.lower(),
-                        'shape.' in fld.name.lower(),
-                        '(shape)' in fld.name.lower(),
-                        'objectid' in fld.name.lower(),
-                        fld.name.lower() == 'fid']):
-
-                field_name = fld.name.split('.')[-1][:10]
-                field_type = SHP_FTYPES[fld.type]
-                field_length = str(fld.length) if fld.length else "50"
-                w.add_field(field_name, field_type, field_length)
-                field_map.append((fld.name, field_name))
-
-    # search cursor to write rows
-    s_fields = [fl for fl in fields if fl.name in [f[0] for f in field_map]]
-    for feat in feature_set[FEATURES]:
-        row = Row(feat, s_fields, outSR, g_type).values
-        w.add_row(row[-1], [v if v else ' ' for v in row[:-1]])
-
-    w.save()
-    print('Created: "{0}"'.format(out_fc))
-
-    # write projection file
-    project(out_fc, outSR)
-    return out_fc
-
-def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', token='', max_recs=None, get_all=False, **kwargs):
-    """exports a map service layer with attachments.  Output is a shapefile.  New records will be created if there
-    are multiple attachments per feature, thus creating a ONE TO ONE relationship as shapefiles cannot handle a
-    ONE TO MANY relationship.
-
-    Required:
-        out_ws -- output location to put new file gdb
-        lyr_url -- url to map service layer
-
-    Optional:
-        fields -- list of fields or comma separated list of desired fields. Default is all fields ('*')
-        where -- where clause for query
-        token -- token to handle security, only required if service is secured
-        max_recs -- maximum number of records to return. Ignored if get_all is set to True.
-        get_all -- option to exceed transfer limit
-        **kwargs -- key word arguments to further filter query (i.e. geometry or outSR)
-    """
-    lyr = MapServiceLayer(url, token=token)
-
-    # make sure there is an OID field
-    oid_name = lyr.OID.name
-    if isinstance(fields, basestring):
-        if fields != '*':
-            if 'OID@' not in fields or oid_name not in fields:
-                fields += ',{}'.format(oid_name)
-
-    elif isinstance(fields, list):
-        if 'OID@' not in fields or oid_name not in fields:
-            fields.append(oid_name)
-
-    # get feature set
-    cursor = lyr.cursor(fields, where, records=max_recs, add_params=kwargs, get_all=get_all)
-    oid_index = [i for i,f in enumerate(cursor.field_objects) if f.type == OID][0]
-
-    # form feature set and call export feature set
-    fs = {FEATURES: cursor.features,
-          FIELDS: lyr.response[FIELDS],
-          SPATIAL_REFERNCE: lyr.response[EXTENT][SPATIAL_REFERNCE],
-          GEOMETRY_TYPE: lyr.geometryType}
-
-    # create new shapefile
-    out_fc = validate_name(os.path.join(out_ws, lyr.name + '.shp'))
-    exportFeatureSet(out_fc, fs)
-
-    # get attachments (OID will start at 1)
-    att_folder = os.path.join(out_ws, '{}_Attachments'.format(os.path.basename(out_fc).split('.')[0]))
-    if not os.path.exists(att_folder):
-        os.makedirs(att_folder)
-
-    att_dict = {}
-    for i,row in enumerate(cursor.get_rows()):
-        att_dict[i] = []
-        for att in lyr.attachments(row.oid):
-            out_att = att.download(att_folder, verbose=False)
-            att_dict[i].append(out_att)
-
-    # write attachment field for hyperlinks (duplicate features with multiple attachments)
-    e = shp_helper.ShpEditor(out_fc)
-    e.add_field('PHO_LINK', 'C', '254')
-    for i, attachments in att_dict.iteritems():
-        for ac, att in enumerate(attachments):
-            if ac >= 1:
-                recs = list(e.records[i])
-                recs[-1] = att
-                e.add_row(e.shapes[i], recs)
-            else:
-                e.update_row(i, PHO_LINK=att)
-    e.save()
-    return out_fc
 
 def exportReplica(replica, out_folder):
     """converts a restapi.Replica() to a Shapefiles
@@ -303,22 +171,50 @@ def partHandler(shape):
         raise IOError('Not a valid shapefile._Shape() input!')
     return parts
 
-class Geometry(object):
+def find_ws_type(path):
+    """gets a workspace for shapefile"""
+    if os.path.isfile(path):
+        find_ws(os.path.dirname(path))
+    elif os.path.isdir(path):
+        return (path, 'FileSystem')
+
+class Geometry(BaseGeometry):
     """class to handle restapi.Geometry"""
-    def __init__(self, geometry, spatialReference=None):
+
+    def __init__(self, geometry, **kwargs):
         """converts geometry input to restapi.Geometry object
 
         Required:
-            geometry -- input geometry.  Can be shapefile._Shape(),
-                a path to shapefile, or JSON object.
-
-        Optional:
-            spatailReference -- optional WKID for input coordinates.  Useful
-                for a replacement of a WKT.
+            geometry -- input geometry.  Can be arcpy.Geometry(), shapefile/feature
+                class, or JSON
         """
-        self.spatialReference = spatialReference
+        self._inputGeometry = geometry
+        if isinstance(geometry, self.__class__):
+            geometry = geometry.json
+        spatialReference = None
         self.geometryType = None
-        self.JSON = OrderedDict2()
+        for k, v in kwargs.iteritems():
+            if k == SPATIAL_REFERENCE:
+                if isinstance(v, int):
+                    spatialReference = v
+                elif isinstance(v, basestring):
+                    try:
+                        # it's a json string?
+                        v = json.loads(v)
+                    except:
+                        try:
+                            v = int(v)
+                            spatialReference = v
+                        except:
+                            pass
+
+                if isinstance(v, dict):
+                    spatialReference = v.get(LATEST_WKID) if v.get(LATEST_WKID) else v.get(WKID)
+
+            elif k == GEOMETRY_TYPE and v.startswith('esri'):
+                self.geometryType = v
+
+        self.json = OrderedDict2()
         if isinstance(geometry, shapefile._Shape):
             if geometry.shapeType in (1, 11, 21):
                 self.geometryType = ESRI_POINT
@@ -329,86 +225,102 @@ class Geometry(object):
             elif self.geometryType in (8, 18, 28):
                 self.geometryType = ESRI_MULTIPOINT
             if self.geometryType != ESRI_POINT:
-                self.JSON[JSON_CODE[self.geometryType]] = partHandler(geometry.points)
+                self.json[json_CODE[self.geometryType]] = partHandler(geometry.points)
             else:
-                self.JSON = OrderedDict2(zip([X, Y], geometry.points[0]))
+                self.json = OrderedDict2(zip([X, Y], geometry.points[0]))
 
         elif isinstance(geometry, basestring):
             try:
-                geometry = json.loads(geometry)
+                geometry = OrderedDict2(**json.loads(geometry))
             except:
-                # maybe it's a shapefile?
-                if os.path.exists(geometry) and geometry.endswith('.shp'):
-                    prj_file = os.path.splitext(geometry)[0] + '.prj'
-                    if os.path.exists(prj_file):
-                        with open(prj_file, 'r') as f:
-                            prj_string = f.readlines()[0].strip()
-                        if 'PROJCS' in prj_string:
-                            name = prj_string.split('PROJCS["')[1].split('"')[0]
-                        elif 'GEOGCS' in prj_string:
-                            name = prj_string.split('GEOGCS["')[1].split('"')[0]
-                        if name in PRJ_NAMES:
-                            self.spatialReference = PRJ_NAMES[name]
-                    r = shapefile.Reader(geometry)
-                    if r.shapeType in (1, 11, 21):
-                        self.geometryType = ESRI_POINT
-                    elif r.shapeType in (3, 13, 23):
-                        self.geometryType = ESRI_POLYLINE
-                    elif r.shapeType in (5,15, 25):
-                        self.geometryType = ESRI_POLYGON
-                    elif self.geometryType in (8, 18, 28):
-                        self.geometryType = ESRI_MULTIPOINT
-                    if self.geometryType != ESRI_POINT:
-                        self.JSON[JSON_CODE[self.geometryType]] = partHandler(r.shape())
-                    else:
-                        self.JSON = OrderedDict2(zip([X, Y], r.shape().points[0]))
+                # maybe it's a shapefile/feature class?
+                if arcpy.Exists(geometry):
+                    desc = arcpy.Describe(geometry)
+                    spatialReference = desc.spatialReference.factoryCode
+                    self.geometryType = 'esriGeometry{}'.format(desc.shapeType.title())
+                    with arcpy.da.SearchCursor(geometry, ['SHAPE@JSON']) as rows:
+                        for row in rows:
+                            esri_json = json.loads(row[0])
+                            break
+
+                    for k,v in sorted(esri_json.iteritems()):
+                        if k != SPATIAL_REFERENCE:
+                            self.json[k] = v
+                    if SPATIAL_REFERENCE in esri_json:
+                        self.json[SPATIAL_REFERENCE] = esri_json[SPATIAL_REFERENCE]
                 else:
                     raise IOError('Not a valid geometry input!')
 
         if isinstance(geometry, dict):
-            if SPATIAL_REFERNCE in geometry:
-                sr_json = geometry[SPATIAL_REFERNCE]
+            if SPATIAL_REFERENCE in geometry:
+                sr_json = geometry[SPATIAL_REFERENCE]
                 if LATEST_WKID in sr_json:
-                    self.spatialReference = sr_json[LATEST_WKID]
+                    spatialReference = sr_json[LATEST_WKID]
                 else:
                     try:
-                        self.spatialReference = sr_json[WKID]
+                        spatialReference = sr_json[WKID]
                     except:
                         raise IOError('No spatial reference found in JSON object!')
-                if FEATURES in geometry:
-                    d = geometry[FEATURES][0]
-                    if GEOMETRY in d:
-                        d = geometry[FEATURES][0][GEOMETRY]
-                    self.JSON = d
-                elif GEOMETRY in geometry:
-                    for k,v in geometry[GEOMETRY]:
-                        self.JSON[k] = v
-                if not self.JSON:
-                    if RINGS in geometry:
-                        self.JSON[RINGS] = [geometry[RINGS]]
-                        self.geometryType = GEOM_DICT[RINGS]
-                    elif PATHS in geometry:
-                        self.JSON[PATHS] = [geometry[PATHS]]
-                        self.geometryType = GEOM_DICT[PATHS]
-                    elif POINTS in geometry:
-                        self.JSON[POINTS] = [geometry[POINTS]]
-                        self.geometryType = GEOM_DICT[POINTS]
-                    elif X in geometry and Y in geometry:
-                        self.JSON[X] = geometry[X]
-                        self.JSON[Y] = geometry[Y]
-                        self.geometryType = ESRI_POINT
-                    else:
-                        raise IOError('Not a valid JSON object!')
-                if not self.geometryType and GEOMETRY_TYPE in geometry:
-                    self.geometryType = geometry[GEOMETRY_TYPE]
-        if not SPATIAL_REFERNCE in self.JSON and self.spatialReference:
-            self.JSON[SPATIAL_REFERNCE] = {WKID: self.spatialReference}
+            if FEATURES in geometry:
+                d = geometry[FEATURES][0]
+                if GEOMETRY in d:
+                    d = geometry[FEATURES][0][GEOMETRY]
+                for k,v in d.iteritems():
+                    self.json[k] = v
+            elif GEOMETRY in geometry:
+                for k,v in geometry[GEOMETRY].iteritems():
+                    self.json[k] = v
+            if not self.json:
+                if RINGS in geometry:
+                    self.json[RINGS] = geometry[RINGS]
+                    self.geometryType = GEOM_DICT[RINGS]
+                elif PATHS in geometry:
+                    self.json[PATHS] = geometry[PATHS]
+                    self.geometryType = GEOM_DICT[PATHS]
+                elif POINTS in geometry:
+                    self.json[POINTS] = geometry[POINTS]
+                    self.geometryType = GEOM_DICT[POINTS]
+                elif X in geometry and Y in geometry:
+                    self.json[X] = geometry[X]
+                    self.json[Y] = geometry[Y]
+                    self.geometryType = ESRI_POINT
+                elif all(map(lambda k: k in geometry, [XMIN, YMIN, XMAX, YMAX])):
+                    for k in [XMIN, YMIN, XMAX, YMAX]:
+                        self.json[k] = geometry[k]
+                    self.geometryType = ESRI_ENVELOPE
+                else:
+                    raise IOError('Not a valid JSON object!')
+            if not self.geometryType and GEOMETRY_TYPE in geometry:
+                self.geometryType = geometry[GEOMETRY_TYPE]
+        if not SPATIAL_REFERENCE in self.json and spatialReference is not None:
+            self.spatialReference = spatialReference
+        if not self.geometryType:
+            if RINGS in self.json:
+                self.geometryType = ESRI_POLYGON
+            elif PATHS in self.json:
+                self.geometryType = ESRI_POLYLINE
+            elif POINTS in self.json:
+                self.geometryType = ESRI_MULTIPOINT
+            elif X in self.json and Y in self.json:
+                self.geometryType = ESRI_POINT
+        self.json = munch.munchify(self.json)
+
+    @property
+    def spatialReference(self):
+        return self.getWKID()
+
+    @spatialReference.setter
+    def spatialReference(self, wkid):
+        if isinstance(wkid, int):
+            self.json[SPATIAL_REFERENCE] = {WKID: wkid}
+        elif isinstance(wkid, dict):
+            self.json[SPATIAL_REFERENCE] = wkid
 
     def envelope(self):
         """return an envelope from shape"""
         if self.geometryType != ESRI_POINT:
             coords = []
-            for i in self.JSON[JSON_CODE[self.geometryType]]:
+            for i in self.json[JSON_CODE[self.geometryType]]:
                 coords.extend(i)
             XMin = min(g[0] for g in coords)
             YMin = min(g[1] for g in coords)
@@ -416,40 +328,38 @@ class Geometry(object):
             YMax = max(g[1] for g in coords)
             return ','.join(map(str, [XMin, YMin, XMax, YMax]))
         else:
-            return '{0},{1},{0},{1}'.format(self.JSON[X], self.JSON[Y])
+            return '{0},{1},{0},{1}'.format(self.json[X], self.json[Y])
 
-    def dumps(self):
-        """retuns json as a string"""
-        # cannot use json.dumps, fails to serialize some nested lists
-        if self.geometryType == ESRI_POINT:
-            if self.spatialReference:
-                return '{"x":%s, "y":%s, "spatialReference":{"wkid": %s}}' %(self.JSON[X],
-                                                                             self.JSON[Y],
-                                                                             self.spatialReference)
+    def envelopeAsJSON(self, roundCoordinates=False):
+        """returns an envelope geometry object as JSON"""
+        if self.geometryType != ESRI_ENVELOPE:
+            flds = [XMIN, YMIN, XMAX, YMAX]
+            if roundCoordinates:
+                coords = map(int, [float(i) for i in self.envelope().split(',')])
             else:
-                return '{"x":%s, "y":%s}' %(self.JSON[X], self.JSON[Y])
-        if self.spatialReference:
-            return '{"%s":%s, "spatialReference":{"wkid": %s}}' %(JSON_CODE[self.geometryType],
-                                                                  self.JSON[JSON_CODE[self.geometryType]],
-                                                                  self.spatialReference)
+                coords = self.envelope().split(',')
+            d = dict(zip(flds, coords))
         else:
-            return '{"%s":%s}' %(JSON_CODE[self.geometryType], self.JSON[JSON_CODE[self.geometryType]])
+            d = self.json
+        if self.json.get(SPATIAL_REFERENCE):
+            d[SPATIAL_REFERENCE] = self.json[SPATIAL_REFERENCE]
+        return d
 
     def asShape(self):
         """returns geometry as shapefile._Shape() object"""
         shp = shapefile._Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
         if self.geometryType != ESRI_POINT:
-            shp.points = self.JSON[JSON_CODE[self.geometryType]]
+            shp.points = self.json[JSON_CODE[self.geometryType]]
         else:
-            shp.points = [[self.JSON[X], self.JSON[Y]]]
+            shp.points = [[self.json[X], self.json[Y]]]
 
         # check if multipart, will need to fix if it is
         if any(isinstance(i, list) for i in shp.points):
             coords = []
             part_indices = [0] + [len(i) for i in iter(shp.points)][:-1]
-            for i in shp.points:
-                coords.extend(i)
-            shp.points = coords
+##            for i in shp.points:
+##                coords.extend(i)
+##            shp.points = coords
             shp.parts = shapefile._Array('i', part_indices)
         else:
             shp.parts = shapefile._Array('i', [0])
@@ -466,6 +376,11 @@ class Geometry(object):
     def __str__(self):
         """dumps JSON to string"""
         return self.dumps()
+
+    def __repr__(self):
+        """represntation"""
+        return '<restapi.Geometry: {}>'.format(self.geometryType)
+
 
 class GeometryCollection(object):
     """represents an array of restapi.Geometry objects"""
@@ -560,7 +475,7 @@ class GeometryCollection(object):
 
 class GeocodeHandler(object):
     """class to handle geocode results"""
-    __slots__ = [SPATIAL_REFERNCE, 'results', FIELDS, 'formattedResults']
+    __slots__ = [SPATIAL_REFERENCE, 'results', FIELDS, 'formattedResults']
 
     def __init__(self, geocodeResult):
         """geocode response object handler

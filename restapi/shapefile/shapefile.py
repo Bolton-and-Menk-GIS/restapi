@@ -18,6 +18,7 @@ import array
 import tempfile
 import itertools
 import datetime
+##import codecs
 import re
 
 #
@@ -61,6 +62,10 @@ def b(v):
     else:
         # For python 2 assume str passed in and return str.
         return v
+
+##def open(filename, mode):
+##    """wrapper to use codecs.open"""
+##    return codecs.open(filename, mode, 'utf-8')
 
 def u(v):
     if PYTHON3:

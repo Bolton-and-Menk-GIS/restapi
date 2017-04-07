@@ -9,193 +9,32 @@ from rest_utils import *
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
-def exportFeatureSet(feature_set, out_fc, include_domains=False):
-    """export FeatureSet (JSON result)  to shapefile or feature class
-
-    Required:
-        feature_set -- JSON response obtained from a query or FeatureSet() object
-        out_fc -- output feature class or shapefile
-
-    Optional:
-        include_domains -- if True, will manually create the feature class and add domains to GDB
-            if output is in a geodatabase.
-
-    at minimum, feature set must contain these keys:
-        [u'features', u'fields', u'spatialReference', u'geometryType']
+def find_ws_type(path):
+    """determine output workspace (feature class if not FileSystem)
+    returns a tuple of workspace path and type
     """
-    # validate features input (should be list or dict, preferably list)
-    feature_set = FeatureSet(feature_set)
+    # try original path first
+    if not arcpy.Exists(path):
+        path = os.path.dirname(path)
 
-    def find_ws_type(path):
-        """determine output workspace (feature class if not FileSystem)
-        returns a tuple of workspace path and type
-        """
-        # try original path first
-        if not arcpy.Exists(path):
-            path = os.path.dirname(path)
+    desc = arcpy.Describe(path)
+    if hasattr(desc, 'workspaceType'):
+        return path, desc.workspaceType
 
-        desc = arcpy.Describe(path)
+    # search until finding a valid workspace
+    split = filter(None, path.split(os.sep))
+    if path.startswith('\\\\'):
+        split[0] = r'\\{0}'.format(split[0])
+
+    # find valid workspace
+    for i in xrange(1, len(split)):
+        sub_dir = os.sep.join(split[:-i])
+        desc = arcpy.Describe(sub_dir)
         if hasattr(desc, 'workspaceType'):
-            return path, desc.workspaceType
-
-        # search until finding a valid workspace
-        split = filter(None, path.split(os.sep))
-        if path.startswith('\\\\'):
-            split[0] = r'\\{0}'.format(split[0])
-
-        # find valid workspace
-        for i in xrange(1, len(split)):
-            sub_dir = os.sep.join(split[:-i])
-            desc = arcpy.Describe(sub_dir)
-            if hasattr(desc, 'workspaceType'):
-                return sub_dir, desc.workspaceType
-
-    # find workspace type and path
-    ws, wsType = find_ws_type(out_fc)
-    isShp = wsType == 'FileSystem'
-
-    # do proper export routine
-    tmp = feature_set.dump(tmp_json_file(), indent=None)
-    arcpy.conversion.JSONToFeatures(tmp, out_fc)
-    try:
-        os.remove(tmp)
-    except:
-        pass
-
-    if not isShp and include_domains in (True, 1, TRUE):
-        gdb_domains = arcpy.Describe(ws).domains
-        dom_map = {}
-        for field in feature_set.fields:
-            if field.get(DOMAIN):
-                field_name = field.name.split('.')[-1]
-                dom_map[field_name] = field.domain[NAME]
-                if field.domain[NAME] not in gdb_domains:
-                    if CODED_VALUES in field.domain:
-                        dType = CODED
-                    else:
-                        dType = RANGE_UPPER
-
-                    arcpy.management.CreateDomain(ws, field.domain[NAME],
-                                                  field.domain[NAME],
-                                                  FTYPES[field.type],
-                                                  dType)
-                    if dType == CODED:
-                        for cv in field.domain[CODED_VALUES]:
-                            arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
-                    elif dType == RANGE_UPPER:
-                        _min, _max = field.domain[RANGE]
-                        arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
-
-                    gdb_domains.append(field.domain[NAME])
-                    print('Added domain "{}" to database: "{}"'.format(field.domain[NAME], ws))
-
-        # add domains
-        if not isShp and include_domains:
-            field_list = [f.name.split('.')[-1] for f in arcpy.ListFields(out_fc)]
-            for fld, dom_name in dom_map.iteritems():
-                if fld in field_list:
-                    arcpy.management.AssignDomainToField(out_fc, fld, dom_name)
-                    print('Assigned domain "{}" to field "{}"'.format(dom_name, fld))
-
-    print('Created: "{0}"'.format(out_fc))
-    return out_fc
-
-def exportFeaturesWithAttachments(out_ws, lyr_url, fields='*', where='1=1', token='', max_recs=None, get_all=False, out_gdb_name='', **kwargs):
-    """exports a map service layer with attachments.  Output is a geodatabase.
-
-    Required:
-        out_ws -- output location to put new file gdb
-        lyr_url -- url to map service layer
-
-    Optional:
-        fields -- list of fields or comma separated list of desired fields. Default is all fields ('*')
-        where -- where clause for query
-        token -- token to handle security, only required if service is secured
-        max_recs -- maximum number of records to return. Ignored if get_all is set to True.
-        get_all -- option to exceed transfer limit
-        out_gdb_name -- optional output geodatabase name, can also reference an existing gdb within the "out_ws" folder
-        **kwargs -- key word arguments to further filter query (i.e. geometry or outSR)
-    """
-    lyr = MapServiceLayer(lyr_url, token=token)
-
-    if not out_gdb_name:
-        out_gdb_name = arcpy.ValidateTableName(lyr.url.split('/')[-3], out_ws) + '.gdb'
-    if not arcpy.Exists(os.path.join(out_ws, out_gdb_name)):
-        gdb = arcpy.management.CreateFileGDB(out_ws, out_gdb_name, 'CURRENT').getOutput(0)
-    else:
-        gdb = os.path.join(out_ws, out_gdb_name)
-    out_fc = os.path.join(gdb, arcpy.ValidateTableName(lyr.name, gdb))
-
-    # make sure there is an OID field
-    oid_name = lyr.OID.name
-    if isinstance(fields, basestring):
-        if fields != '*':
-            if OID_TOKEN not in fields or oid_name not in fields:
-                fields += ',{}'.format(oid_name)
-
-    elif isinstance(fields, list):
-        if OID_TOKEN not in fields or oid_name not in fields:
-            fields.append(oid_name)
-
-    # get feature set
-    kwargs[RETURN_GEOMETRY] = TRUE
-    cursor = lyr.cursor(fields, where, records=max_recs, add_params=kwargs, get_all=get_all)
-    oid_index = [i for i,f in enumerate(cursor.field_objects) if f.type == OID][0]
-
-    # form feature set and call export feature set
-    fs = {FEATURES: cursor.features,
-          FIELDS: lyr.response[FIELDS],
-          SPATIAL_REFERENCE: lyr.response[EXTENT][SPATIAL_REFERENCE],
-          GEOMETRY_TYPE: lyr.geometryType}
-
-    exportFeatureSet(fs, out_fc)
-
-    # get attachments (OID will start at 1)
-    att_folder = os.path.join(out_ws, '{}_Attachments'.format(os.path.basename(out_fc)))
-    if not os.path.exists(att_folder):
-        os.makedirs(att_folder)
-
-    att_dict, att_ids = {}, []
-    for i,row in enumerate(cursor.get_rows()):
-        att_id = 'P-{}'.format(i + 1)
-        att_ids.append(att_id)
-        att_dict[att_id] = []
-        for att in lyr.attachments(row.oid):
-            out_att = att.download(att_folder, verbose=False)
-            att_dict[att_id].append(os.path.join(out_att))
-
-    # photo field (hopefully this is a unique field name...)
-    PHOTO_ID = 'PHOTO_ID_X_Y_Z__'
-    arcpy.management.AddField(out_fc, PHOTO_ID, 'TEXT')
-    with arcpy.da.UpdateCursor(out_fc, PHOTO_ID) as rows:
-        for i,row in enumerate(rows):
-            rows.updateRow((att_ids[i],))
-
-    # create temp table
-    arcpy.management.EnableAttachments(out_fc)
-    tmp_tab = r'in_memory\temp_photo_points'
-    arcpy.management.CreateTable('in_memory', 'temp_photo_points')
-    arcpy.management.AddField(tmp_tab, PHOTO_ID, 'TEXT')
-    arcpy.management.AddField(tmp_tab, 'PATH', 'TEXT', field_length=255)
-    arcpy.management.AddField(tmp_tab, 'PHOTO_NAME', 'TEXT', field_length=255)
-
-    with arcpy.da.InsertCursor(tmp_tab, [PHOTO_ID, 'PATH', 'PHOTO_NAME']) as irows:
-        for k, att_list in att_dict.iteritems():
-            for v in att_list:
-                irows.insertRow((k,) + os.path.split(v))
-
-     # add attachments
-    arcpy.management.AddAttachments(out_fc, PHOTO_ID, tmp_tab, PHOTO_ID,
-                                    'PHOTO_NAME', in_working_folder=att_folder)
-    arcpy.management.Delete(tmp_tab)
-    arcpy.management.DeleteField(out_fc, PHOTO_ID)
-
-    print('Created: "{}"'.format(gdb))
-    return gdb
+            return sub_dir, desc.workspaceType
 
 class Geometry(BaseGeometry):
     """class to handle restapi.Geometry"""
-
     def __init__(self, geometry, **kwargs):
         """converts geometry input to restapi.Geometry object
 
@@ -375,7 +214,7 @@ class Geometry(BaseGeometry):
 
     def __repr__(self):
         """represntation"""
-        return '<restapi.Geometry: {}>'.format(self.geometryType)
+        return '<{}.{}: {}>'.format(self.__module__, self.__class__.__name__, self.geometryType)
 
 class GeometryCollection(BaseGeometryCollection):
     """represents an array of restapi.Geometry objects"""
@@ -562,3 +401,4 @@ class Geocoder(GeocodeService):
 
         else:
             raise TypeError('{} is not a {} object!'.format(geocodeResultObject, GeocodeResult))
+

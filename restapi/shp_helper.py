@@ -11,6 +11,7 @@ import shapefile
 import itertools
 import datetime
 import json
+import unicodedata
 
 # constants (from shapefile)
 shp_dict = {
@@ -55,7 +56,8 @@ class ShpWriter(object):
         """
         if not size:
             size = "50"
-        self.w.field(str(name), fieldType, str(size), decimal) #field name cannot be unicode, must be str()
+        field_name = field_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore')
+        self.w.field(field_name, fieldType, str(size), decimal) #field name cannot be unicode, must be str()
 
     def add_row(self, shape, attributes):
         """method to add a rec
@@ -138,8 +140,9 @@ class ShpEditor(object):
         """
         if not size:
             size = "50"
-        self.w.field(str(name), fieldType, str(size), decimal) #field name cannot be unicode, must be str()
-        self.fields.append([name, fieldType, int(size), int(decimal)])
+        field_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore')
+        self.w.field(field_name, fieldType, str(size), decimal) #field name cannot be unicode, must be str()
+        self.fields.append([field_name, fieldType, int(size), int(decimal)])
         self.field_names.append(name)
         self.field_indices[name] = len(self.fields) - 1
         for rec in self.records:

@@ -306,6 +306,14 @@ GEOM_DICT = {RINGS: ESRI_POLYGON,
              X: ESRI_POINT,
              Y: ESRI_POINT}
 
+FIELD_STRUCT = {ALIAS: NULL,
+    NAME: NULL,
+    TYPE: NULL,
+    DOMAIN: NULL
+}
+
+FIELD_KEYS_CREATE = [NAME, ALIAS, TYPE, DOMAIN, LENGTH]
+
 GEOM_CODE = {v:k for k,v in GEOM_DICT.iteritems()}
 BASE_PATTERN = 'http*://*/rest/services*'
 USER_AGENT = 'restapi (Python)'

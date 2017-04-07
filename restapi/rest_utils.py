@@ -163,7 +163,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
 
     for pName, p in params.iteritems():
         if isinstance(p, dict) or hasattr(p, 'json'):
-            params[pName] = json.dumps(p, cls=RestapiEncoder)
+            params[pName] = json.dumps(p, ensure_ascii=False, cls=RestapiEncoder)
 
     if not F in params:
         params[F] = JSON
@@ -435,13 +435,14 @@ class JsonGetter(object):
             with open(out_json_file, 'w') as f:
                 if not 'cls' in kwargs:
                     kwargs['cls'] = RestapiEncoder
-                json.dump(self.json, f, indent=indent, **kwargs)
+                json.dump(self.json, f, indent=indent, ensure_ascii=False, **kwargs)
         return out_json_file
 
     def dumps(self, **kwargs):
         """dump as string"""
         if not 'cls' in kwargs:
             kwargs['cls'] = RestapiEncoder
+        kwargs['ensure_ascii'] = False
         return json.dumps(self.json, **kwargs)
 
     def __getitem__(self, name):
@@ -607,73 +608,35 @@ class SpatialReferenceMixin(object):
         """returns the well known text (if it exists) for a service"""
         return self._spatialReference.get(WKT, '')
 
-class BaseService(RESTEndpoint, SpatialReferenceMixin):
-    """base class for all services"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        super(BaseService, self).__init__(url, usr, pw, token, proxy)
-        if NAME not in self.json:
-            self.name = self.url.split('/')[-2]
-        self.name = self.name.split('/')[-1]
+class FieldsMixin(object):
+    json = {}
 
-    def __repr__(self):
-        """string representation with service name"""
+    @property
+    def OIDFieldName(self):
+        """gets the OID field name if it exists in feature set"""
         try:
-            qualified_name = '/'.join(filter(None, [self.url.split('/services/')[-1].split('/' + self.name)[0], self.name]))
-        except:
-            qualified_name = self.name
-        return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
+            return [f.name for f in self.fields if f.type == OID][0]
+        except IndexError:
+           return None
 
-class Feature(JsonGetter):
-    def __init__(self, feature):
-        """represents a single feature
+    @property
+    def ShapeFieldName(self):
+        """gets the Shape field name if it exists in feature set"""
+        try:
+            return [f.name for f in self.fields if f.type == SHAPE][0]
+        except IndexError:
+           return None
 
-        Required:
-            feature -- input json for feature
-        """
-        self.json = munch.munchify(feature)
-        self.geometry = self.json.get(GEOMETRY)
+    @property
+    def fieldLookup(self):
+        """convenience property for field lookups"""
+        return {f.name: f for f in self.fields}
 
-    def get(self, field):
-        """gets an attribute from the feature
+    def list_fields(self):
+        """returns a list of field names"""
+        return [f.name for f in self.fields]
 
-        Required:
-            field -- name of field for which to get attribute
-        """
-        return self.json[ATTRIBUTES].get(field)
-
-    def __repr__(self):
-        return str(self)
-
-class RelatedRecords(JsonGetter, SpatialReferenceMixin):
-    def __init__(self, in_json):
-        """related records response
-
-        Required:
-            in_json -- json response for query related records operation
-        """
-        self.json = munch.munchify(in_json)
-        self.geometryType = self.json.get(GEOMETRY_TYPE)
-        self.spatialReference = self.json.get(SPATIAL_REFERENCE)
-
-    def list_related_OIDs(self):
-        """returns a list of all related object IDs"""
-        return [f.get('objectId') for f in iter(self)]
-
-    def get_related_records(self, oid):
-        """gets the related records for an object id
-
-        Required:
-            oid -- object ID for related records
-        """
-        for group in iter(self):
-            if oid == group.get('objectId'):
-                return [Feature(f) for f in group[RELATED_RECORDS]]
-
-    def __iter__(self):
-        for group in self.json[RELATED_RECORD_GROUPS]:
-            yield group
-
-class FeatureSet(JsonGetter, SpatialReferenceMixin):
+class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     def __init__(self, in_json):
         """class to handle feature set
@@ -681,7 +644,6 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
         Required:
             in_json -- input json response from request
         """
-        super(FeatureSet, self).__init__()
         if isinstance(in_json, basestring):
             in_json = json.loads(in_json)
         elif isinstance(in_json, self.__class__):
@@ -691,21 +653,21 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
         if not all([self.json.get(k) for k in (FIELDS, FEATURES)]):
             raise ValueError('Not a valid Feature Set!')
 
-    @property
-    def OID(self):
-        """OID field object"""
-        try:
-            return [f for f in self.fields if f.type == OID][0]
-        except:
-            return None
-
-    @property
-    def SHAPE(self):
-        """SHAPE field object"""
-        try:
-            return [f for f in self.fields if f.type == SHAPE][0]
-        except:
-            return None
+##    @property
+##    def OIDFieldName(self):
+##        """gets the OID field name if it exists in feature set"""
+##        try:
+##            return [f.name for f in self.fields if f.type == OID][0]
+##        except IndexError:
+##           return None
+##
+##    @property
+##    def ShapeFieldName(self):
+##        """gets the Shape field name if it exists in feature set"""
+##        try:
+##            return [f.name for f in self.fields if f.type == SHAPE][0]
+##        except IndexError:
+##           return None
 
     @property
     def hasGeometry(self):
@@ -720,9 +682,9 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
         """returns total number of records in Cursor (user queried)"""
         return len(self)
 
-    def list_fields(self):
-        """returns a list of field names"""
-        return [f.name for f in self.fields]
+##    def list_fields(self):
+##        """returns a list of field names"""
+##        return [f.name for f in self.fields]
 
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""
@@ -755,6 +717,78 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin):
 
     def __dir__(self):
         return sorted(self.__class__.__dict__.keys() + self.json.keys())
+
+    def __repr__(self):
+        return '<{} (count: {})>'.format(self.__class__.__name__, self.count)
+
+class Feature(JsonGetter):
+    def __init__(self, feature):
+        """represents a single feature
+
+        Required:
+            feature -- input json for feature
+        """
+        self.json = munch.munchify(feature)
+        self.json.get(GEOMETRY)
+
+    def get(self, field):
+        """gets an attribute from the feature
+
+        Required:
+            field -- name of field for which to get attribute
+        """
+        return self.json[ATTRIBUTES].get(field)
+
+    def __repr__(self):
+        return self.dumps(indent=2)
+
+    def __str__(self):
+        return self.__repr__()
+
+class RelatedRecords(JsonGetter, SpatialReferenceMixin):
+    def __init__(self, in_json):
+        """related records response
+
+        Required:
+            in_json -- json response for query related records operation
+        """
+        self.json = munch.munchify(in_json)
+        self.geometryType = self.json.get(GEOMETRY_TYPE)
+        self.spatialReference = self.json.get(SPATIAL_REFERENCE)
+
+    def list_related_OIDs(self):
+        """returns a list of all related object IDs"""
+        return [f.get('objectId') for f in iter(self)]
+
+    def get_related_records(self, oid):
+        """gets the related records for an object id
+
+        Required:
+            oid -- object ID for related records
+        """
+        for group in iter(self):
+            if oid == group.get('objectId'):
+                return [Feature(f) for f in group[RELATED_RECORDS]]
+
+    def __iter__(self):
+        for group in self.json[RELATED_RECORD_GROUPS]:
+            yield group
+
+class BaseService(RESTEndpoint, SpatialReferenceMixin):
+    """base class for all services"""
+    def __init__(self, url, usr='', pw='', token='', proxy=None):
+        super(BaseService, self).__init__(url, usr, pw, token, proxy)
+        if NAME not in self.json:
+            self.name = self.url.split('/')[-2]
+        self.name = self.name.split('/')[-1]
+
+    def __repr__(self):
+        """string representation with service name"""
+        try:
+            qualified_name = '/'.join(filter(None, [self.url.split('/services/')[-1].split('/' + self.name)[0], self.name]))
+        except:
+            qualified_name = self.name
+        return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
 
 class OrderedDict2(OrderedDict):
     """wrapper for OrderedDict"""
@@ -794,7 +828,7 @@ class RequestError(object):
     """class to handle restapi request errors"""
     def __init__(self, err):
         if 'error' in err:
-            raise RuntimeError(json.dumps(err, indent=2))
+            raise RuntimeError(json.dumps(err, indent=2, ensure_ascii=False))
 
 class Folder(RESTEndpoint):
     """class to handle ArcGIS REST Folder"""
@@ -1027,7 +1061,7 @@ class BaseGeometry(SpatialReferenceMixin):
 
     def dumps(self):
         """retuns JSON as a string"""
-        return json.dumps(self.json)
+        return json.dumps(self.json, ensure_ascii=False)
 
 class BaseGeometryCollection(object):
     """Base Geometry Collection"""
@@ -1041,7 +1075,7 @@ class BaseGeometryCollection(object):
 
     def dumps(self):
         """retuns JSON as a string"""
-        return json.dumps(self.json)
+        return json.dumps(self.json, ensure_ascii=False)
 
     def __len__(self):
         return len(self.geometries)
@@ -1122,7 +1156,7 @@ class GeocodeService(RESTEndpoint):
         else:
             raise ValueError('Not a valid input for "recs" parameter!')
 
-        params = {ADDRESSES: json.dumps(recs),
+        params = {ADDRESSES: json.dumps(recs, ensure_ascii=False),
                       OUT_SR: outSR,
                       F: JSON}
 

@@ -194,6 +194,10 @@ class Munch(dict):
 ##
 ##    __members__ = __dir__  # for python2.x compatibility
 
+
+    def __str__(self):
+        return self.__repr__()
+
     @staticmethod
     def fromDict(d):
         """ Recursively transforms a dictionary into a Munch via copy.
@@ -281,6 +285,7 @@ try:
             >>> json.dumps(b) == b.toJSON()
             True
         """
+        options['ensure_ascii'] = False
         return json.dumps(self, **options)
 
     Munch.toJSON = toJSON

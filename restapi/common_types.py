@@ -8,11 +8,42 @@ try:
 except ImportError:
     from open_restapi import *
     has_arcpy = False
+    class Callable(object):
+        def __call__(self, *args, **kwargs):
+            raise NotImplementedError('No Access to arcpy!')
+
+        def __getattr__(self, attr):
+            """recursively raise not implemented error for any calls to arcpy:
+
+                arcpy.management.AddField(...)
+
+            or:
+
+                arcpy.AddField_management(...)
+            """
+            return Callable()
+
+        def __repr__(self):
+            return ''
+
+    class ArcpyPlaceholder(object):
+        def __getattr__(self, attr):
+            return Callable()
+
+        def __setattr__(self, attr, val):
+            pass
+
+        def __repr__(self):
+            return ''
+
+    arcpy = ArcpyPlaceholder() #raise not implemented for any calls to arcpy
 
 import sqlite3
+import shutil
 import contextlib
 from rest_utils import *
 from .decorator import decorator
+USE_GEOMETRY_PASSTHROUGH = True #can be set to false to not use @geometry_passthrough
 
 @decorator
 def geometry_passthrough(func, *args, **kwargs):
@@ -21,7 +52,7 @@ def geometry_passthrough(func, *args, **kwargs):
     """
     f = func(*args, **kwargs)
     gc = GeometryCollection(f)
-    if gc.count == 1:
+    if gc.count == 1 and USE_GEOMETRY_PASSTHROUGH:
         return gc[0]
     else:
         return gc
@@ -43,7 +74,7 @@ def getFeatureExtent(in_features):
         full_extent[attr] = op([e.get(attr) for e in extents])
     return munch.munchify(full_extent)
 
-def exportGeometryCollection(gc, output):
+def exportGeometryCollection(gc, output, **kwargs):
     """Exports a goemetry collection to shapefile or feature class
 
     Required:
@@ -66,7 +97,337 @@ def exportGeometryCollection(gc, output):
     fs_dict[FEATURES] = [{ATTRIBUTES: {OBJECTID:i+1}, GEOMETRY:ft.json} for i,ft in enumerate(gc)]
 
     fs = FeatureSet(fs_dict)
-    return exportFeatureSet(fs, output)
+    return exportFeatureSet(fs, output, **kwargs)
+
+if has_arcpy:
+    def exportFeatureSet(feature_set, out_fc, include_domains=False):
+        """export FeatureSet (JSON result)  to shapefile or feature class
+
+        Required:
+            feature_set -- JSON response obtained from a query or FeatureSet() object
+            out_fc -- output feature class or shapefile
+
+        Optional:
+            include_domains -- if True, will manually create the feature class and add domains to GDB
+                if output is in a geodatabase.
+
+        at minimum, feature set must contain these keys:
+            [u'features', u'fields', u'spatialReference', u'geometryType']
+        """
+        # validate features input (should be list or dict, preferably list)
+        if not isinstance(feature_set, FeatureSet):
+            feature_set = FeatureSet(feature_set)
+
+        # find workspace type and path
+        ws, wsType = find_ws_type(out_fc)
+        isShp = wsType == 'FileSystem'
+        temp = time.strftime(r'in_memory\restapi_%Y%m%d%H%M%S') #if isShp else None
+        original = out_fc
+        out_fc = temp
+
+        # try converting JSON features from arcpy, seems very fragile...
+        try:
+            ##tmp = feature_set.dump(tmp_json_file(), indent=None)
+            ##arcpy.conversion.JSONToFeatures(tmp, out_fc) #this tool is very buggy :(
+            gp = arcpy.geoprocessing._base.Geoprocessor()
+            arcpy_fs = gp.fromEsriJson(feature_set.dumps(indent=None)) #arcpy.FeatureSet from JSON string
+            arcpy_fs.save(out_fc)
+
+        except:
+            # manually add records with insert cursor
+            print('arcpy conversion failed, manually writing features...')
+            outSR = arcpy.SpatialReference(feature_set.getSR())
+            path, fc_name = os.path.split(out_fc)
+            g_type = G_DICT.get(feature_set.geometryType, '').upper()
+            arcpy.CreateFeatureclass_management(path, fc_name, g_type,
+                                            spatial_reference=outSR)
+
+            # add all fields
+            cur_fields = []
+            fMap = []
+            if not isShp:
+                gdb_domains = arcpy.Describe(ws).domains
+            for field in feature_set.fields:
+                if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+                    if '.' in field.name:
+                        if 'shape.' not in field.name.lower():
+                            field_name = field.name.split('.')[-1] #for weird SDE fields with periods
+                        else:
+                            field_name = '_'.join([f.title() for f in field.name.split('.')]) #keep geometry calcs if shapefile
+                    else:
+                        field_name = field.name
+
+
+                    # need to filter even more as SDE sometimes yields weird field names...sigh
+                    restricted = ('fid', 'shape', 'objectid')
+                    if (not any(['shape_' in field.name.lower(),
+                                'shape.' in field.name.lower(),
+                                '(shape)' in field.name.lower()]) \
+                                or isShp) and field.name.lower() not in restricted:
+                        field_length = field.length if hasattr(field, 'length') else None
+                        arcpy.management.AddField(out_fc, field_name, FTYPES[field.type],
+                                                    field_length=field_length,
+                                                    field_alias=field.alias)
+                        cur_fields.append(field_name)
+                        fMap.append(field.name)
+
+            # insert cursor to write rows manually
+            with arcpy.da.InsertCursor(out_fc, cur_fields + ['SHAPE@']) as irows:
+                for row in Cursor(feature_set, fMap + ['SHAPE@']).get_rows():
+                    irows.insertRow(row.values)
+
+        if not isShp and include_domains in (True, 1, TRUE):
+            gdb_domains = arcpy.Describe(ws).domains
+            dom_map = {}
+            for field in feature_set.fields:
+                if field.get(DOMAIN):
+                    field_name = field.name.split('.')[-1]
+                    dom_map[field_name] = field.domain[NAME]
+                    if field.domain[NAME] not in gdb_domains:
+                        if CODED_VALUES in field.domain:
+                            dType = CODED
+                        else:
+                            dType = RANGE_UPPER
+
+                        arcpy.management.CreateDomain(ws, field.domain[NAME],
+                                                      field.domain[NAME],
+                                                      FTYPES[field.type],
+                                                      dType)
+                        if dType == CODED:
+                            for cv in field.domain[CODED_VALUES]:
+                                arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
+                        elif dType == RANGE_UPPER:
+                            _min, _max = field.domain[RANGE]
+                            arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
+
+                        gdb_domains.append(field.domain[NAME])
+                        print('Added domain "{}" to database: "{}"'.format(field.domain[NAME], ws))
+
+            # add domains
+            if not isShp and include_domains:
+                field_list = [f.name.split('.')[-1] for f in arcpy.ListFields(out_fc)]
+                for fld, dom_name in dom_map.iteritems():
+                    if fld in field_list:
+                        arcpy.management.AssignDomainToField(out_fc, fld, dom_name)
+                        print('Assigned domain "{}" to field "{}"'.format(dom_name, fld))
+
+
+        # copy in_memory fc to shapefile
+        arcpy.management.CopyFeatures(out_fc, original)
+        if arcpy.Exists(temp):
+            arcpy.management.Delete(temp)
+
+        print('Created: "{0}"'.format(original))
+        return original
+
+else:
+    def exportFeatureSet(feature_set, out_fc, outSR=None, **kwargs):
+        """export features (JSON result) to shapefile or feature class
+
+        Required:
+            out_fc -- output feature class or shapefile
+            feature_set -- JSON response (feature set) obtained from a query
+
+        Optional:
+            outSR -- optional output spatial reference.  If none set, will default
+                to SR of result_query feature set.
+        """
+        # validate features input (should be list or dict, preferably list)
+        if not isinstance(feature_set, FeatureSet):
+            feature_set = FeatureSet(feature_set)
+
+        # make new shapefile
+        fields = feature_set.fields
+        this_sr = feature_set.getSR()
+        if not outSR:
+            outSR = this_sr
+        else:
+            if this_sr:
+                if outSR != this_sr:
+                    # do not change without reprojecting...
+                    outSR = this_sr
+
+        g_type = getattr(feature_set, GEOMETRY_TYPE)
+
+        # add all fields
+        w = shp_helper.ShpWriter(G_DICT[g_type].upper(), out_fc)
+        field_map = []
+        for fld in fields:
+            if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+                if not any(['shape_' in fld.name.lower(),
+                            'shape.' in fld.name.lower(),
+                            '(shape)' in fld.name.lower(),
+                            'objectid' in fld.name.lower(),
+                            fld.name.lower() == 'fid']):
+
+                    field_name = fld.name.split('.')[-1][:10]
+                    field_type = SHP_FTYPES[fld.type]
+                    field_length = str(fld.length) if hasattr(fld, 'length') else "50"
+                    w.add_field(field_name, field_type, field_length)
+                    field_map.append((fld.name, field_name))
+
+        # search cursor to write rows
+        s_fields = [fl for fl in fields if fl.name in [f[0] for f in field_map]]
+        for feat in feature_set:
+            row = [feat.get(field) for field in [f[0] for f in field_map]]
+            w.add_row(Geometry(feat.geometry).asShape(), row)
+
+        w.save()
+        print('Created: "{0}"'.format(out_fc))
+
+        # write projection file
+        project(out_fc, outSR)
+        return out_fc
+
+class Cursor(FeatureSet):
+    """Class to handle Cursor object"""
+    json = {}
+    fieldOrder = []
+    field_names = []
+
+    def __init__(self, feature_set, fieldOrder=[]):
+        """Cursor object for a feature set
+        Required:
+            feature_set -- feature set as json or restapi.FeatureSet() object
+        Optional:
+            fieldOrder -- order of fields for cursor row returns.  To explicitly
+                specify and OBJECTID field or Shape (geometry field), you must use
+                the field tokens 'OID@' and 'SHAPE@' respectively.
+        """
+        if isinstance(feature_set, FeatureSet):
+            feature_set = feature_set.json
+
+        super(Cursor, self).__init__(feature_set)
+        self.fieldOrder = self.__validateOrderBy(fieldOrder)
+
+    @property
+    def date_fields(self):
+        """gets the names of any date fields within feature set"""
+        return [f.name for f in self.fields if f.type == DATE_FIELD]
+
+    @property
+    def long_fields(self):
+        """field names of type Long Integer, need to know this for use with
+        arcpy.da.InsertCursor() as the values need to be cast to long
+        """
+        return [f.name for f in self.fields if f.type == LONG_FIELD]
+
+    @property
+    def field_names(self):
+        """gets the field names for feature set"""
+        names = []
+        for f in self.fieldOrder:
+            if f == OID_TOKEN and self.OIDFieldName:
+                names.append(self.OIDFieldName)
+            elif f == SHAPE_TOKEN and self.ShapeFieldName:
+                names.append(self.ShapeFieldName)
+            else:
+                names.append(f)
+        return names
+
+    def get_rows(self):
+        """returns row objects"""
+        for feature in self.features:
+            yield self.__createRow(feature, self.spatialReference)
+
+    def rows(self):
+        """returns Cursor.rows() as generator"""
+        for feature in self.features:
+            yield self.__createRow(feature, self.spatialReference).values
+
+    def getRow(self, index):
+        """returns row object at index"""
+        return self.__createRow(self.features[index], self.spatialReference)
+
+    def __iter__(self):
+        """returns Cursor.rows()"""
+        return self.rows()
+
+    def __createRow(self, feature, spatialReference):
+
+        cursor = self
+
+        class Row(object):
+            """Class to handle Row object"""
+            def __init__(self, feature, spatialReference):
+                """Row object for Cursor
+                Required:
+                    feature -- features JSON object
+                """
+                self.feature = feature
+                self.spatialReference = spatialReference
+
+            @property
+            def geometry(self):
+                """returns a restapi Geometry() object"""
+                if GEOMETRY in self.feature:
+                    gd = copy.deepcopy(self.feature.geometry)
+                    gd[SPATIAL_REFERENCE] = cursor.json.spatialReference
+                    return Geometry(gd)
+                return None
+
+            @property
+            def oid(self):
+                """returns the OID for row"""
+                if cursor.OIDFieldName:
+                    return self.get(cursor.OIDFieldName)
+                return None
+
+            @property
+            def values(self):
+                """returns values as tuple"""
+                # fix date format in milliseconds to datetime.datetime()
+                vals = []
+                for field in cursor.field_names:
+                    if field in cursor.date_fields and self.get(field):
+                        vals.append(mil_to_date(self.get(field)))
+                    elif field in cursor.long_fields and self.get(field):
+                        vals.append(long(self.get(field)))
+                    else:
+                        if field == OID_TOKEN:
+                            vals.append(self.oid)
+                        elif field == SHAPE_TOKEN:
+                            vals.append(self.geometry.asShape())
+                        else:
+                            vals.append(self.get(field))
+
+                return tuple(vals)
+
+            def get(self, field):
+                """gets an attribute by field name
+
+                Required:
+                    field -- name of field for which to get the value
+                """
+                return self.feature.attributes.get(field)
+
+            def __getitem__(self, i):
+                """allows for getting a field value by index"""
+                return self.values[i]
+
+        return Row(feature, spatialReference)
+
+    def __validateOrderBy(self, fields):
+        """fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@")
+        Required:
+            fields -- list or comma delimited field list
+        """
+        if not fields or fields == '*':
+            fields = [f.name for f in self.fields]
+        if isinstance(fields, basestring):
+            fields = fields.split(',')
+        for i,f in enumerate(fields):
+            if '@' in f:
+                fields[i] = f.upper()
+            if f == self.ShapeFieldName:
+                fields[i] = SHAPE_TOKEN
+            if f == self.OIDFieldName:
+                fields[i] = OID_TOKEN
+
+        return fields
+
+    def __repr__(self):
+        return object.__repr__(self)
 
 class JsonReplica(JsonGetter):
     """represents a JSON replica"""
@@ -149,7 +510,7 @@ class SQLiteReplica(sqlite3.Connection):
         Required:
             out_gdb_path -- full path to new file geodatabase (ex: r"C:\Temp\replica.gdb")
         """
-        if __opensource__:
+        if not has_arcpy:
             raise NotImplementedError('no access to arcpy!')
         if not hasattr(arcpy.conversion, COPY_RUNTIME_GDB_TO_FILE_GDB):
             raise NotImplementedError('arcpy.conversion.{} tool not available!'.format(COPY_RUNTIME_GDB_TO_FILE_GDB))
@@ -180,172 +541,6 @@ class SQLiteReplica(sqlite3.Connection):
 
     def __del__(self):
         self.__safe_cleanup()
-
-class Cursor(FeatureSet):
-    """Class to handle Cursor object"""
-    json = {}
-    fieldOrder = []
-    field_names = []
-
-    def __init__(self, feature_set, fieldOrder=[]):
-        """Cursor object for a feature set
-        Required:
-            feature_set -- feature set as json or restapi.FeatureSet() object
-        Optional:
-            fieldOrder -- order of fields for cursor row returns.  To explicitly
-                specify and OBJECTID field or Shape (geometry field), you must use
-                the field tokens 'OID@' and 'SHAPE@' respectively.
-        """
-        if isinstance(feature_set, FeatureSet):
-            feature_set = feature_set.json
-
-        super(Cursor, self).__init__(feature_set)
-        self.fieldOrder = self.__validateOrderBy(fieldOrder)
-
-    @property
-    def date_fields(self):
-        """gets the names of any date fields within feature set"""
-        return [f.name for f in self.fields if f.type == DATE_FIELD]
-
-    @property
-    def long_fields(self):
-        """field names of type Long Integer, need to know this for use with
-        arcpy.da.InsertCursor() as the values need to be cast to long
-        """
-        return [f.name for f in self.fields if f.type == LONG_FIELD]
-
-    @property
-    def field_names(self):
-        """gets the field names for feature set"""
-        names = []
-        for f in self.fieldOrder:
-            if f == OID_TOKEN and self.OIDFieldName:
-                names.append(self.OIDFieldName)
-            elif f == SHAPE_TOKEN and self.ShapeFieldName:
-                names.append(self.ShapeFieldName)
-            else:
-                names.append(f)
-        return names
-
-    @property
-    def OIDFieldName(self):
-        """gets the OID field name if it exists in feature set"""
-        try:
-            return [f.name for f in self.fields if f.type == OID][0]
-        except IndexError:
-           return None
-
-    @property
-    def ShapeFieldName(self):
-        """gets the Shape field name if it exists in feature set"""
-        try:
-            return [f.name for f in self.fields if f.type == SHAPE][0]
-        except IndexError:
-           return None
-
-    def get_rows(self):
-        """returns row objects"""
-        for feature in self.features:
-            yield self.__createRow(feature, self.spatialReference)
-
-    def rows(self):
-        """returns Cursor.rows() as generator"""
-        for feature in self.features:
-            yield self.__createRow(feature, self.spatialReference).values
-
-    def getRow(self, index):
-        """returns row object at index"""
-        return [r for r in self.get_rows()][index]
-
-    def __validateOrderBy(self, fields):
-        """fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@")
-        Required:
-            fields -- list or comma delimited field list
-        """
-        if not fields or fields == '*':
-            fields = [f.name for f in self.fields]
-        if isinstance(fields, basestring):
-            fields = fields.split(',')
-        for i,f in enumerate(fields):
-            if '@' in f:
-                fields[i] = f.upper()
-            if f == self.ShapeFieldName:
-                fields[i] = SHAPE_TOKEN
-            if f == self.OIDFieldName:
-                fields[i] = OID_TOKEN
-
-        return fields
-
-    def __iter__(self):
-        """returns Cursor.rows()"""
-        return self.rows()
-
-    def __createRow(self, feature, spatialReference):
-
-        cursor = self
-
-        class Row(object):
-            """Class to handle Row object"""
-            def __init__(self, feature, spatialReference):
-                """Row object for Cursor
-                Required:
-                    feature -- features JSON object
-                """
-                self.feature = feature
-                self.spatialReference = spatialReference
-
-            @property
-            def geometry(self):
-                """returns a restapi.Geometry() object"""
-                if GEOMETRY in self.feature:
-                    gd = copy.deepcopy(self.feature.geometry)
-                    gd[SPATIAL_REFERENCE] = cursor.json.spatialReference
-                    return Geometry(gd)
-                return None
-
-            @property
-            def oid(self):
-                """returns the OID for row"""
-                if cursor.OIDFieldName:
-                    return self.get(cursor.OIDFieldName)
-                return None
-
-            @property
-            def values(self):
-                """returns values as tuple"""
-                # fix date format in milliseconds to datetime.datetime()
-                vals = []
-                for i, field in enumerate(cursor.fieldOrder):
-                    if field in cursor.date_fields:
-                        vals.append(mil_to_date(self.feature.attributes[field]))
-                    elif field in cursor.long_fields:
-                        vals.append(long(self.feature.attributes[field]))
-                    else:
-                        if field == OID_TOKEN:
-                            vals.append(self.oid)
-                        elif field == SHAPE_TOKEN:
-                            vals.append(self.geometry)
-                        else:
-                            vals.append(self.feature.attributes[field])
-
-                return tuple(vals)
-
-            def get(self, field):
-                """gets an attribute by field name
-
-                Required:
-                    field -- name of field for which to get the value
-                """
-                try:
-                    return self.feature.attributes.get(field)
-                except AttributeError:
-                    return None
-
-            def __getitem__(self, i):
-                """allows for getting a field value by index"""
-                return self.values[i]
-
-        return Row(feature, spatialReference)
 
 class ArcServer(RESTEndpoint):
     """Class to handle ArcGIS Server Connection"""
@@ -510,33 +705,8 @@ class ArcServer(RESTEndpoint):
         """returns number of services"""
         return len(self.service_cache)
 
-class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
+class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
     """Class to handle advanced layer properties"""
-
-    @property
-    def OID(self):
-        """OID field object"""
-        try:
-            return [f for f in self.fields if f.type == OID][0]
-        except:
-            return None
-
-    @property
-    def SHAPE(self):
-        """SHAPE field object"""
-        try:
-            return [f for f in self.fields if f.type == SHAPE][0]
-        except:
-            return None
-
-    @property
-    def fieldLookup(self):
-        """convenience property for field lookups"""
-        return {f.name: f for f in self.fields}
-
-    def list_fields(self):
-        """method to list field names"""
-        return [f.name for f in self.fields]
 
     def __fix_fields(self, fields):
         """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
@@ -555,11 +725,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             for f in fields:
                 if '@' in f:
                     if f.upper() == SHAPE_TOKEN:
-                        if self.SHAPE:
-                            field_list.append(self.SHAPE.name)
+                        if self.ShapeFieldName:
+                            field_list.append(self.ShapeFieldName)
                     elif f.upper() == OID_TOKEN:
-                        if self.OID:
-                            field_list.append(self.OID.name)
+                        if self.OIDFieldName:
+                            field_list.append(self.OIDFieldName)
                 else:
                     if f in all_fields:
                         field_list.append(f)
@@ -833,7 +1003,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                     if self._proxy:
                         attInfo[URL_WITH_TOKEN] = '?'.join([self._proxy, att_url])
                     else:
-                        attInfo[URL_WITH_TOKEN] = att_url + '?token={}'.format(self.token) if self.token else ''
+                        attInfo[URL_WITH_TOKEN] = att_url + ('?token={}'.format(self.token) if self.token else '')
 
                 keys = []
                 if r[ATTACHMENT_INFOS]:
@@ -852,6 +1022,21 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
                             return '<Attachment ID: {} ({})>'.format(self.id, self.name)
                         else:
                             return '<Attachment> ?'
+
+                    def blob(self):
+                        """download the attachment to specified path
+
+                        out_path -- output path for attachment
+
+                        optional:
+                            name -- name for output file.  If left blank, will be same as attachment.
+                            verbose -- if true will print sucessful download message
+                        """
+                        b = ''
+                        resp = requests.get(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
+                        for chunk in resp.iter_content(1024 * 16):
+                            b += chunk
+                        return b
 
                     def download(self, out_path, name='', verbose=True):
                         """download the attachment to specified path
@@ -891,8 +1076,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
         fs = self.query(where, cur_fields, add_params, records, exceed_limit)
         return Cursor(fs, fields)
 
-    def layer_to_fc(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None, include_domains=False):
-        """Method to export a feature class from a service layer
+    def export_layer(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None,
+                     include_domains=False, include_attachments=False):
+        """Method to export a feature class or shapefile from a service layer
 
         Required:
             out_fc -- full path to output feature class
@@ -908,54 +1094,85 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
             sr -- output spatial refrence (WKID)
             include_domains -- if True, will manually create the feature class and add domains to GDB
                 if output is in a geodatabase.
+            include_attachments -- if True, will export features with attachments.  This argument is ignored
+                when the "out_fc" param is not a feature class, or the ObjectID field is not included in "fields"
+                param or if there is no access to arcpy.
         """
         if self.type == 'Feature Layer':
 
-            # filter fields first
-            if not fields:
-                fields = '*'
-            if fields == '*':
-                _fields = self.fields
+            # make new feature class
+            if not sr:
+                sr = self.getSR()
             else:
-                if isinstance(fields, basestring):
-                    fields = fields.split(',')
-                _fields = [f for f in self.fields if f.name in fields]
+                params[OUT_SR] = sr
 
-            # filter fields for cusor object
-            cur_fields = []
-            for fld in _fields:
-                if fld.type not in SKIP_FIELDS.keys():
-                    if not any(['shape_' in fld.name.lower(),
-                                'shape.' in fld.name.lower(),
-                                '(shape)' in fld.name.lower()
-                                ]):
-                        cur_fields.append(fld.name)
+            # do query to get feature set
+            fs = self.query(where, fields, params, records, exceed_limit)
 
-            if not include_domains or include_domains == 'false':
-                # do query to get feature set
-                fs = self.query(where, cur_fields, params, records, exceed_limit)
-                exportFeatureSet(fs, out_fc, include_domains)
+            # get any domain info
+            f_dict = {f.name: f for f in self.fields}
+            for field in fs.fields:
+                field.domain = f_dict[field.name].get(DOMAIN)
+
+            if has_arcpy:
+                out_fc = exportFeatureSet(fs, out_fc, include_domains)
+                fc_ws, fc_ws_type = find_ws_type(out_fc)
+
+                if all([include_attachments, self.hasAttachments, fs.OIDFieldName, fc_ws_type != 'FileSystem']):
+
+                    # get attachments (OID will start at 1)
+                    att_folder = os.path.join(arcpy.env.scratchFolder, '{}_Attachments'.format(os.path.basename(out_fc)))
+                    if not os.path.exists(att_folder):
+                        os.makedirs(att_folder)
+
+                    att_dict, att_ids = {}, []
+                    for i,row in enumerate(fs):
+                        att_id = 'P-{}'.format(i + 1)
+                        att_ids.append(att_id)
+                        att_dict[att_id] = []
+                        for att in self.attachments(row.get(fs.OIDFieldName)):
+                            out_att = att.download(att_folder, verbose=False)
+                            att_dict[att_id].append(os.path.join(out_att))
+
+                    # photo field (hopefully this is a unique field name...)
+                    PHOTO_ID = 'PHOTO_ID_X_Y_Z__'
+                    arcpy.management.AddField(out_fc, PHOTO_ID, 'TEXT')
+                    with arcpy.da.UpdateCursor(out_fc, PHOTO_ID) as rows:
+                        for i,row in enumerate(rows):
+                            rows.updateRow((att_ids[i],))
+
+                    # create temp table
+                    arcpy.management.EnableAttachments(out_fc)
+                    tmp_tab = r'in_memory\temp_photo_points'
+                    arcpy.management.CreateTable(*os.path.split(tmp_tab))
+                    arcpy.management.AddField(tmp_tab, PHOTO_ID, 'TEXT')
+                    arcpy.management.AddField(tmp_tab, 'PATH', 'TEXT', field_length=255)
+                    arcpy.management.AddField(tmp_tab, 'PHOTO_NAME', 'TEXT', field_length=255)
+
+                    with arcpy.da.InsertCursor(tmp_tab, [PHOTO_ID, 'PATH', 'PHOTO_NAME']) as irows:
+                        for k, att_list in att_dict.iteritems():
+                            for v in att_list:
+                                irows.insertRow((k,) + os.path.split(v))
+
+                     # add attachments
+                    arcpy.management.AddAttachments(out_fc, PHOTO_ID, tmp_tab, PHOTO_ID,
+                                                    'PHOTO_NAME', in_working_folder=att_folder)
+                    arcpy.management.Delete(tmp_tab)
+                    arcpy.management.DeleteField(out_fc, PHOTO_ID)
+                    try:
+                        shutil.rmtree(att_folder)
+                    except:
+                        pass
+
+                    print('added attachments to: "{}"'.format(out_fc))
 
             else:
-
-                # make new feature class
-                if not sr:
-                    sr = self.getSR()
-                else:
-                    params[OUT_SR] = sr
-
-                # do query to get feature set
-                fs = self.query(where, cur_fields, params, records, exceed_limit)
-
-                # get any domain info
-                f_dict = {f.name: f for f in self.fields}
-                for field in fs.fields:
-                    field.domain = f_dict[field.name].get(DOMAIN)
-
-                return exportFeatureSet(fs, out_fc, include_domains)
+                exportFeatureSet(fs, out_fc, outSR=sr)
 
         else:
             print('Layer: "{}" is not a Feature Layer!'.format(self.name))
+
+        return out_fc
 
     def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False, exceed_limit=True):
         """Method for spatial Query, exports geometry that intersect polygon or
@@ -995,11 +1212,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin):
              IN_SR : sr,
              OUT_SR: out_sr}
 
-        return self.layer_to_fc(output, fields, where, params=d, exceed_limit=True, sr=out_sr)
+        return self.export_layer(output, fields, where, params=d, exceed_limit=True, sr=out_sr)
 
     def __repr__(self):
         """string representation with service name"""
         return '<{}: "{}" (id: {})>'.format(self.__class__.__name__, self.name, self.id)
+
+# LEGACY SUPPORT
+MapServiceLayer.layer_to_fc = MapServiceLayer.export_layer
 
 class MapService(BaseService):
 
@@ -1356,7 +1576,7 @@ class FeatureService(MapService):
                             options[k] = json.loads(options[k])
                         for key in options[k].keys():
                             options[k][key][USE_GEOMETRY] = useGeometry
-                            options[k] = json.dumps(options[k])
+                            options[k] = json.dumps(options[k], ensure_ascii=False)
                 else:
                     options[k] = v
 
@@ -1503,7 +1723,7 @@ class FeatureLayer(MapServiceLayer):
         """
         add_url = self.url + '/addFeatures'
         if isinstance(features, (list, tuple)):
-            features = json.dumps(features)
+            features = json.dumps(features, ensure_ascii=False)
         params = {FEATURES: features,
                   GDB_VERSION: gdbVersion,
                   ROLLBACK_ON_FAILURE: rollbackOnFailure,
@@ -1532,7 +1752,7 @@ class FeatureLayer(MapServiceLayer):
                 {"Five_Yr_Plan":"Yes","Rating":90,"OBJECTID":1}}] #only fields that were changed!
         """
         if isinstance(features, (list, tuple)):
-            features = json.dumps(features)
+            features = json.dumps(features, ensure_ascii=False)
         update_url = self.url + '/updateFeatures'
         params = {FEATURES: features,
                   GDB_VERSION: gdbVersion,
@@ -1592,13 +1812,13 @@ class FeatureLayer(MapServiceLayer):
         """
         edits_url = self.url + '/applyEdits'
         if isinstance(adds, FeatureSet):
-            adds = json.dumps(adds.features)
+            adds = json.dumps(adds.features, ensure_ascii=False)
         elif isinstance(adds, (list, tuple)):
-            adds = json.dumps(adds)
+            adds = json.dumps(adds, ensure_ascii=False)
         if isinstance(updates, FeatureSet):
-            updates = json.dumps(updates.features)
+            updates = json.dumps(updates.features, ensure_ascii=False)
         elif isinstance(updates, (list, tuple)):
-            updates = json.dumps(updates)
+            updates = json.dumps(updates, ensure_ascii=False)
         if isinstance(deletes, (list, tuple)):
             deletes = ', '.join(map(str, deletes))
         params = {ADDS: adds,
@@ -1668,7 +1888,7 @@ class FeatureLayer(MapServiceLayer):
         if self.json.get(SUPPORTS_CALCULATE, False):
             calc_url = self.url + '/calculate'
             p = {WHERE: where,
-                CALC_EXPRESSION: json.dumps(exp),
+                CALC_EXPRESSION: json.dumps(exp, ensure_ascii=False),
                 SQL_FORMAT: sqlFormat}
 
             return do_post(calc_url, params=p, token=self.token, cookies=self._cookie)
@@ -2087,7 +2307,7 @@ class ImageService(BaseService):
                    "Operation" : operation
                  }
               }
-        self.exportImage(poly, out_raster, rendering_rule=json.dumps(ren), imageSR=imageSR, **kwargs)
+        self.exportImage(poly, out_raster, rendering_rule=json.dumps(ren, ensure_ascii=False), imageSR=imageSR, **kwargs)
 
 class GPService(BaseService):
     """GP Service object
