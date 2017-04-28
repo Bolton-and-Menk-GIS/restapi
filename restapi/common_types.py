@@ -36,11 +36,12 @@ except ImportError:
         def __repr__(self):
             return ''
 
-    arcpy = ArcpyPlaceholder() #raise not implemented for any calls to arcpy
+    arcpy = ArcpyPlaceholder()
 
 import sqlite3
 import shutil
 import contextlib
+import urlparse
 from rest_utils import *
 from .decorator import decorator
 USE_GEOMETRY_PASSTHROUGH = True #can be set to false to not use @geometry_passthrough
@@ -73,31 +74,6 @@ def getFeatureExtent(in_features):
     for attr, op in {XMIN: min, YMIN: min, XMAX: max, YMAX: max}.iteritems():
         full_extent[attr] = op([e.get(attr) for e in extents])
     return munch.munchify(full_extent)
-
-def exportGeometryCollection(gc, output, **kwargs):
-    """Exports a goemetry collection to shapefile or feature class
-
-    Required:
-        gc -- GeometryCollection() object
-        output -- output data set (will be geometry only)
-    """
-    if isinstance(gc, Geometry):
-        gc = GeometryCollection(gc)
-    if not isinstance(gc, GeometryCollection):
-        raise ValueError('Input is not a GeometryCollection!')
-
-    fs_dict = {}
-    fs_dict[SPATIAL_REFERENCE] = {WKID: gc.spatialReference}
-    fs_dict[GEOMETRY_TYPE] = gc.geometryType
-    fs_dict[DISPLAY_FIELD_NAME] = ''
-    fs_dict[FIELD_ALIASES] = {OBJECTID: OBJECTID}
-    fs_dict[FIELDS] = [{NAME: OBJECTID,
-                        TYPE: OID,
-                        ALIAS: OBJECTID}]
-    fs_dict[FEATURES] = [{ATTRIBUTES: {OBJECTID:i+1}, GEOMETRY:ft.json} for i,ft in enumerate(gc)]
-
-    fs = FeatureSet(fs_dict)
-    return exportFeatureSet(fs, output, **kwargs)
 
 if has_arcpy:
     def exportFeatureSet(feature_set, out_fc, include_domains=False):
@@ -278,6 +254,31 @@ else:
         # write projection file
         project(out_fc, outSR)
         return out_fc
+
+def exportGeometryCollection(gc, output, **kwargs):
+    """Exports a goemetry collection to shapefile or feature class
+
+    Required:
+        gc -- GeometryCollection() object
+        output -- output data set (will be geometry only)
+    """
+    if isinstance(gc, Geometry):
+        gc = GeometryCollection(gc)
+    if not isinstance(gc, GeometryCollection):
+        raise ValueError('Input is not a GeometryCollection!')
+
+    fs_dict = {}
+    fs_dict[SPATIAL_REFERENCE] = {WKID: gc.spatialReference}
+    fs_dict[GEOMETRY_TYPE] = gc.geometryType
+    fs_dict[DISPLAY_FIELD_NAME] = ''
+    fs_dict[FIELD_ALIASES] = {OBJECTID: OBJECTID}
+    fs_dict[FIELDS] = [{NAME: OBJECTID,
+                        TYPE: OID,
+                        ALIAS: OBJECTID}]
+    fs_dict[FEATURES] = [{ATTRIBUTES: {OBJECTID:i+1}, GEOMETRY:ft.json} for i,ft in enumerate(gc)]
+
+    fs = FeatureSet(fs_dict)
+    return exportFeatureSet(fs, output, **kwargs)
 
 class Cursor(FeatureSet):
     """Class to handle Cursor object"""
@@ -705,6 +706,15 @@ class ArcServer(RESTEndpoint):
         """returns number of services"""
         return len(self.service_cache)
 
+    def __repr__(self):
+        parsed = urlparse.urlparse(self.url)
+        try:
+            instance = parsed.path.split('/')[1]
+        except IndexError:
+            instance = '?'
+        return '<ArcServer: "{}" ("{}")>'.format(parsed.netloc, instance)
+
+
 class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
     """Class to handle advanced layer properties"""
 
@@ -837,6 +847,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
             else:
                 server_response = do_post(query_url, params, token=self.token, cookies=self._cookie)
+
+            if FIELDS not in server_response:
+                server_response[FIELDS] = self.fields
 
             if all([server_response.get(k) for k in (FIELDS, FEATURES)]):
                 if records:

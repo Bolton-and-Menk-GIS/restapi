@@ -9,7 +9,6 @@
 # Copyright:   (c) calebma 2014
 # Licence:     BMI
 #-------------------------------------------------------------------------------
-import admin
 from common_types import *
 import _strings
 

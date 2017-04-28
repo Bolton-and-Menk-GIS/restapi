@@ -359,7 +359,7 @@ def generate_token(url, user, pw, expiration=60):
         PROTOCOL =  base.split('://')[0]
         print('set PROTOCOL to "{}" from generate token'.format(PROTOCOL))
         try:
-            shortLived = infoResp[AUTH_INFO][SHORT_LIVED_TOKEN_VALIDITY]
+            shortLived = infoResp.get(AUTH_INFO, {}).get(SHORT_LIVED_TOKEN_VALIDITY)
         except KeyError:
             shortLived = 100
     else:
@@ -381,7 +381,7 @@ def generate_token(url, user, pw, expiration=60):
         # now call portal sharing
         portal_params = {TOKEN: resp.get(TOKEN)}
         org_resp = do_post(AGOL_PORTAL_SELF,portal_params)
-        org_referer = org_resp.get(URL_KEY) + ORG_MAPS
+        org_referer = org_resp.get(URL_KEY, '') + ORG_MAPS
         params[REFERER]= org_referer
         resp = do_post(AGOL_TOKEN_SERVICE, params)
 
@@ -576,6 +576,9 @@ class RESTEndpoint(JsonGetter):
                 bases = base.__bases__
         return sorted(list(set(self.__class__.__dict__.keys() + self.json.keys() + atts)))
 
+    def __repr__(self):
+        return '<{}>'.format(self.__class__.__name__)
+
 class SpatialReferenceMixin(object):
     """mixin to allow convenience methods for grabbing the spatial reference from a service"""
     json = {}
@@ -650,24 +653,8 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
             self.json = in_json.json
         else:
             self.json = munch.munchify(in_json)
-        if not all([self.json.get(k) for k in (FIELDS, FEATURES)]):
+        if not all(map(lambda k: k in self.json.keys(), [FIELDS, FEATURES])):
             raise ValueError('Not a valid Feature Set!')
-
-##    @property
-##    def OIDFieldName(self):
-##        """gets the OID field name if it exists in feature set"""
-##        try:
-##            return [f.name for f in self.fields if f.type == OID][0]
-##        except IndexError:
-##           return None
-##
-##    @property
-##    def ShapeFieldName(self):
-##        """gets the Shape field name if it exists in feature set"""
-##        try:
-##            return [f.name for f in self.fields if f.type == SHAPE][0]
-##        except IndexError:
-##           return None
 
     @property
     def hasGeometry(self):
@@ -681,10 +668,6 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
     def count(self):
         """returns total number of records in Cursor (user queried)"""
         return len(self)
-
-##    def list_fields(self):
-##        """returns a list of field names"""
-##        return [f.name for f in self.fields]
 
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""
@@ -792,8 +775,6 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
 
 class OrderedDict2(OrderedDict):
     """wrapper for OrderedDict"""
-    def __init__(self, *args, **kwargs):
-        super(OrderedDict2, self).__init__(*args, **kwargs)
 
     def __repr__(self):
         """we want it to look like a dictionary"""
@@ -898,11 +879,8 @@ class GPResult(object):
         """return True if results"""
         return bool(len(self))
 
-class GeocodeResult(object):
+class GeocodeResult(JsonGetter, SpatialReferenceMixin):
     """class to handle Reverse Geocode Result"""
-    __slots__ = [RESPONSE, SPATIAL_REFERENCE, TYPE, CANDIDATES,
-                LOCATIONS, ADDRESS, RESULTS, 'result', 'Result']
-
     def __init__(self, res_dict, geo_type):
         """geocode response object
 
@@ -911,74 +889,19 @@ class GeocodeResult(object):
             geo_type -- type of geocode operation (reverseGeocode|findAddressCandidates|geocodeAddresses)
         """
         RequestError(res_dict)
-        self.response = res_dict
+        super(GeocodeResult, self).__init__()
+        self.json = res_dict
         self.type = 'esri_' + geo_type
-        self.candidates = []
-        self.locations = []
-        self.address = []
-        try:
-            sr_dict = self.response[LOCATION][SPATIAL_REFERENCE]
-            wkid = sr_dict.get(LATEST_WKID, None)
-            if wkid is None:
-                wkid = sr_dict.get(WKID, None)
-            self.spatialReference = wkid
-        except:
-            self.spatialReference = None
-
-        if self.type == 'esri_reverseGeocode':
-            addr_dict = {}
-            addr_dict[LOCATION] = self.response[LOCATION]
-            addr_dict[ATTRIBUTES] = self.response[ADDRESS]
-            address = self.response[ADDRESS].get('Address', None)
-            if address is None:
-                add = self.response[ADDRESS]
-                addr_dict[ADDRESS] = ' '.join(filter(None, [add.get('Street'), add.get('City'), add.get('ZIP')]))
-            else:
-                addr_dict[ADDRESS] = address
-            addr_dict[SCORE] = None
-            self.address.append(addr_dict)
-
-        # legacy response from find? <- deprecated?
-        # http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/find #still works
-        elif self.type == 'esri_find':
-            # format legacy results
-            for res in self.response[LOCATIONS]:
-                ref_dict = {}
-                for k,v in res.iteritems():
-                    if k == NAME:
-                        ref_dict[ADDRESS] = v
-                    elif k == FEATURE:
-                        atts_dict = {}
-                        for att, val in res[k].iteritems():
-                            if att == GEOMETRY:
-                                ref_dict[LOCATION] = val
-                            elif att == ATTRIBUTES:
-                                for att2, val2 in res[k][att].iteritems():
-                                    if att2.lower() == SCORE:
-                                        ref_dict[SCORE] = val2
-                                    else:
-                                        atts_dict[att2] = val2
-                            ref_dict[ATTRIBUTES] = atts_dict
-                self.locations.append(ref_dict)
-
-        else:
-            if self.type == 'esri_findAddressCandidates':
-                self.candidates = self.response[CANDIDATES]
-
-            elif self.type == 'esri_geocodeAddresses':
-                self.locations = self.response[LOCATIONS]
-
-        defaults = 'address attributes location score'
-        self.Result = collections.namedtuple('GeocodeResult_result', defaults)
 
     @property
     def results(self):
         """returns list of result objects"""
-        gc_results = self.address + self.candidates + self.locations
-        results = []
-        for res in gc_results:
-            results.append(self.Result(*[v for k,v in sorted(res.items())]))
-        return results
+        if self.type == 'esri_findAddressCandidates':
+            return self.candidates
+        elif self.type == 'esri_reverseGeocode':
+            return [self.address]
+        else:
+            return self.json.get(LOCATIONS, [])
 
     @property
     def result(self):
@@ -1004,6 +927,9 @@ class GeocodeResult(object):
     def __bool__(self):
         """returns True if results are returned"""
         return bool(len(self))
+
+    def __repr__(self):
+        return '<{}: {} match{}>'.format(self.__class__.__name__, len(self), 'es' if len(self) else '')
 
 class EditResult(object):
     """class to handle Edit operation results"""
