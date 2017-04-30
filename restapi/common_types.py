@@ -286,6 +286,24 @@ class Cursor(FeatureSet):
     fieldOrder = []
     field_names = []
 
+    class BaseRow(object):
+        """Class to handle Row object"""
+        def __init__(self, feature, spatialReference):
+            """Row object for Cursor
+            Required:
+                feature -- features JSON object
+            """
+            self.feature = Feature(feature) if not isinstance(feature, Feature) else feature
+            self.spatialReference = spatialReference
+
+        def get(self, field):
+            """gets an attribute by field name
+
+            Required:
+                field -- name of field for which to get the value
+            """
+            return self.feature.attributes.get(field)
+
     def __init__(self, feature_set, fieldOrder=[]):
         """Cursor object for a feature set
         Required:
@@ -297,7 +315,6 @@ class Cursor(FeatureSet):
         """
         if isinstance(feature_set, FeatureSet):
             feature_set = feature_set.json
-
         super(Cursor, self).__init__(feature_set)
         self.fieldOrder = self.__validateOrderBy(fieldOrder)
 
@@ -329,41 +346,62 @@ class Cursor(FeatureSet):
     def get_rows(self):
         """returns row objects"""
         for feature in self.features:
-            yield self.__createRow(feature, self.spatialReference)
+            yield self._createRow(feature, self.spatialReference)
 
     def rows(self):
         """returns Cursor.rows() as generator"""
         for feature in self.features:
-            yield self.__createRow(feature, self.spatialReference).values
+            yield self._createRow(feature, self.spatialReference).values
 
     def getRow(self, index):
         """returns row object at index"""
-        return self.__createRow(self.features[index], self.spatialReference)
+        return self._createRow(self.features[index], self.spatialReference)
+
+    def _toJson(self, row):
+        """casts row to json"""
+        if isinstance(row, (list, tuple)):
+            ft = {ATTRIBUTES: {}}
+            for i,f in enumerate(self.field_names):
+                if f != self.ShapeFieldName and f.upper() != SHAPE_TOKEN:
+                    val = row[i]
+                    if f in self.date_fields:
+                        ft[ATTRIBUTES][f] = date_to_mil(val) if isinstance(val, datetime.datetime) else val
+                    elif f in self.long_fields:
+                        ft[ATTRIBUTES][f] = long(val) if val is not None else val
+                    else:
+                        ft[ATTRIBUTES][f] = val
+                else:
+                    geom = row[i]
+                    if isinstance(geom, Geometry):
+                        ft[GEOMETRY] = {k:v for k,v in geom.json.iteritems() if k != SPATIAL_REFERENCE}
+                    else:
+                        ft[GEOMETRY] = {k:v for k,v in Geometry(geom).json.iteritems() if k != SPATIAL_REFERENCE}
+            return Feature(ft)
+        elif isinstance(row, self.BaseRow):
+            return row.feature
+        elif isinstance(row, Feature):
+            return row
+        elif isinstance(row, dict):
+            return Feature(row)
 
     def __iter__(self):
         """returns Cursor.rows()"""
         return self.rows()
 
-    def __createRow(self, feature, spatialReference):
+    def _createRow(self, feature, spatialReference):
 
         cursor = self
 
-        class Row(object):
+        class Row(cursor.BaseRow):
             """Class to handle Row object"""
-            def __init__(self, feature, spatialReference):
-                """Row object for Cursor
-                Required:
-                    feature -- features JSON object
-                """
-                self.feature = feature
-                self.spatialReference = spatialReference
 
             @property
             def geometry(self):
                 """returns a restapi Geometry() object"""
-                if GEOMETRY in self.feature:
-                    gd = copy.deepcopy(self.feature.geometry)
-                    gd[SPATIAL_REFERENCE] = cursor.json.spatialReference
+                if GEOMETRY in self.feature.json:
+                    gd = {k: v for k,v in self.feature.geometry.iteritems()}
+                    if SPATIAL_REFERENCE not in gd:
+                        gd[SPATIAL_REFERENCE] = cursor.spatialReference
                     return Geometry(gd)
                 return None
 
@@ -388,19 +426,14 @@ class Cursor(FeatureSet):
                         if field == OID_TOKEN:
                             vals.append(self.oid)
                         elif field == SHAPE_TOKEN:
-                            vals.append(self.geometry.asShape())
+                            if self.geometry:
+                                vals.append(self.geometry.asShape())
+                            else:
+                                vals.append(None) #null Geometry
                         else:
                             vals.append(self.get(field))
 
                 return tuple(vals)
-
-            def get(self, field):
-                """gets an attribute by field name
-
-                Required:
-                    field -- name of field for which to get the value
-                """
-                return self.feature.attributes.get(field)
 
             def __getitem__(self, i):
                 """allows for getting a field value by index"""
@@ -718,7 +751,7 @@ class ArcServer(RESTEndpoint):
 class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
     """Class to handle advanced layer properties"""
 
-    def __fix_fields(self, fields):
+    def _fix_fields(self, fields):
         """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
         method used for cursors.
 
@@ -816,7 +849,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             params[k] = v
 
         # check for tokens (only shape and oid)
-        fields = self.__fix_fields(fields)
+        fields = self._fix_fields(fields)
         params[OUT_FIELDS] = fields
 
         # create kmz file if requested (does not support exceed_limit parameter)
@@ -848,8 +881,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             else:
                 server_response = do_post(query_url, params, token=self.token, cookies=self._cookie)
 
-            if FIELDS not in server_response:
-                server_response[FIELDS] = self.fields
+            for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
+                if key not in server_response:
+                    if key == SPATIAL_REFERENCE:
+                        server_response[key] = getattr(self, '_' + SPATIAL_REFERENCE)
+                    else:
+                        server_response[key] = getattr(self, key)
 
             if all([server_response.get(k) for k in (FIELDS, FEATURES)]):
                 if records:
@@ -1083,8 +1120,19 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             raise NotImplementedError('Layer "{}" does not support attachments!'.format(self.name))
 
     def cursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False):
-        """Run Cursor on layer, helper method that calls Cursor Object"""
-        cur_fields = self.__fix_fields(fields)
+        """Run Cursor on layer, helper method that calls Cursor Object
+
+        Optional:
+            fields -- fields to return. Default is "*" to return all fields
+            where -- where clause
+            add_params -- extra parameters to add to query string passed as dict
+            records -- number of records to return.  Default is None to return all
+                records within bounds of max record count unless exceed_limit is True
+            exceed_limit -- option to get all records in layer.  This option may be time consuming
+                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
+                must be performed in chunks to get all records.
+        """
+        cur_fields = self._fix_fields(fields)
 
         fs = self.query(where, cur_fields, add_params, records, exceed_limit)
         return Cursor(fs, fields)
@@ -1702,6 +1750,7 @@ class FeatureService(MapService):
         return do_post(query_url, params, token=self.token, cookies=self._cookie)
 
 class FeatureLayer(MapServiceLayer):
+
     def __init__(self, url='', usr='', pw='', token='', proxy=None):
         """class to handle Feature Service Layer
 
@@ -1719,6 +1768,239 @@ class FeatureLayer(MapServiceLayer):
 
         # store list of EditResult() objects to track changes
         self.editResults = []
+
+    def updateCursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, auto_save=True):
+        """updates features in layer using a cursor, the applyEdits() method is automatically
+        called when used in a "with" statement and auto_save is True.
+
+        Optional:
+            fields -- fields to return. Default is "*" to return all fields
+            where -- where clause
+            add_params -- extra parameters to add to query string passed as dict
+            records -- number of records to return.  Default is None to return all
+                records within bounds of max record count unless exceed_limit is True
+            exceed_limit -- option to get all records in layer.  This option may be time consuming
+                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
+                must be performed in chunks to get all records.
+            auto_save -- automatically apply edits when using with statement,
+                if True, will apply edits on the __exit__ method.
+        """
+        layer = self
+        class UpdateCursor(Cursor):
+            def __init__(self,  feature_set, fieldOrder=[], auto_save=auto_save):
+                super(UpdateCursor, self).__init__(feature_set, fieldOrder)
+                self._deletes = []
+                self._called_update = False
+                for i, f in enumerate(self.features):
+                    ft = Feature(f)
+                    oid = self._get_oid(ft)
+                    self.features[i] = ft
+
+            @property
+            def has_oid(self):
+                try:
+                    return hasattr(self, 'OIDFieldName') and getattr(self, 'OIDFieldName')
+                except:
+                    return False
+
+            def _find_by_oid(self, oid):
+                """gets a feature by its OID"""
+                for ft in iter(self.features):
+                    if self._get_oid(ft) == oid:
+                        return ft
+
+            def _find_index_by_oid(self, oid):
+                """gets the index of a Feature by it's OID"""
+                for i, ft in enumerate(self.features):
+                    if self._get_oid(ft) == oid:
+                        return i
+
+            def _replace_feature_with_oid(self, oid, feature):
+                """replaces a feature with OID with another Feature"""
+                feature = self._toJson(feature)
+                if self._get_oid(feature) != oid:
+                    feature.json[ATTRIBUTES][layer.OIDFieldName] = oid
+                for i, ft in enumerate(self.features):
+                    if self._get_oid(ft) == oid:
+                        self.features[i] = feature
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, type, value, traceback):
+                if isinstance(type, Exception):
+                    raise type(value)
+                elif type is None and bool(auto_save):
+                    self.applyEdits()
+
+            def rows(self):
+                """returns Cursor.rows() as generator"""
+                for feature in self.features:
+                    yield list(self._createRow(feature, self.spatialReference).values)
+
+            def _get_oid(self, row):
+                if isinstance(row, (int, long)):
+                    return row
+                try:
+                    return self._toJson(row).get(layer.OIDFieldName)
+                except:
+                    return None
+
+            def addAttachment(self, row_or_oid, attachment, **kwargs):
+                """adds an attachment
+
+                Required:
+                    row_or_oid -- row returned from cursor or an OID
+                    attachment -- full path to attachment
+                """
+                if not hasattr(layer, HAS_ATTACHMENTS) or not getattr(layer, HAS_ATTACHMENTS):
+                    raise NotImplemented('{} does not support attachments!'.format(layer))
+                if not self.has_oid:
+                    raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
+                oid = self._get_oid(row_or_oid)
+                if oid:
+                    return layer.addAttachment(oid, attachment, **kwargs)
+                raise ValueError('No valid OID found to add attachment!')
+
+            def updateRow(self, row):
+                """updates the row edits cache UpdateCursor._updates dict
+                with updated row.
+
+                Required:
+                    row -- list/tuple/Feature/Row that has been updated
+                """
+                row = self._toJson(row)
+                oid = self._get_oid(row)
+                self._replace_feature_with_oid(oid, row)
+                self._called_update = True
+
+            def deleteRow(self, row):
+                """deletes the row
+
+                Required:
+                    row -- list/tuple/Feature/Row that has been updated
+                """
+                oid = self._get_oid(row)
+                self.features.remove(self._find_by_oid(oid))
+                if oid:
+                    self._deletes.append(oid)
+
+            def applyEdits(self):
+                if self.has_oid:
+                    return layer.applyEdits(updates=self.features if self._called_update else NULL, deletes=self._deletes)
+                raise RuntimeError('Missing OID Field in Data!')
+
+        cur_fields = self._fix_fields(fields)
+        fs = self.query(where, cur_fields, add_params, records, exceed_limit)
+        return UpdateCursor(fs, fields)
+
+    def insertCursor(self, fields=[], template_name=None, auto_save=True):
+        """inserts new features into layer using a cursor, , the applyEdits() method is automatically
+        called when used in a "with" statement and auto_save is True.
+
+        Required:
+            fields -- list of fields for cursor
+
+        Optional:
+            template_name -- name of template from type
+            auto_save -- automatically apply edits when using with statement,
+                if True, will apply edits on the __exit__ method.
+        """
+        layer = self
+        field_names = [f.name for f in layer.fields if f.type not in (GLOBALID, OID)]
+        class InsertCursor(object):
+            def __init__(self, fields, template_name=None, auto_save=True):
+                self._adds = []
+                self.fields = fields
+                self.has_geometry = getattr(layer, TYPE) == FEATURE_LAYER
+                try:
+                    self.template = self.get_template(template_name).templates[0].prototype
+                except:
+                    self.template = {ATTRIBUTES: {k: NULL for k in self.fields if k != SHAPE_TOKEN}}
+                if self.has_geometry:
+                    self.template[GEOMETRY] = NULL
+                try:
+                    self.geometry_index = self.fields.index(SHAPE_TOKEN)
+                except ValueError:
+                    try:
+                        self.geometry_index = self.fields.index(layer.shapeFieldName)
+                    except ValueError:
+                        self.geometry_index = None
+
+            def insertRow(self, row):
+                """inserts a row into the InsertCursor._adds cache
+
+                Required:
+                    row -- list/tuple/Feature/Row that has been updated
+                """
+                feature = {k:v for k,v in self.template.iteritems()}
+                if isinstance(row, (list, tuple)):
+                    for i, value in enumerate(row):
+                        try:
+                            field = self.fields[i]
+                            if field == SHAPE_TOKEN:
+                                feature[GEOMETRY] = Geometry(value).json
+                            else:
+                                if isinstance(value, datetime.datetime):
+                                    value = date_to_mil(value)
+                                feature[ATTRIBUTES][field] = value
+                        except IndexError:
+                            pass
+                    self._adds.append(feature)
+                    return
+                elif isinstance(row, Feature):
+                    row = row.json
+                if isinstance(row, dict):
+                    if GEOMETRY in row and self.has_geometry:
+                        feature[GEOMETRY] = Geometry(row[GEOMETRY]).json
+                    if ATTRIBUTES in row:
+                        for f, value in row[ATTRIBUTES].iteritems():
+                            if f in feature[ATTRIBUTES]:
+                                if isinstance(value, datetime.datetime):
+                                    value = date_to_mil(value)
+                                feature[ATTRIBUTES][f] = value
+                    else:
+                        for f, value in row.iteritems():
+                            if f in feature[ATTRIBUTES]:
+                                if isinstance(value, datetime.datetime):
+                                    value = date_to_mil(value)
+                                feature[ATTRIBUTES][f] = value
+                            elif f == SHAPE_TOKEN and self.has_geometry:
+                                feature[GEOMETRY] = Geometry(value).json
+                    self._adds.append(feature)
+                    return
+
+            def applyEdits(self):
+                """applies the edits to the layer"""
+                return layer.applyEdits(adds=self._adds)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, type, value, traceback):
+                if isinstance(type, Exception):
+                    raise type(value)
+                elif type is None and bool(auto_save):
+                    self.applyEdits()
+
+        return InsertCursor(fields, template_name, auto_save)
+
+    def get_template(self, name=None):
+        """returns a template by name
+
+        Optional:
+            name -- name of template
+        """
+        type_names = [t.get(NAME) for t in self.json.get(TYPES, [])]
+        if name in type_names:
+            for t in self.json.get(TYPES, []):
+                if name == t.get(NAME):
+                    return t
+        try:
+            return self.json.get(TYPES)[0]
+        except IndexError:
+            return {}
+
 
     def addFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """add new features to feature service layer
@@ -1825,13 +2107,13 @@ class FeatureLayer(MapServiceLayer):
         """
         edits_url = self.url + '/applyEdits'
         if isinstance(adds, FeatureSet):
-            adds = json.dumps(adds.features, ensure_ascii=False)
+            adds = json.dumps(adds.features, ensure_ascii=False, cls=RestapiEncoder)
         elif isinstance(adds, (list, tuple)):
-            adds = json.dumps(adds, ensure_ascii=False)
+            adds = json.dumps(adds, ensure_ascii=False, cls=RestapiEncoder)
         if isinstance(updates, FeatureSet):
-            updates = json.dumps(updates.features, ensure_ascii=False)
+            updates = json.dumps(updates.features, ensure_ascii=False, cls=RestapiEncoder)
         elif isinstance(updates, (list, tuple)):
-            updates = json.dumps(updates, ensure_ascii=False)
+            updates = json.dumps(updates, ensure_ascii=False, cls=RestapiEncoder)
         if isinstance(deletes, (list, tuple)):
             deletes = ', '.join(map(str, deletes))
         params = {ADDS: adds,

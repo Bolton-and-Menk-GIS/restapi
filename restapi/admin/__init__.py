@@ -2978,7 +2978,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
     """AGOL Feature Service"""
 
     @staticmethod
-    def createNewGlobalIdFieldJSON():
+    def createNewGlobalIdFieldDefinition():
         """will add a new global id field json defition"""
         return munchify({
             NAME: 'GlobalID',
@@ -2992,7 +2992,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         })
 
     @staticmethod
-    def createNewGlobalIdFieldJSON(name, alias='', autoUpdate=False):
+    def createNewDateFieldDefinition(name, alias='', autoUpdate=False):
         """Will create a json definition for a new date field
 
         Required:
@@ -3010,21 +3010,49 @@ class AGOLFeatureService(AGOLAdminInitializer):
             ALIAS: alias or name,
             SQL_TYPE: SQL_TYPE_OTHER,
             NULLABLE: FALSE,
-            EDITABLE: FALSE,
+            EDITABLE: TRUE,
             DOMAIN: NULL,
             DEFAULT_VALUE: SQL_AUTO_DATE_EXP if autoUpdate else NULL
         })
 
     @staticmethod
+    def createNewFieldDefinition(name, field_type, alias='', **kwargs):
+        """Will create a json definition for a new field
+
+        Required:
+            name -- name of new field
+            field_type -- type of field
+
+        Optional:
+            alias -- field name for alias
+            **kwargs other field keys to set
+        """
+        fd = munchify({
+            NAME: name,
+            TYPE: field_type,
+            ALIAS: alias or name,
+            SQL_TYPE: SQL_TYPE_OTHER,
+            NULLABLE: TRUE,
+            EDITABLE: TRUE,
+            DOMAIN: NULL,
+            DEFAULT_VALUE:  NULL
+        })
+        for k,v in kwargs.iteritems():
+            if k in fd:
+                fd[k] = v
+        return fd
+
+    @staticmethod
     def clearLastEditedDate(in_json):
         """clears the lastEditDate within json, will throw an error if updating
-        a service JSON definition if this value is not an empty string.
+        a service JSON definition if this value is not an empty string/null.
 
         Required:
             in_json -- input json
         """
         if EDITING_INFO in in_json:
             in_json[EDITING_INFO][LAST_EDIT_DATE] = ''
+        return in_json
 
     @passthrough
     def addToDefinition(self, addToDefinition, async=FALSE):

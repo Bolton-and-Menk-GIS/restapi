@@ -690,7 +690,7 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     def __iter__(self):
         for feature in self.features:
-            yield Feature(feature)
+            yield feature
 
     def __len__(self):
         return len(self.features)
@@ -712,7 +712,6 @@ class Feature(JsonGetter):
             feature -- input json for feature
         """
         self.json = munch.munchify(feature)
-        self.json.get(GEOMETRY)
 
     def get(self, field):
         """gets an attribute from the feature
@@ -720,7 +719,9 @@ class Feature(JsonGetter):
         Required:
             field -- name of field for which to get attribute
         """
-        return self.json[ATTRIBUTES].get(field)
+        if field in (ATTRIBUTES, GEOMETRY):
+            return self.json.get(field)
+        return self.json.get(ATTRIBUTES, {}).get(field)
 
     def __repr__(self):
         return self.dumps(indent=2)

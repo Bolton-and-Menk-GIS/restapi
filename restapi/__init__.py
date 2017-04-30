@@ -11,6 +11,10 @@
 #-------------------------------------------------------------------------------
 from common_types import *
 import _strings
+try:
+    from . import admin
+except:
+    pass
 
 __all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', 'has_arcpy',
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
