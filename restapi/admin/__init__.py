@@ -3035,11 +3035,15 @@ class AGOLFeatureService(AGOLAdminInitializer):
             NULLABLE: TRUE,
             EDITABLE: TRUE,
             DOMAIN: NULL,
-            DEFAULT_VALUE:  NULL
+            DEFAULT_VALUE:  NULL,
+            LENGTH: NULL,
+            VISIBLE: TRUE
         })
         for k,v in kwargs.iteritems():
             if k in fd:
                 fd[k] = v
+        if field_type == TEXT_FIELD and fd.get(LENGTH) in (NULL, None, ''):
+            fd[LENGTH] = 50 # default
         return fd
 
     @staticmethod
@@ -3126,6 +3130,19 @@ class AGOLFeatureService(AGOLAdminInitializer):
         self.refresh()
         self.reload()
         return result
+
+    def addField(self, name, field_type, alias='', **kwargs):
+        """Will add a new field to layer
+
+        Required:
+            name -- name of new field
+            field_type -- type of field
+
+        Optional:
+            alias -- field name for alias
+            **kwargs other field keys to set
+        """
+        self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias, **kwargs)]})
 
     @passthrough
     def refresh(self):

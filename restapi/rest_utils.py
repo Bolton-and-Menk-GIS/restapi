@@ -400,6 +400,10 @@ def generate_token(url, user, pw, expiration=60):
 class RestapiEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
     def default(self, o):
+        if o == True:
+            return TRUE
+        if o == False:
+            return FALSE
         if isinstance(o, datetime.datetime):
             return date_to_mil(o)
         if hasattr(o, JSON):
@@ -617,6 +621,9 @@ class FieldsMixin(object):
     @property
     def OIDFieldName(self):
         """gets the OID field name if it exists in feature set"""
+        if hasattr(self, OBJECTID_FIELD) and getattr(self, OBJECTID_FIELD):
+            return getattr(self, OBJECTID_FIELD)
+
         try:
             return [f.name for f in self.fields if f.type == OID][0]
         except IndexError:
@@ -627,6 +634,17 @@ class FieldsMixin(object):
         """gets the Shape field name if it exists in feature set"""
         try:
             return [f.name for f in self.fields if f.type == SHAPE][0]
+        except IndexError:
+           return None
+
+    @property
+    def GlobalIdFieldName(self):
+        """gets the Shape field name if it exists in feature set"""
+        if hasattr(self, GLOBALID_FIELD) and getattr(self, GLOBALID_FIELD):
+            return getattr(self, GLOBALID_FIELD)
+
+        try:
+            return [f.name for f in self.fields if f.type == GLOBALID][0]
         except IndexError:
            return None
 
@@ -932,56 +950,46 @@ class GeocodeResult(JsonGetter, SpatialReferenceMixin):
     def __repr__(self):
         return '<{}: {} match{}>'.format(self.__class__.__name__, len(self), 'es' if len(self) else '')
 
-class EditResult(object):
+class EditResult(JsonGetter):
     """class to handle Edit operation results"""
-    __slots__ = [ADD_RESULTS, UPDATE_RESULTS, DELETE_RESULTS, ADD_ATTACHMENT_RESULT,
-                SUMMARY, AFFECTED_OIDS, FAILED_OIDS, RESPONSE, JSON]
     def __init__(self, res_dict, feature_id=None):
         RequestError(res_dict)
-        self.response = munch.munchify(res_dict)
-        self.failedOIDs = []
-        self.addResults = []
-        self.updateResults = []
-        self.deleteResults = []
-        self.addAttachmentResult = {}
-        for key, value in res_dict.iteritems():
-            if isinstance(value, dict):
-                value = [value]
-            for v in value:
-                res_id = v.get(RESULT_OBJECT_ID)
-                if res_id is None:
-                    res_id = v.get(RESULT_GLOBAL_ID)
-                if v[SUCCESS_STATUS] in (True, TRUE):
-                    if key == ADD_ATTACHMENT_RESULT:
-                        self.addAttachmentResult[feature_id] = res_id
-                    else:
-                        getattr(self, key).append(res_id)
-                else:
-                    self.failedOIDs.append(res_id)
-        self.affectedOIDs = self.addResults + self.updateResults + self.deleteResults + self.addAttachmentResult.keys()
         self.json = munch.munchify(res_dict)
+
+    @staticmethod
+    def success_count(l):
+        return len([d for d in l if d.get(SUCCESS_STATUS) in (True, TRUE)])
 
     def summary(self):
         """print summary of edit operation"""
-        if self.affectedOIDs:
-            if self.addResults:
-                print('Added {} feature(s)'.format(len(self.addResults)))
-            if self.updateResults:
-                print('Updated {} feature(s)'.format(len(self.updateResults)))
-            if self.deleteResults:
-                print('Deleted {} feature(s)'.format(len(self.deleteResults)))
-            if self.addAttachmentResult:
-                try:
-                    k,v = self.addAttachmentResult.items()[0]
-                    print("Added attachment '{}' for feature {}".format(v, k))
-                except IndexError: # should never happen?
-                    print('Added 1 attachment')
-        if self.failedOIDs:
-            print('Failed to edit {0} feature(s)!\n{1}'.format(len(self.failedOIDs), self.failedOIDs))
-
-    def __len__(self):
-        """return count of affected OIDs"""
-        return len(self.affectedOIDs)
+        if self.json.get(ADD_RESULTS, []):
+            print('Added {} feature(s)'.format(self.success_count(getattr(self, ADD_RESULTS))))
+        if self.json.get(UPDATE_RESULTS, []):
+            print('Updated {} feature(s)'.format(self.success_count(getattr(self, UPDATE_RESULTS))))
+        if self.json.get(DELETE_RESULTS, []):
+            print('Deleted {} feature(s)'.format(self.success_count(getattr(self, DELETE_RESULTS))))
+        if self.json.get(ATTACHMENTS, []):
+            print('Attachment Edits: {}'.format(self.success_count(getattr(self, ATTACHMENTS))))
+        if self.json.get(ADD_ATTACHMENT_RESULT):
+            try:
+                k,v = getattr(self, ADD_ATTACHMENT_RESULT).items()[0]
+                print("Added attachment '{}' for feature {}".format(v, k))
+            except IndexError: # should never happen?
+                print('Added 1 attachment')
+        if self.json.get(DELETE_ATTACHMENT_RESULTS):
+            try:
+                for res in getattr(self, DELETE_ATTACHMENT_RESULTS, []) or []:
+                    if res.get(SUCCESS_STATUS) in (True, TRUE):
+                        print("Deleted attachment '{}'".format(res.get(RESULT_OBJECT_ID)))
+                    else:
+                        print("Failed to Delete attachment '{}'".format(res.get(RESULT_OBJECT_ID)))
+            except IndexError: # should never happen?
+                print('Deleted {} attachment(s)'.format(len(getattr(self, DELETE_ATTACHMENT_RESULT))))
+        if self.json.get(UPDATE_ATTACHMENT_RESULT):
+            try:
+                print("Updated attachment '{}'".format(self.json.get(UPDATE_ATTACHMENT_RESULT, {}).get(RESULT_OBJECT_ID)))
+            except IndexError: # should never happen?
+                print('Updated 1 attachment')
 
 class BaseGeometry(SpatialReferenceMixin):
     """base geometry obect"""
@@ -994,7 +1002,7 @@ class BaseGeometryCollection(object):
     """Base Geometry Collection"""
     geometries = []
     json = {GEOMETRIES: []}
-    geometryType = None
+    geometryType = NULL
 
     @property
     def count(self):
@@ -1071,8 +1079,7 @@ class GeocodeService(RESTEndpoint):
                     address_field = self.addressFields[0].name
                     print('Warning, no singleLineAddressField found...Using "{}" field'.format(address_field))
             for i, addr in enumerate(addr_list):
-                recs[RECORDS].append({ATTRIBUTES: {"OBJECTID": i+1,
-                                                       address_field: addr}})
+                recs[RECORDS].append({ATTRIBUTES: {"OBJECTID": i+1, address_field: addr}})
 
         # validate recs, make sure OBECTID is present
         elif isinstance(recs, dict) and RECORDS in recs:

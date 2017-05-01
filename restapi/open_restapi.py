@@ -303,6 +303,8 @@ class Geometry(BaseGeometry):
                 self.geometryType = ESRI_MULTIPOINT
             elif X in self.json and Y in self.json:
                 self.geometryType = ESRI_POINT
+            else:
+                self.geometryType = NULL_GEOMETRY
         self.json = munch.munchify(self.json)
 
     @property

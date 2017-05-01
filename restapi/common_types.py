@@ -39,6 +39,7 @@ except ImportError:
     arcpy = ArcpyPlaceholder()
 
 import sqlite3
+import base64
 import shutil
 import contextlib
 import urlparse
@@ -1769,7 +1770,7 @@ class FeatureLayer(MapServiceLayer):
         # store list of EditResult() objects to track changes
         self.editResults = []
 
-    def updateCursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, auto_save=True):
+    def updateCursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, auto_save=True, useGlobalIds=False, **kwargs):
         """updates features in layer using a cursor, the applyEdits() method is automatically
         called when used in a "with" statement and auto_save is True.
 
@@ -1784,13 +1785,37 @@ class FeatureLayer(MapServiceLayer):
                 must be performed in chunks to get all records.
             auto_save -- automatically apply edits when using with statement,
                 if True, will apply edits on the __exit__ method.
+            useGlobalIds -- (added at 10.4) Optional parameter which is false by default. Requires
+                the layer's supportsApplyEditsWithGlobalIds property to be true.  When set to true, the
+                features and attachments in the adds, updates, deletes, and attachments parameters are
+                identified by their globalIds. When true, the service adds the new features and attachments
+                while preserving the globalIds submitted in the payload. If the globalId of a feature
+                (or an attachment) collides with a pre-existing feature (or an attachment), that feature
+                and/or attachment add fails. Other adds, updates, or deletes are attempted if rollbackOnFailure
+                is false. If rollbackOnFailure is true, the whole operation fails and rolls back on any failure
+                including a globalId collision.
+
+                When useGlobalIds is true, updates and deletes are identified by each feature or attachment
+                globalId rather than their objectId or attachmentId.
+            kwargs -- any additional keyword arguments supported by the applyEdits method of the REST API, see
+                http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Apply_Edits_Feature_Service_Layer/02r3000000r6000000/
         """
         layer = self
         class UpdateCursor(Cursor):
-            def __init__(self,  feature_set, fieldOrder=[], auto_save=auto_save):
+            def __init__(self,  feature_set, fieldOrder=[], auto_save=auto_save, useGlobalIds=useGlobalIds, **kwargs):
                 super(UpdateCursor, self).__init__(feature_set, fieldOrder)
+                self.useGlobalIds = useGlobalIds
                 self._deletes = []
-                self._called_update = False
+                self._updates = []
+                self._attachments = {
+                    ADDS: [],
+                    UPDATES: [],
+                    DELETES: []
+                }
+                self._kwargs = {}
+                for k,v in kwargs.iteritems():
+                    if k not in('feature_set', 'fieldOrder', 'auto_save'):
+                        self._kwargs[k] = v
                 for i, f in enumerate(self.features):
                     ft = Feature(f)
                     oid = self._get_oid(ft)
@@ -1799,9 +1824,25 @@ class FeatureLayer(MapServiceLayer):
             @property
             def has_oid(self):
                 try:
-                    return hasattr(self, 'OIDFieldName') and getattr(self, 'OIDFieldName')
+                    return hasattr(self, OID_FIELD_NAME) and getattr(self, OID_FIELD_NAME)
                 except:
                     return False
+
+            @property
+            def has_globalid(self):
+                try:
+                    return hasattr(self, GLOBALID_FIELD_NAME) and getattr(self, GLOBALID_FIELD_NAME)
+                except:
+                    return False
+
+            @property
+            def canEditByGlobalId(self):
+                return all([
+                    self.useGlobalIds,
+                    layer.canUseGlobalIdsForEditing,
+                    self.has_globalid,
+                    getattr(self, GLOBALID_FIELD_NAME) in self.field_names
+                ])
 
             def _find_by_oid(self, oid):
                 """gets a feature by its OID"""
@@ -1822,6 +1863,27 @@ class FeatureLayer(MapServiceLayer):
                     feature.json[ATTRIBUTES][layer.OIDFieldName] = oid
                 for i, ft in enumerate(self.features):
                     if self._get_oid(ft) == oid:
+                        self.features[i] = feature
+
+            def _find_by_globalid(self, globalid):
+                """gets a feature by its GlobalId"""
+                for ft in iter(self.features):
+                    if self._get_globalid(ft) == globalid:
+                        return ft
+
+            def _find_index_by_globalid(self, globalid):
+                """gets the index of a Feature by it's GlobalId"""
+                for i, ft in enumerate(self.features):
+                    if self._get_globalid(ft) == globalid:
+                        return i
+
+            def _replace_feature_with_globalid(self, globalid, feature):
+                """replaces a feature with GlobalId with another Feature"""
+                feature = self._toJson(feature)
+                if self._get_globalid(feature) != globalid:
+                    feature.json[ATTRIBUTES][layer.OIDFieldName] = globalid
+                for i, ft in enumerate(self.features):
+                    if self._get_globalid(ft) == globalid:
                         self.features[i] = feature
 
             def __enter__(self):
@@ -1846,33 +1908,113 @@ class FeatureLayer(MapServiceLayer):
                 except:
                     return None
 
+            def _get_globalid(self, row):
+                if isinstance(row, (int, long)):
+                    return row
+                try:
+                    return self._toJson(row).get(layer.GlobalIdFieldName or getattr(self, GLOBALID_FIELD_NAME))
+                except:
+                    return None
+
+            def _get_row_identifier(self, row):
+                """gets the appropriate row identifier (OBJECTID or GlobalID)"""
+                if self.canEditByGlobalId:
+                    return self._get_globalid(row)
+                return self._get_oid(row)
+
             def addAttachment(self, row_or_oid, attachment, **kwargs):
                 """adds an attachment
 
                 Required:
-                    row_or_oid -- row returned from cursor or an OID
+                    row_or_oid -- row returned from cursor or an OID/GlobalId
                     attachment -- full path to attachment
                 """
                 if not hasattr(layer, HAS_ATTACHMENTS) or not getattr(layer, HAS_ATTACHMENTS):
                     raise NotImplemented('{} does not support attachments!'.format(layer))
                 if not self.has_oid:
                     raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
+##                # cannot get this to work :(
+##                if layer.canApplyEditsWithAttachments:
+##                    att_key = DATA
+##                    if isinstance(attachment, basestring) and attachment.startswith('{'):
+##                        # this is an upload id?
+##                        att_key = UPLOAD_ID
+##                    att = {
+##                        PARENT_GLOBALID: self._get_globalid(row_or_oid),
+##                        att_key: attachment
+##                    }
+##                    self._attachments[ADDS].append(att)
+##                    return
+
                 oid = self._get_oid(row_or_oid)
                 if oid:
                     return layer.addAttachment(oid, attachment, **kwargs)
-                raise ValueError('No valid OID found to add attachment!')
+                raise ValueError('No valid OID or GlobalId found to add attachment!')
+
+            def updateAttachment(self, row_or_oid, attachmentId, attachment, **kwargs):
+                """adds an attachment
+
+                Required:
+                    row_or_oid -- row returned from cursor or an OID/GlobalId
+                    attachment -- full path to attachment
+                """
+                if not hasattr(layer, HAS_ATTACHMENTS) or not getattr(layer, HAS_ATTACHMENTS):
+                    raise NotImplemented('{} does not support attachments!'.format(layer))
+                if not self.has_oid:
+                    raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
+##                # cannot get this to work :(
+##                if layer.canApplyEditsWithAttachments:
+##                    att_key = DATA
+##                    if isinstance(attachment, basestring) and attachment.startswith('{'):
+##                        # this is an upload id?
+##                        att_key = UPLOAD_ID
+##                    att = {
+##                        PARENT_GLOBALID: self._get_globalid(row_or_oid),
+##                        GLOBALID_CAMEL: attachmentId,
+##                        att_key: attachment
+##                    }
+##                    self._attachments[UPDATES].append(att)
+##                    return
+
+                oid = self._get_oid(row_or_oid)
+                if oid:
+                    return layer.updateAttachment(oid, attachmentId, attachment, **kwargs)
+                raise ValueError('No valid OID or GlobalId found to add attachment!')
+
+            def deleteAttachments(self, row_or_oid, attachmentIds, **kwargs):
+                """adds an attachment
+
+                Required:
+                    row_or_oid -- row returned from cursor or an OID/GlobalId
+                    attachment -- full path to attachment
+                """
+                if not hasattr(layer, HAS_ATTACHMENTS) or not getattr(layer, HAS_ATTACHMENTS):
+                    raise NotImplemented('{} does not support attachments!'.format(layer))
+                if not self.has_oid:
+                    raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
+
+                oid = self._get_oid(row_or_oid)
+                if oid:
+                    return layer.deleteAttachments(oid, attachmentIds, **kwargs)
+                raise ValueError('No valid OID or GlobalId found to add attachment!')
 
             def updateRow(self, row):
-                """updates the row edits cache UpdateCursor._updates dict
-                with updated row.
+                """updates the feature with values from updated row.  If not used in context of
+                a "with" statement, updates will have to be applied manually after all edits are
+                made using the UpdateCursor.applyEdits() method.  When used in the context of a
+                "with" statement, edits are automatically applied on __exit__.
 
                 Required:
                     row -- list/tuple/Feature/Row that has been updated
                 """
                 row = self._toJson(row)
-                oid = self._get_oid(row)
-                self._replace_feature_with_oid(oid, row)
-                self._called_update = True
+                if self.canEditByGlobalId:
+                    globalid = self._get_globalid(row)
+                    self._replace_feature_with_globalid(globalid, row)
+                else:
+                    oid = self._get_oid(row)
+                    self._replace_feature_with_oid(oid, row)
+                self._updates.append(row)
 
             def deleteRow(self, row):
                 """deletes the row
@@ -1886,9 +2028,19 @@ class FeatureLayer(MapServiceLayer):
                     self._deletes.append(oid)
 
             def applyEdits(self):
-                if self.has_oid:
-                    return layer.applyEdits(updates=self.features if self._called_update else NULL, deletes=self._deletes)
-                raise RuntimeError('Missing OID Field in Data!')
+                attCount = filter(None, [len(atts) for op, atts in self._attachments.iteritems()])
+                if (self.has_oid or (self.has_globalid and layer.canUseGlobalIdsForEditing and self.useGlobalIds)) \
+                and any([self._updates, self._deletes, attCount]):
+                    kwargs = {UPDATES: self._updates, DELETES: self._deletes}
+                    if layer.canApplyEditsWithAttachments and self._attachments:
+                        kwargs[ATTACHMENTS] = self._attachments
+                    for k,v in self._kwargs.iteritems():
+                        kwargs[k] = v
+                    if layer.canUseGlobalIdsForEditing:
+                        kwargs[USE_GLOBALIDS] = self.useGlobalIds
+                    return layer.applyEdits(**kwargs)
+                elif not (self.has_oid or not (self.has_globalid and layer.canUseGlobalIdsForEditing and self.useGlobalIds)):
+                    raise RuntimeError('Missing OID or GlobalId Field in Data!')
 
         cur_fields = self._fix_fields(fields)
         fs = self.query(where, cur_fields, add_params, records, exceed_limit)
@@ -1913,10 +2065,14 @@ class FeatureLayer(MapServiceLayer):
                 self._adds = []
                 self.fields = fields
                 self.has_geometry = getattr(layer, TYPE) == FEATURE_LAYER
-                try:
-                    self.template = self.get_template(template_name).templates[0].prototype
-                except:
-                    self.template = {ATTRIBUTES: {k: NULL for k in self.fields if k != SHAPE_TOKEN}}
+                skip = (SHAPE_TOKEN, OID_TOKEN, layer.OIDFieldName)
+                if template_name:
+                    try:
+                        self.template = self.get_template(template_name).templates[0].prototype
+                    except:
+                        self.template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
+                else:
+                    self.template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
                 if self.has_geometry:
                     self.template[GEOMETRY] = NULL
                 try:
@@ -1984,6 +2140,46 @@ class FeatureLayer(MapServiceLayer):
                     self.applyEdits()
 
         return InsertCursor(fields, template_name, auto_save)
+
+    @property
+    def canUseGlobalIdsForEditing(self):
+        """will be true if the layer supports applying edits where globalid values
+        provided by the client are used. In order for supportsApplyEditsWithGlobalIds
+        to be true, layers must have a globalid column and have isDataVersioned as false.
+        Layers with hasAttachments as true additionally require attachments with globalids
+        and attachments related to features via the features globalid.
+        """
+        return all([
+            self.compatible_with_version(10.4),
+            hasattr(self, SUPPORTS_APPLY_EDITS_WITH_GLOBALIDS),
+            getattr(self, SUPPORTS_APPLY_EDITS_WITH_GLOBALIDS)
+        ])
+
+
+    @property
+    def canApplyEditsWithAttachments(self):
+        """convenience property to check if attachments can be edited in
+        applyEdits() method"""
+        return all([
+            self.compatible_with_version(10.4),
+            hasattr(self, HAS_ATTACHMENTS),
+            getattr(self, HAS_ATTACHMENTS)
+        ])
+
+    @staticmethod
+    def guess_content_type(attachment, content_type=''):
+        # use mimetypes to guess "content_type"
+        if not content_type:
+            content_type = mimetypes.guess_type(os.path.basename(attachment))[0]
+            if not content_type:
+                known = mimetypes.types_map
+                common = mimetypes.common_types
+                ext = os.path.splitext(attachment)[-1].lower()
+                if ext in known:
+                    content_type = known[ext]
+                elif ext in common:
+                    content_type = common[ext]
+        return content_type
 
     def get_template(self, name=None):
         """returns a template by name
@@ -2095,15 +2291,61 @@ class FeatureLayer(MapServiceLayer):
         # delete features
         return self.__edit_handler(do_post(del_url, params, token=self.token, cookies=self._cookie))
 
-    def applyEdits(self, adds=None, updates=None, deletes=None, gdbVersion=None, rollbackOnFailure=TRUE):
+    def applyEdits(self, adds=None, updates=None, deletes=None, attachments=None, gdbVersion=None, rollbackOnFailure=TRUE, useGlobalIds=False, **kwargs):
         """apply edits on a feature service layer
 
         Optional:
             adds -- features to add (JSON)
             updates -- features to be updated (JSON)
             deletes -- oids to be deleted (list, tuple, or comma separated string)
+            attachments -- attachments to be added, updated or deleted (added at version 10.4).  Attachments
+                in this instance must use global IDs and the layer's "supportsApplyEditsWithGlobalIds" must
+                be true.
             gdbVersion -- geodatabase version to apply edits
             rollbackOnFailure -- specify if the edits should be applied only if all submitted edits succeed
+            useGlobalIds -- (added at 10.4) Optional parameter which is false by default. Requires
+                the layer's supportsApplyEditsWithGlobalIds property to be true.  When set to true, the
+                features and attachments in the adds, updates, deletes, and attachments parameters are
+                identified by their globalIds. When true, the service adds the new features and attachments
+                while preserving the globalIds submitted in the payload. If the globalId of a feature
+                (or an attachment) collides with a pre-existing feature (or an attachment), that feature
+                and/or attachment add fails. Other adds, updates, or deletes are attempted if rollbackOnFailure
+                is false. If rollbackOnFailure is true, the whole operation fails and rolls back on any failure
+                including a globalId collision.
+
+                When useGlobalIds is true, updates and deletes are identified by each feature or attachment
+                globalId rather than their objectId or attachmentId.
+            kwargs -- any additional keyword arguments supported by the applyEdits method of the REST API, see
+                http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Apply_Edits_Feature_Service_Layer/02r3000000r6000000/
+
+        attachments example (supported only in 10.4 and above):
+            {
+              "adds": [{
+                  "globalId": "{55E85F98-FBDD-4129-9F0B-848DD40BD911}",
+                  "parentGlobalId": "{02041AEF-4174-4d81-8A98-D7AC5B9F4C2F}",
+                  "contentType": "image/pjpeg",
+                  "name": "Pothole.jpg",
+                  "uploadId": "{DD1D0A30-CD6E-4ad7-A516-C2468FD95E5E}"
+                },
+                {
+                  "globalId": "{3373EE9A-4619-41B7-918B-DB54575465BB}",
+                  "parentGlobalId": "{6FA4AA68-76D8-4856-971D-B91468FCF7B7}",
+                  "contentType": "image/pjpeg",
+                  "name": "Debree.jpg",
+                  "data": "<base 64 encoded data>"
+                }
+              ],
+              "updates": [{
+                "globalId": "{8FDD9AEF-E05E-440A-9426-1D7F301E1EBA}",
+                "contentType": "image/pjpeg",
+                "name": "IllegalParking.jpg",
+                "uploadId": "{57860BE4-3B85-44DD-A0E7-BE252AC79061}"
+              }],
+              "deletes": [
+                "{95059311-741C-4596-88EF-C437C50F7C00}",
+                " {18F43B1C-2754-4D05-BCB0-C4643C331C29}"
+              ]
+            }
         """
         edits_url = self.url + '/applyEdits'
         if isinstance(adds, FeatureSet):
@@ -2116,12 +2358,41 @@ class FeatureLayer(MapServiceLayer):
             updates = json.dumps(updates, ensure_ascii=False, cls=RestapiEncoder)
         if isinstance(deletes, (list, tuple)):
             deletes = ', '.join(map(str, deletes))
+
         params = {ADDS: adds,
                   UPDATES: updates,
                   DELETES: deletes,
                   GDB_VERSION: gdbVersion,
-                  ROLLBACK_ON_FAILURE: rollbackOnFailure
+                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
+                  USE_GLOBALIDS: useGlobalIds
         }
+
+        # handle attachment edits (added at version 10.4) cannot get this to work :(
+##        if self.canApplyEditsWithAttachments and isinstance(attachments, dict):
+##            for edit_type in (ADDS, UPDATES):
+##                if edit_type in attachments:
+##                    for att in attachments[edit_type]:
+##                        if att.get(DATA) and os.path.isfile(att.get(DATA)):
+##                            # multipart encoded files
+##                            ct = self.guess_content_type(att.get(DATA))
+##                            if CONTENT_TYPE not in att:
+##                                att[CONTENT_TYPE] = ct
+##                            if NAME not in att:
+##                                att[NAME] = os.path.basename(att.get(DATA))
+##                            with open(att.get(DATA), 'rb') as f:
+##                                att[DATA] = 'data:{};base64,'.format(ct) + base64.b64encode(f.read())
+##                                print(att[DATA][:50])
+##                            if GLOBALID_CAMEL not in att:
+##                                att[GLOBALID_CAMEL] = 'f5e0f368-17a1-4062-b848-48eee2dee1d5'
+##                        temp = {k:v for k,v in att.iteritems() if k != 'data'}
+##                        temp[DATA] = att['data'][:50]
+##                        print(json.dumps(temp, indent=2))
+##            params[ATTACHMENTS] = attachments
+##            if any([params[ATTACHMENTS].get(k) for k in (ADDS, UPDATES, DELETES)]):
+##                params[USE_GLOBALIDS] = TRUE
+        # add other keyword arguments
+        for k,v in kwargs.iteritems():
+            kwargs[k] = v
         return self.__edit_handler(do_post(edits_url, params, token=self.token, cookies=self._cookie))
 
     def addAttachment(self, oid, attachment, content_type='', gdbVersion=''):
@@ -2141,22 +2412,80 @@ class FeatureLayer(MapServiceLayer):
         """
         if self.hasAttachments:
 
-            # use mimetypes to guess "content_type"
-            if not content_type:
-                content_type = mimetypes.guess_type(os.path.basename(attachment))[0]
-                if not content_type:
-                    known = mimetypes.types_map
-                    common = mimetypes.common_types
-                    ext = os.path.splitext(attachment)[-1].lower()
-                    if ext in known:
-                        content_type = known[ext]
-                    elif ext in common:
-                        content_type = common[ext]
+            content_type = self.guess_content_type(attachment, content_type)
 
             # make post request
             att_url = '{}/{}/addAttachment'.format(self.url, oid)
             files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
             params = {F: JSON}
+            if isinstance(self.token, Token) and self.token.isAGOL:
+                params[TOKEN] = str(self.token)
+            if gdbVersion:
+                params[GDB_VERSION] = gdbVersion
+            return self.__edit_handler(requests.post(att_url, params, files=files, cookies=self._cookie, verify=False).json(), oid)
+
+        else:
+            raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
+
+    def deleteAttachments(self, oid, attachmentIds, gdbVersion='', **kwargs):
+        """deletes attachments in a feature layer
+
+        Required:
+            oid -- OBJECT ID of feature in which to add attachment
+            attachmentIds -- IDs of attachments to be deleted.  If attachmentIds param is set to "All", all
+                attachments for this feature will be deleted.
+
+        Optional:
+            kwargs -- additional keyword arguments supported by deleteAttachments method
+        """
+        if self.hasAttachments:
+            att_url = '{}/{}/deleteAttachments'.format(self.url, oid)
+            if isinstance(attachmentIds, (list, tuple)):
+                attachmentIds = ','.join(map(str, attachmentIds))
+            elif isinstance(attachmentIds, basestring) and attachmentIds.title() == 'All':
+                attachmentIds = ','.join(map(str, [getattr(att, ID) for att in self.attachments(oid)]))
+            if not attachmentIds:
+                return
+            params = {F: JSON, ATTACHMENT_IDS: attachmentIds}
+            if isinstance(self.token, Token) and self.token.isAGOL:
+                params[TOKEN] = str(self.token)
+            if gdbVersion:
+                params[GDB_VERSION] = gdbVersion
+            for k,v in kwargs.iteritems():
+                params[k] = v
+            return self.__edit_handler(requests.post(att_url, params, cookies=self._cookie, verify=False).json(), oid)
+        else:
+            raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
+
+    def updateAttachment(self, oid, attachmentId, attachment, content_type='', gdbVersion='', validate=False):
+        """add an attachment to a feature service layer
+
+        Required:
+            oid -- OBJECT ID of feature in which to add attachment
+            attachmentId -- ID of feature attachment
+            attachment -- path to attachment
+
+        Optional:
+            content_type -- html media type for "content_type" header.  If nothing provided,
+                will use a best guess based on file extension (using mimetypes)
+            gdbVersion -- geodatabase version for attachment
+            validate -- option to check if attachment ID exists within feature first before
+                attempting an update, this adds a small amount of overhead to method because
+                a request to fetch attachments is made prior to updating. Default is False.
+
+            valid content types can be found here @:
+                http://en.wikipedia.org/wiki/Internet_media_type
+        """
+        if self.hasAttachments:
+            content_type = self.guess_content_type(attachment, content_type)
+
+            # make post request
+            att_url = '{}/{}/updateAttachment'.format(self.url, oid)
+            if validate:
+                if attachmentId not in [getattr(att, ID) for att in self.attachments(oid)]:
+                    raise ValueError('Attachment with ID "{}" not found in Feature with OID "{}"'.format(oid, attachmentId))
+            files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
+            params = {F: JSON, ATTACHMENT_ID: attachmentId}
             if isinstance(self.token, Token) and self.token.isAGOL:
                 params[TOKEN] = str(self.token)
             if gdbVersion:
