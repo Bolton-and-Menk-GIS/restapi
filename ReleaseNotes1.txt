@@ -30,6 +30,9 @@ Deprecated Functions (many of these have been converted to class methods):
 	walk
 	objectize
 
+Enhancements:
+	FeatureLayer -- this now supports "arcpy-like" update and insert Cursors (FeatureLayer.updateCursor, FeatureLayer.insertCursor)
+
 Major changes:
 
 	Cursor -- this has been completely rewritten as an extension of the new FeatureSet class.  The Row class is also no longer

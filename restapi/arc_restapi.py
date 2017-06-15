@@ -45,35 +45,18 @@ class Geometry(BaseGeometry):
         self._inputGeometry = geometry
         if isinstance(geometry, self.__class__):
             geometry = geometry.json
-        spatialReference = None
-        self.geometryType = None
-        for k, v in kwargs.iteritems():
-            if k == SPATIAL_REFERENCE:
-                if isinstance(v, int):
-                    spatialReference = v
-                elif isinstance(v, basestring):
-                    try:
-                        # it's a json string?
-                        v = json.loads(v)
-                    except:
-                        try:
-                            v = int(v)
-                            spatialReference = v
-                        except:
-                            pass
-
-                if isinstance(v, dict):
-                    spatialReference = v.get(LATEST_WKID) if v.get(LATEST_WKID) else v.get(WKID)
-
-            elif k == GEOMETRY_TYPE and v.startswith('esri'):
-                self.geometryType = v
-
-        self.json = OrderedDict2()
+        spatialReference = self._find_wkid(geometry) if isinstance(geometry, dict) else None
+        if spatialReference is None:
+            spatialReference = self._find_wkid(kwargs)
+        self.geometryType = kwargs.get(GEOMETRY_TYPE, '') if kwargs.get(GEOMETRY_TYPE, '').startswith('esri') else None
+        self.json = munch.Munch()
         if isinstance(geometry, arcpy.mapping.Layer) and geometry.supports('DATASOURCE'):
             geometry = geometry.dataSource
 
         if isinstance(geometry, (arcpy.RecordSet, arcpy.FeatureSet)):
-            geometry = geometry.JSON
+            fs = FeatureSet(geometry.JSON)
+            geometry = fs.json
+            spatialReference = fs.getSR()
 
         if isinstance(geometry, arcpy.Geometry):
             spatialReference = geometry.spatialReference.factoryCode
@@ -83,7 +66,7 @@ class Geometry(BaseGeometry):
                 if k != SPATIAL_REFERENCE:
                     self.json[k] = v
             if SPATIAL_REFERENCE in esri_json:
-                self.json[SPATIAL_REFERENCE] = esri_json[SPATIAL_REFERENCE]
+                self.json[SPATIAL_REFERENCE] = spatialReference or self._find_wkid(esri_json)
 
         elif isinstance(geometry, basestring):
             try:
@@ -105,18 +88,9 @@ class Geometry(BaseGeometry):
                     if SPATIAL_REFERENCE in esri_json:
                         self.json[SPATIAL_REFERENCE] = esri_json[SPATIAL_REFERENCE]
                 else:
-                    raise IOError('Not a valid geometry input!')
+                    raise ValueError('Not a valid geometry input!')
 
         if isinstance(geometry, dict):
-            if SPATIAL_REFERENCE in geometry:
-                sr_json = geometry[SPATIAL_REFERENCE]
-                if LATEST_WKID in sr_json:
-                    spatialReference = sr_json[LATEST_WKID]
-                else:
-                    try:
-                        spatialReference = sr_json[WKID]
-                    except:
-                        raise IOError('No spatial reference found in JSON object!')
             if FEATURES in geometry:
                 d = geometry[FEATURES][0]
                 if GEOMETRY in d:
@@ -127,11 +101,17 @@ class Geometry(BaseGeometry):
                 for k,v in geometry[GEOMETRY].iteritems():
                     self.json[k] = v
             if not self.json:
-                if RINGS in geometry:
-                    self.json[RINGS] = geometry[RINGS]
+                if RINGS in geometry or CURVE_RINGS in geometry:
+                    if RINGS in geometry:
+                        self.json[RINGS] = geometry[RINGS]
+                    else:
+                        self.json[CURVE_RINGS] = geometry[CURVE_RINGS]
                     self.geometryType = GEOM_DICT[RINGS]
-                elif PATHS in geometry:
-                    self.json[PATHS] = geometry[PATHS]
+                elif PATHS in geometry or CURVE_PATHS in geometry:
+                    if PATHS in geometry:
+                        self.json[PATHS] = geometry[PATHS]
+                    else:
+                        self.json[CURVE_PATHS] = geometry[CURVE_PATHS]
                     self.geometryType = GEOM_DICT[PATHS]
                 elif POINTS in geometry:
                     self.json[POINTS] = geometry[POINTS]
@@ -145,7 +125,7 @@ class Geometry(BaseGeometry):
                         self.json[k] = geometry[k]
                     self.geometryType = ESRI_ENVELOPE
                 else:
-                    raise IOError('Not a valid JSON object!')
+                    raise ValueError('Not a valid JSON object!')
             if not self.geometryType and GEOMETRY_TYPE in geometry:
                 self.geometryType = geometry[GEOMETRY_TYPE]
         if not SPATIAL_REFERENCE in self.json and spatialReference is not None:
@@ -161,18 +141,7 @@ class Geometry(BaseGeometry):
                 self.geometryType = ESRI_POINT
             else:
                 self.geometryType = NULL_GEOMETRY
-        self.json = munch.munchify(self.json)
-
-    @property
-    def spatialReference(self):
-        return self.getWKID()
-
-    @spatialReference.setter
-    def spatialReference(self, wkid):
-        if isinstance(wkid, int):
-            self.json[SPATIAL_REFERENCE] = {WKID: wkid}
-        elif isinstance(wkid, dict):
-            self.json[SPATIAL_REFERENCE] = wkid
+        self.hasCurves = CURVE_PATHS in self.json or CURVE_RINGS in self.json
 
     def envelope(self):
         """return an envelope from shape"""
@@ -231,84 +200,88 @@ class GeometryCollection(BaseGeometryCollection):
             use_envelopes -- if set to true, will use the bounding box of each geometry passed in
                 for the JSON attribute.
         """
+        self.geometries = []
         if isinstance(geometries, self.__class__):
-            geometries = geometries.json
-        if spatialReference:
-            if isinstance(spatialReference, int):
-                sr_dict = {SPATIAL_REFERENCE: {WKID}}
-            elif isinstance(spatialReference, dict):
-                sr_dict = spatialReference
+            self.geometries = geometries.geometries
+            self.json = geometries.json
+            self.geometryType = geometries.geometryType
+
         else:
-            sr_dict = None
-        # if it is a dict, see if it is actually a feature set, then go through the rest of the filters
-        if isinstance(geometries, dict):
-            try:
-                geometries = FeatureSet(geometries)
-            except:
-                pass
 
-        # it is a layer or feature class/shapefile
-        if isinstance(geometries, (arcpy.mapping.Layer, basestring)):
-            if arcpy.Exists(geometries):
-                with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
-                    self.geometries = [Geometry(r[0]) for r in rows]
+            # if it is a dict, see if it is actually a feature set, then go through the rest of the filters
+            if isinstance(geometries, dict)  and GEOMETRIES in geometries and not isinstance(geometries, FeatureSet):
+                # it is already a GeometryCollection in ESRI JSON format?
+                self.geometries = [Geometry(g) for g in geometries[GEOMETRIES]]
 
-        # it is already a list
-        elif isinstance(geometries, list):
+            # it is a layer or feature class/shapefile
+            elif isinstance(geometries, arcpy.mapping.Layer):
+                if isinstance(arcpy.mapping.Layer):
+                    with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
+                        self.geometries = [Geometry(r[0]) for r in rows]
 
-            # it is a list of restapi.Geometry() objects
-            if all(map(lambda g: isinstance(g, Geometry), geometries)):
-                self.geometries = geometries
+            elif isinstance(geometries, basestring):
+                if (not geometries.startswith('{') or not geometries.startswith('[')) and arcpy.Exists(geometries):
+                    with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
+                        self.geometries = [Geometry(r[0]) for r in rows]
 
-            # it is a JSON structure either as dict or string
-            elif all(map(lambda g: isinstance(g, (dict, basestring)), geometries)):
+                else:
+                    gd = json.loads(geometries)
+                    if isinstance(gd, (list, dict)):
+                        self.geometries = self.__init__(gd)
+                    else:
+                        raise ValueError('Inputs are not valid ESRI JSON Geometries!!!')
 
-                # this *should* be JSON, right???
-                try:
-                    self.geometries = [Geometry(g) for g in geometries]
-                except ValueError:
+            # it is already a list
+            elif isinstance(geometries, list):
+
+                # it is a list of restapi.Geometry() objects
+                if all(map(lambda g: isinstance(g, Geometry), geometries)):
+                    self.geometries = geometries
+
+                # it is a JSON structure either as dict or string
+                elif all(map(lambda g: isinstance(g, (dict, basestring)), geometries)):
+
+                    # this *should* be JSON, right???
+                    try:
+                        self.geometries = [Geometry(g) for g in geometries]
+                    except ValueError:
+                        raise ValueError('Inputs are not valid ESRI JSON Geometries!!!')
+
+            # it is a FeatureSet
+            elif isinstance(geometries, FeatureSet):
+                fs = geometries
+                self.geometries.extend([Geometry(f.geometry, spatialReference=fs.getWKID(), geometryType=fs.geometryType) for f in fs.features])
+
+            # it is a JSON struture of geometries already
+            elif isinstance(geometries, dict):
+                if GEOMETRIES in geometries:
+                    # it is already a GeometryCollection in ESRI JSON format?
+                    self.geometries = [Geometry(g) for g in geometries.get(GEOMETRIES, [])]
+                elif FEATURES in geometries:
+                    self.geometries = [Geometry(g) for g in geometries.get(FEATURES, [])]
+                else:
                     raise ValueError('Inputs are not valid ESRI JSON Geometries!!!')
 
-        # it is a FeatureSet
-        elif isinstance(geometries, FeatureSet):
-            fs = geometries
-            self.geometries = [Geometry(f.geometry, spatialReference=fs.getWKID(), geometryType=fs.geometryType) for f in fs.features]
+            # it is a single Geometry object
+            elif isinstance(geometries, Geometry):
+                self.geometries.append(geometries)
 
-        # it is a JSON struture of geometries already
-        elif isinstance(geometries, dict) and GEOMETRIES in geometries:
+            if self.geometries:
+                self.json[GEOMETRIES] = []
+                for g in self.geometries:
+                    if not g.spatialReference:
+                        g.spatialReference = spatialReference
+                    self.json[GEOMETRIES].append(g.envelopeAsJSON() if use_envelopes else g.json)
 
-            # it is already a GeometryCollection in ESRI JSON format?
-            self.geometries = [Geometry(g) for g in geometries[GEOMETRIES]]
+                self.json[GEOMETRY_TYPE] = self.geometries[0].geometryType if not use_envelopes else ESRI_ENVELOPE
+                self.geometryType = self.geometries[0].geometryType
+                if not spatialReference:
+                    self.spatialReference = self.geometries[0].spatialReference
 
-        # it is a single Geometry object
-        elif isinstance(geometries, Geometry):
-            self.geometries.append(geometries)
-
-        # it is a single geometry as JSON
-        elif isinstance(geometries, (dict, basestring)):
-
-            # this *should* be JSON, right???
-            try:
-                self.geometries.append(Geometry(geometries))
-            except ValueError:
+            elif not self.geometries:
                 raise ValueError('Inputs are not valid ESRI JSON Geometries!!!')
 
-        else:
-            raise ValueError('Inputs are not valid ESRI JSON Geometries!!!')
-
-        if self.geometries:
-            self.json[GEOMETRIES] = []
-            for g in self.geometries:
-                if not g.spatialReference:
-                    g.spatialReference = spatialReference
-                self.json[GEOMETRIES].append(g.envelopeAsJSON() if use_envelopes else g.json)
-
-            self.json[GEOMETRY_TYPE] = self.geometries[0].geometryType if not use_envelopes else ESRI_ENVELOPE
-            self.geometryType = self.geometries[0].geometryType
-            if not spatialReference:
-                self.spatialReference = self.geometries[0].spatialReference
-
-        self.json = munch.munchify(self.json)
+            self.json = munch.munchify(self.json)
 
     @property
     def spatialReference(self):
@@ -321,10 +294,6 @@ class GeometryCollection(BaseGeometryCollection):
     def spatialReference(self, wkid):
         for g in self.geometries:
             g.spatialReference = wkid
-        if isinstance(wkid, int):
-            self.json[SPATIAL_REFERENCE] = {WKID: wkid}
-        elif isinstance(wkid, dict):
-            self.json[SPATIAL_REFERENCE] = wkid
 
 class GeocodeHandler(object):
     """class to handle geocode results"""

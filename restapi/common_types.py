@@ -100,7 +100,13 @@ if has_arcpy:
         isShp = wsType == 'FileSystem'
         temp = time.strftime(r'in_memory\restapi_%Y%m%d%H%M%S') #if isShp else None
         original = out_fc
-        out_fc = temp
+        if isShp:
+            out_fc = temp
+        try:
+            hasGeom = GEOMETRY in feature_set.features[0]
+        except:
+            print('could not check geometry!')
+            hasGeom = False
 
         # try converting JSON features from arcpy, seems very fragile...
         try:
@@ -190,9 +196,10 @@ if has_arcpy:
 
 
         # copy in_memory fc to shapefile
-        arcpy.management.CopyFeatures(out_fc, original)
-        if arcpy.Exists(temp):
-            arcpy.management.Delete(temp)
+        if isShp:
+            arcpy.management.CopyFeatures(out_fc, original)
+            if arcpy.Exists(temp):
+                arcpy.management.Delete(temp)
 
         print('Created: "{0}"'.format(original))
         return original
@@ -579,8 +586,8 @@ class SQLiteReplica(sqlite3.Connection):
 
 class ArcServer(RESTEndpoint):
     """Class to handle ArcGIS Server Connection"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        super(ArcServer, self).__init__(url, usr, pw, token, proxy)
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None):
+        super(ArcServer, self).__init__(url, usr, pw, token, proxy, referer)
         self.service_cache = []
 
     def getService(self, name_or_wildcard):
@@ -853,6 +860,17 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         fields = self._fix_fields(fields)
         params[OUT_FIELDS] = fields
 
+        # geometry validation
+        if self.type == FEATURE_LAYER and GEOMETRY in params:
+            geom = Geometry(params.get(GEOMETRY))
+            if SPATIAL_REL not in params:
+                params[SPATIAL_REL] = ESRI_INTERSECT
+            if isinstance(geom, Geometry):
+                if IN_SR not in params and geom.getSR():
+                    params[IN_SR] = geom.getSR()
+                if getattr(geom, GEOMETRY_TYPE) and GEOMETRY_TYPE not in params:
+                    params[GEOMETRY_TYPE] = getattr(geom, GEOMETRY_TYPE)
+
         # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
             r = do_post(query_url, params, ret_json=False, token=self.token)
@@ -882,12 +900,17 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             else:
                 server_response = do_post(query_url, params, token=self.token, cookies=self._cookie)
 
-            for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
-                if key not in server_response:
-                    if key == SPATIAL_REFERENCE:
-                        server_response[key] = getattr(self, '_' + SPATIAL_REFERENCE)
-                    else:
-                        server_response[key] = getattr(self, key)
+            if self.type == FEATURE_LAYER:
+                for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
+                    if key not in server_response:
+                        if key == SPATIAL_REFERENCE:
+                            server_response[key] = getattr(self, '_' + SPATIAL_REFERENCE)
+                        else:
+                            server_response[key] = getattr(self, key)
+
+            elif self.type == TABLE:
+                if FIELDS not in server_response:
+                    server_response[FIELDS] = getattr(self, FIELDS)
 
             if all([server_response.get(k) for k in (FIELDS, FEATURES)]):
                 if records:
@@ -955,18 +978,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         Unit Options:
             esriSRUnit_Meter | esriSRUnit_StatuteMile | esriSRUnit_Foot | esriSRUnit_Kilometer | esriSRUnit_NauticalMile | esriSRUnit_USNauticalMile
         """
-        if isinstance(geometry, basestring):
-            geometry = json.loads(geometry)
-
+        geometry = Geometry(geometry)
         if not geometryType:
-            for key,gtype in GEOM_DICT.iteritems():
-                if key in geometry:
-                    geometryType = gtype
-                    break
-
-        if SPATIAL_REFERENCE in geometry:
-            sr_dict = geometry[SPATIAL_REFERENCE]
-            inSR = sr_dict.get(LATEST_WKID) if sr_dict.get(LATEST_WKID) else sr_dict.get(WKID)
+            geometryType = geometry.geometryType
+        if not inSR:
+            inSR = geometry.getSR()
 
         params = {GEOMETRY: geometry,
                   GEOMETRY_TYPE: geometryType,
@@ -1160,7 +1176,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 when the "out_fc" param is not a feature class, or the ObjectID field is not included in "fields"
                 param or if there is no access to arcpy.
         """
-        if self.type == 'Feature Layer':
+        if self.type in (FEATURE_LAYER, TABLE):
 
             # make new feature class
             if not sr:
@@ -1236,7 +1252,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         return out_fc
 
-    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False, exceed_limit=True):
+    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False, exceed_limit=True, **kwargs):
         """Method for spatial Query, exports geometry that intersect polygon or
         envelope features.
 
@@ -1253,11 +1269,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 can be used if the feature has many vertices or to check against the full extent
                 of the feature class
         """
-        if isinstance(poly, Geometry):
-            in_geom = poly
-        else:
-            in_geom = Geometry(poly)
-        sr = in_geom.spatialReference
+
+        in_geom = Geometry(poly)
+        sr = in_geom.getSR()
         if envelope:
             geojson = in_geom.envelopeAsJSON()
             geometryType = ESRI_ENVELOPE
@@ -1272,13 +1286,49 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
              RETURN_GEOMETRY: TRUE,
              GEOMETRY: geojson,
              IN_SR : sr,
-             OUT_SR: out_sr}
-
+             OUT_SR: out_sr,
+             SPATIAL_REL: kwargs.get(SPATIAL_REL) or ESRI_INTERSECT
+        }
         return self.export_layer(output, fields, where, params=d, exceed_limit=True, sr=out_sr)
 
     def __repr__(self):
         """string representation with service name"""
         return '<{}: "{}" (id: {})>'.format(self.__class__.__name__, self.name, self.id)
+
+class MapServiceTable(MapServiceLayer):
+    pass
+
+    def export_table(self, *args, **kwargs):
+        """Method to export a feature class or shapefile from a service layer
+
+        Required:
+            out_fc -- full path to output feature class
+
+        Optional:
+            where -- optional where clause
+            params -- dictionary of parameters for query
+            fields -- list of fields for fc. If none specified, all fields are returned.
+                Supports fields in list [] or comma separated string "field1,field2,.."
+            records -- number of records to return. Default is none, will return maxRecordCount
+            exceed_limit -- option to get all records.  If true, will recursively query REST endpoint
+                until all records have been gathered. Default is False.
+            sr -- output spatial refrence (WKID)
+            include_domains -- if True, will manually create the feature class and add domains to GDB
+                if output is in a geodatabase.
+            include_attachments -- if True, will export features with attachments.  This argument is ignored
+                when the "out_fc" param is not a feature class, or the ObjectID field is not included in "fields"
+                param or if there is no access to arcpy.
+        """
+        return self.export_layer(*args, **kwargs)
+
+    def clip(self):
+        raise NotImplemented('Tabular Data cannot be clipped!')
+
+    def select_by_location(self):
+        raise NotImplemented('Select By Location not supported for tabular data!')
+
+    def layer_to_kmz(self):
+        raise NotImplemented('Tabular Data cannot be converted to KMZ!')
 
 # LEGACY SUPPORT
 MapServiceLayer.layer_to_fc = MapServiceLayer.export_layer
@@ -1416,6 +1466,22 @@ class MapService(BaseService):
             return MapServiceLayer(layer_path, token=self.token)
         else:
             print('Layer "{0}" not found!'.format(name_or_id))
+
+    def table(self, name_or_id):
+        """Method to return a layer object with advanced properties by name
+
+        Required:
+            name -- table name (supports wildcard syntax*) or id (must be of type <int>)
+        """
+        if isinstance(name_or_id, int):
+            # reference by id directly
+            return MapServiceTable('/'.join([self.url, str(name_or_id)]), token=self.token)
+
+        layer_path = self.get_layer_url(name_or_id, self.token)
+        if layer_path:
+            return MapServiceTable(layer_path, token=self.token)
+        else:
+            print('Table "{0}" not found!'.format(name_or_id))
 
     def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, exceed_limit=False):
         """Cusor object to handle queries to rest endpoints
@@ -2087,7 +2153,7 @@ class FeatureLayer(MapServiceLayer):
                 """inserts a row into the InsertCursor._adds cache
 
                 Required:
-                    row -- list/tuple/Feature/Row that has been updated
+                    row -- list/tuple/dict/Feature/Row that has been updated
                 """
                 feature = {k:v for k,v in self.template.iteritems()}
                 if isinstance(row, (list, tuple)):
@@ -2530,6 +2596,9 @@ class FeatureLayer(MapServiceLayer):
         e.summary()
         return e
 
+class FeatureTable(FeatureLayer, MapServiceTable):
+    pass
+
 class GeometryService(RESTEndpoint):
     linear_units = sorted(LINEAR_UNITS.keys())
     _default_url = 'https://utility.arcgisonline.com/ArcGIS/rest/services/Geometry/GeometryServer'
@@ -2539,6 +2608,11 @@ class GeometryService(RESTEndpoint):
             # use default arcgis online Geometry Service
             url = self._default_url
         super(GeometryService, self).__init__(url, usr, pw, token, proxy)
+
+    @staticmethod
+    def getLinearUnits():
+        """returns a Munch() dictionary of linear units"""
+        return munch.munchify(LINEAR_UNITS)
 
     @staticmethod
     def getLinearUnitWKID(unit_name):
@@ -2567,38 +2641,48 @@ class GeometryService(RESTEndpoint):
                 FeatureSet()'s, or Geometry()'s.
             use_envelopes -- option to use envelopes of all the input geometires
         """
-        gc = GeometryCollection(geometries, use_envelopes)
-        return gc
+        return GeometryCollection(geometries, use_envelopes)
 
     @geometry_passthrough
-    def buffer(self, geometries, inSR, distances, unit='', outSR='', use_envelopes=False, **kwargs):
+    def buffer(self, geometries, distances, unit='', inSR=None, outSR='', use_envelopes=False, **kwargs):
         """buffer a single geoemetry or multiple
 
         Required:
             geometries -- array of geometries to be buffered. The spatial reference of the geometries
                 is specified by inSR. The structure of each geometry in the array is the same as the
-                structure of the JSON geometry objects returned by the ArcGIS REST API.
-
-            inSR -- wkid for input geometry
+                structure of the JSON geometry objects returned by the ArcGIS REST API.  This should be
+                a restapi.GeometryCollection().
 
             distances -- the distances that each of the input geometries is buffered. The distance units
                 are specified by unit.
 
         Optional:
-
+            units -- input units (esriSRUnit_Meter|esriSRUnit_StatuteMile|esriSRUnit_Foot|esriSRUnit_Kilometer|
+                esriSRUnit_NauticalMile|esriSRUnit_USNauticalMile)
+            inSR -- wkid for input geometry
+            outSR -- wkid for output geometry
             use_envelopes -- not a valid option in ArcGIS REST API, this is an extra argument that will
                 convert the geometries to bounding box envelopes ONLY IF they are restapi.Geometry objects,
                 otherwise this parameter is ignored.
+
+        restapi constants for units:
+            restapi.ESRI_METER
+            restapi.ESRI_MILE
+            restapi.ESRI_FOOT
+            restapi.ESRI_KILOMETER
+            restapi.ESRI_NAUTICAL_MILE
+            restapi.ESRI_US_NAUTICAL_MILE
         """
         buff_url = self.url + '/buffer'
+        geometries = self.validateGeometries(geometries)
         params = {F: PJSON,
-                  GEOMETRIES: self.validateGeometries(geometries),
-                  IN_SR: inSR,
+                  GEOMETRIES: geometries,
+                  IN_SR: inSR or geometries.getSR(),
                   DISTANCES: distances,
-                  UNIT: self.getLinearUnitWKID(unit),
+                  UNIT: self.getLinearUnitWKID(unit) or unit,
                   OUT_SR: outSR,
                   UNION_RESULTS: FALSE,
-                  GEODESIC: FALSE,
+                  GEODESIC: TRUE,
                   OUT_SR: None,
                   BUFFER_SR: None
         }
@@ -2609,6 +2693,7 @@ class GeometryService(RESTEndpoint):
                 params[k] = v
 
         # perform operation
+        print('params: {}'.format({k:v for k,v in params.iteritems() if k != GEOMETRIES}))
         return GeometryCollection(do_post(buff_url, params, token=self.token, cookies=self._cookie),
                                   spatialReference=outSR if outSR else inSR)
 
@@ -2616,18 +2701,40 @@ class GeometryService(RESTEndpoint):
     def intersect(self, geometries, geometry, sr):
         """performs intersection of input geometries and other geometry
 
+        Required:
+            geometries -- input geometries (GeometryCollection|FeatureSet|json|arcpy.mapping.Layer|FeatureClass|Shapefile)
+
+        Optional:
+            sr -- spatial reference for input geometries, if not specified will be derived from input geometries
         """
         query_url = self.url + '/intersect'
-        geometry = Geometry(geometry)
-        geojson = {GEOMETRY_TYPE: geometry.geometryType, GEOMETRY: geometry.json}
         geometries = self.validateGeometries(geometries)
-        sr = geometries.spatialReference
-
-        params = {GEOMETRY: geometry,
-                  GEOMETRIES: geometries,
-                  SR: sr
+        sr = sr or geometries.getWKID() or NULL
+        params = {
+            GEOMETRY: geometry,
+            GEOMETRIES: geometries,
+            SR: sr
         }
         return GeometryCollection(do_post(query_url, params, token=self.token, cookies=self._cookie), spatialReference=sr)
+
+    def union(self, geometries, sr=None):
+        """performs union on input geometries
+
+        Required:
+            geometries -- input geometries (GeometryCollection|FeatureSet|json|arcpy.mapping.Layer|FeatureClass|Shapefile)
+
+        Optional:
+            sr -- spatial reference for input geometries, if not specified will be derived from input geometries
+        """
+        url = self.url + '/union'
+        geometries = self.validateGeometries(geometries)
+        sr = sr or geometries.getWKID() or NULL
+        params = {
+            GEOMETRY: geometries,
+            GEOMETRIES: geometries,
+            SR: sr
+        }
+        return Geometry(do_post(url, params, token=self.token, cookies=self._cookie), spatialReference=sr)
 
     def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
         """finds the most applicable transformation based on inSR and outSR
@@ -2749,35 +2856,29 @@ class ImageService(BaseService):
         """
         IDurl = self.url + '/identify'
 
-        if IN_SR in kwargs:
-            inSR = kwargs[IN_SR]
-        else:
-            inSR = self.spatialReference
-
-        if geometry is not None:
-            if not isinstance(geometry, Geometry):
-                geometry = Geometry(geometry)
-            inSR = geometry.spatialReference
-
-        elif GEOMETRY in kwargs:
-            g = Geometry(kwargs[GEOMETRY], spatialReference=inSR)
-            inSR = g.spatialReference
-
-        elif X in kwargs and Y in kwargs:
-            g = {X: kwargs[X], Y: kwargs[Y]}
-            if SR in kwargs:
-                g[SPATIAL_REFERENCE] = {WKID: kwargs[SR]}
-            else:
-                g[SPATIAL_REFERENCE] = {WKID: self.spatialReference}
-            geometry = Geometry(g)
-
-        else:
-            raise ValueError('Not a valid input geometry!')
+##        if geometry is not None:
+##            if not isinstance(geometry, Geometry):
+##                geometry = Geometry(geometry)
+##
+##        elif GEOMETRY in kwargs:
+##            g = Geometry(kwargs[GEOMETRY])
+##
+##        elif X in kwargs and Y in kwargs:
+##            g = {X: kwargs[X], Y: kwargs[Y]}
+##            if SR in kwargs:
+##                g[SPATIAL_REFERENCE] = {WKID: kwargs[SR]}
+##            elif SPATIAL_REFERENCE in kwargs:
+##                g[SPATIAL_REFERENCE] = {WKID: kwargs[SPATIAL_REFERENCE]}
+##            else:
+##                g[SPATIAL_REFERENCE] = {WKID: self.getSR()}
+##            geometry = Geometry(g)
+##
+##        else:
+##            raise ValueError('Not a valid input geometry!')
 
         params = {
             GEOMETRY: geometry.dumps(),
-            IN_SR: inSR,
-            GEOMETRY_TYPE: ESRI_POINT,
+            GEOMETRY_TYPE: geometry.geometryType,
             F: JSON,
             RETURN_GEOMETRY: FALSE,
             RETURN_CATALOG_ITEMS: FALSE,

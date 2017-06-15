@@ -117,7 +117,7 @@ def tmp_json_file():
         TEMP_DIR = tempfile.mkdtemp()
     return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
-def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None):
+def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -178,7 +178,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
                 cookies = None
 
     if proxy:
-        r = do_proxy_request(proxy, service, params)
+        r = do_proxy_request(proxy, service, params, referer)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
         r = requests.post(service, params, headers={'User-Agent': USER_AGENT}, cookies=cookies, verify=False)
@@ -194,7 +194,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
         else:
             return r
 
-def do_proxy_request(proxy, url, params={}):
+def do_proxy_request(proxy, url, params={}, referer=None):
     """make request against ArcGIS service through a proxy.  This is designed for a
     proxy page that stores access credentials in the configuration to handle authentication.
     It is also assumed that the proxy is a standard Esri proxy, i.e. retrieved from their
@@ -216,7 +216,10 @@ def do_proxy_request(proxy, url, params={}):
     p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems())
 
     # probably a better way to do this...
-    return requests.post('{}?{}?f={}&{}'.format(proxy, url, frmat, p).rstrip('&'), verify=False, headers={'User-Agent': USER_AGENT})
+    headers = {'User-Agent': USER_AGENT}
+    if referer:
+        headers[REFERER_HEADER] = referer
+    return requests.post('{}?{}?f={}&{}'.format(proxy, url, frmat, p).rstrip('&'), verify=False, headers=headers)
 
 def guess_proxy_url(domain):
     """grade school level hack to see if there is a standard esri proxy available for a domain
@@ -380,7 +383,7 @@ def generate_token(url, user, pw, expiration=60):
     if is_agol:
         # now call portal sharing
         portal_params = {TOKEN: resp.get(TOKEN)}
-        org_resp = do_post(AGOL_PORTAL_SELF,portal_params)
+        org_resp = do_post(AGOL_PORTAL_SELF, portal_params)
         org_referer = org_resp.get(URL_KEY, '') + ORG_MAPS
         params[REFERER]= org_referer
         resp = do_post(AGOL_TOKEN_SERVICE, params)
@@ -493,8 +496,9 @@ class RESTEndpoint(JsonGetter):
     json = {}
     _cookie = None
     _proxy = None
+    _referer = None
 
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None):
 
         if PROTOCOL:
             self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
@@ -510,6 +514,7 @@ class RESTEndpoint(JsonGetter):
         self.token = token
         self._cookie = None
         self._proxy = proxy
+        self._referer = referer
         if not self.token and not self._proxy:
             if usr and pw:
                 self.token = generate_token(self.url, usr, pw)
@@ -534,7 +539,7 @@ class RESTEndpoint(JsonGetter):
             if self.url in ID_MANAGER.proxies:
                 self._proxy = ID_MANAGER.proxies[self.url]
 
-        self.raw_response = do_post(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy)
+        self.raw_response = do_post(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy, referer=self._referer)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
@@ -587,6 +592,47 @@ class SpatialReferenceMixin(object):
     """mixin to allow convenience methods for grabbing the spatial reference from a service"""
     json = {}
 
+    @classmethod
+    def _find_wkid(cls, in_json):
+        """recursivly search for WKID in a dict/json structure"""
+        if isinstance(in_json, (int, long)):
+            return in_json
+        if isinstance(in_json, basestring):
+            try:
+                in_json = json.loads(in_json)
+                if not isinstance(json, dict):
+                    return None
+            except:
+                return None
+        if isinstance(in_json, list):
+            try:
+                return cls._find_wkid(in_json[0])
+            except IndexError:
+                return None
+        if not isinstance(in_json, dict):
+            return None
+        for k, v in in_json.iteritems():
+            if k == SPATIAL_REFERENCE:
+                if isinstance(v, int):
+                    return v
+                elif isinstance(v, dict):
+                    return cls._find_wkid(v)
+            elif k == LATEST_WKID:
+                return v
+            elif k == WKID:
+                return v
+
+    @property
+    def spatialReference(self):
+        return self.getWKID()
+
+    @spatialReference.setter
+    def spatialReference(self, wkid):
+        if isinstance(wkid, int):
+            self.json[SPATIAL_REFERENCE] = {WKID: wkid}
+        elif isinstance(wkid, dict):
+            self.json[SPATIAL_REFERENCE] = wkid
+
     @property
     def _spatialReference(self):
         """gets the spatial reference dict"""
@@ -595,14 +641,23 @@ class SpatialReferenceMixin(object):
             resp_d = self.json[SPATIAL_REFERENCE]
         elif EXTENT in self.json and SPATIAL_REFERENCE in self.json[EXTENT]:
             resp_d = self.json[EXTENT][SPATIAL_REFERENCE]
+        elif GEOMETRIES in self.json:
+            try:
+                first = self.json.get(GEOMETRIES, [])[0]
+                resp_d = first.get(SPATIAL_REFERENCE) or {}
+            except IndexError:
+                pass
         return munch.munchify(resp_d)
 
     def getSR(self):
         """return the spatial reference"""
-        resp_d = self._spatialReference
-        for key in [LATEST_WKID, WKID, WKT]:
-            if key in resp_d:
-                return resp_d[key]
+        sr_dict = self._spatialReference
+        sr = self._find_wkid(sr_dict)
+        if sr is None:
+            if isinstance(sr_dict, dict):
+                return sr_dict.get(WKT)
+        return sr
+
 
     def getWKID(self):
         """returns the well known id for service spatial reference"""
@@ -614,6 +669,7 @@ class SpatialReferenceMixin(object):
     def getWKT(self):
         """returns the well known text (if it exists) for a service"""
         return self._spatialReference.get(WKT, '')
+
 
 class FieldsMixin(object):
     json = {}
@@ -667,11 +723,12 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
         """
         if isinstance(in_json, basestring):
             in_json = json.loads(in_json)
-        elif isinstance(in_json, self.__class__):
+        if isinstance(in_json, self.__class__):
             self.json = in_json.json
-        else:
+        elif isinstance(in_json, dict):
             self.json = munch.munchify(in_json)
         if not all(map(lambda k: k in self.json.keys(), [FIELDS, FEATURES])):
+            print(self.json.keys())
             raise ValueError('Not a valid Feature Set!')
 
     @property
@@ -778,8 +835,8 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
 
 class BaseService(RESTEndpoint, SpatialReferenceMixin):
     """base class for all services"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None):
-        super(BaseService, self).__init__(url, usr, pw, token, proxy)
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None):
+        super(BaseService, self).__init__(url, usr, pw, token, proxy, referer)
         if NAME not in self.json:
             self.name = self.url.split('/')[-2]
         self.name = self.name.split('/')[-1]
@@ -994,11 +1051,13 @@ class EditResult(JsonGetter):
 class BaseGeometry(SpatialReferenceMixin):
     """base geometry obect"""
 
-    def dumps(self):
+    def dumps(self, **kwargs):
         """retuns JSON as a string"""
-        return json.dumps(self.json, ensure_ascii=False)
+        if 'ensure_ascii' not in kwargs:
+            kwargs['ensure_ascii'] = False
+        return json.dumps(self.json, **kwargs)
 
-class BaseGeometryCollection(object):
+class BaseGeometryCollection(SpatialReferenceMixin):
     """Base Geometry Collection"""
     geometries = []
     json = {GEOMETRIES: []}
@@ -1008,9 +1067,11 @@ class BaseGeometryCollection(object):
     def count(self):
         return len(self)
 
-    def dumps(self):
+    def dumps(self, **kwargs):
         """retuns JSON as a string"""
-        return json.dumps(self.json, ensure_ascii=False)
+        if 'ensure_ascii' not in kwargs:
+            kwargs['ensure_ascii'] = False
+        return json.dumps(self.json, **kwargs)
 
     def __len__(self):
         return len(self.geometries)
