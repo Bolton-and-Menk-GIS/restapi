@@ -213,13 +213,14 @@ def do_proxy_request(proxy, url, params={}, referer=None):
     if F in params:
         del params[F]
 
-    p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems())
+    #p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems())
 
     # probably a better way to do this...
     headers = {'User-Agent': USER_AGENT}
     if referer:
         headers[REFERER_HEADER] = referer
-    return requests.post('{}?{}?f={}&{}'.format(proxy, url, frmat, p).rstrip('&'), verify=False, headers=headers)
+    #return requests.post('{}?{}?f={}&{}'.format(proxy, url, frmat, p).rstrip('&'), verify=False, headers=headers)
+    return requests.post('{}?{}?f={}'.format(proxy, url, frmat).rstrip('&'), params, verify=False, headers=headers)
 
 def guess_proxy_url(domain):
     """grade school level hack to see if there is a standard esri proxy available for a domain
@@ -568,6 +569,17 @@ class RESTEndpoint(JsonGetter):
         except AttributeError:
             return False
 
+    def request(self, *args, **kwargs):
+        """wrapper for request to automatically pass in credentials"""
+        for key, value in {'token': 'token',
+            'cookies': '_cookie',
+            'proxy': '_proxy',
+            'referer': '_referer'
+        }.iteritems():
+            if key not in kwargs:
+                kwargs[key] = getattr(self, value)
+        return do_post(*args, **kwargs)
+
     def refresh(self):
         """refreshes the service"""
         self.__init__(self.url, token=self.token)
@@ -639,7 +651,7 @@ class SpatialReferenceMixin(object):
         resp_d = {}
         if SPATIAL_REFERENCE in self.json:
             resp_d = self.json[SPATIAL_REFERENCE]
-        elif EXTENT in self.json and SPATIAL_REFERENCE in self.json[EXTENT]:
+        elif self.json.get(EXTENT) and SPATIAL_REFERENCE in self.json[EXTENT]:
             resp_d = self.json[EXTENT][SPATIAL_REFERENCE]
         elif GEOMETRIES in self.json:
             try:
@@ -1155,7 +1167,7 @@ class GeocodeService(RESTEndpoint):
                       OUT_SR: outSR,
                       F: JSON}
 
-        return GeocodeResult(do_post(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(self.request(geo_url, params), geo_url.split('/')[-1])
 
     def reverseGeocode(self, location, distance=100, outSR=4326, returnIntersection=False, langCode='eng'):
         """reverse geocodes an address by x, y coordinates
@@ -1175,7 +1187,7 @@ class GeocodeService(RESTEndpoint):
                   RETURN_INTERSECTION: returnIntersection,
                   F: JSON}
 
-        return GeocodeResult(do_post(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(self.request(geo_url, params), geo_url.split('/')[-1])
 
     def findAddressCandidates(self, address='', outSR=4326, outFields='*', returnIntersection=False, **kwargs):
         """finds address candidates for an anddress
@@ -1201,7 +1213,7 @@ class GeocodeService(RESTEndpoint):
             for fld_name, fld_query in kwargs.iteritems():
                 params[fld_name] = fld_query
 
-        return GeocodeResult(do_post(geo_url, params, token=self.token, cookies=self._cookie), geo_url.split('/')[-1])
+        return GeocodeResult(self.request(geo_url, params), geo_url.split('/')[-1])
 
     def __repr__(self):
         """string representation with service name"""

@@ -288,6 +288,13 @@ def exportGeometryCollection(gc, output, **kwargs):
     fs = FeatureSet(fs_dict)
     return exportFeatureSet(fs, output, **kwargs)
 
+def castToFeatures(obj):
+    if hasattr(obj, 'features'):
+    	for ft in obj.features:
+    		yield Feature(ft)
+
+FeatureSet.__iter__ = castToFeatures
+
 class Cursor(FeatureSet):
     """Class to handle Cursor object"""
     json = {}
@@ -664,7 +671,7 @@ class ArcServer(RESTEndpoint):
 
         for s in self.folders:
             new = '/'.join([self.url, s])
-            resp = do_post(new, token=self.token, cookies=self._cookie)
+            resp = self.request(new)
             for serv in resp[SERVICES]:
                 full_service_url =  '/'.join([self.url, serv[NAME], serv[TYPE]])
                 self.service_cache.append(full_service_url)
@@ -730,7 +737,7 @@ class ArcServer(RESTEndpoint):
 
         for f in self.folders:
             new = '/'.join([self.url, f])
-            endpt = do_post(new, token=self.token, cookies=self._cookie)
+            endpt = self.request(new)
             services = []
             for serv in endpt[SERVICES]:
                 qualified_service = '/'.join([serv[NAME], serv[TYPE]])
@@ -873,7 +880,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
-            r = do_post(query_url, params, ret_json=False, token=self.token)
+            r = self.request(query_url, params)
             r.encoding = 'zlib_codec'
 
             # write kmz using codecs
@@ -891,14 +898,20 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 for i, where2 in enumerate(self.iter_queries(where, params, max_recs=records)):
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
                     params[WHERE] = sql
-                    resp = do_post(query_url, params, token=self.token, cookies=self._cookie)
+                    resp = self.request(query_url, params)
                     if i < 1:
                         server_response = resp
                     else:
                         server_response[FEATURES] += resp[FEATURES]
 
             else:
-                server_response = do_post(query_url, params, token=self.token, cookies=self._cookie)
+                server_response = self.request(query_url, params)
+
+            # set fields to full field definition of the layer
+            flds = self.fieldLookup
+            if FIELDS in server_response:
+                for i,fld in enumerate(server_response.fields):
+                    server_response.fields[i] = flds.get(fld.name)
 
             if self.type == FEATURE_LAYER:
                 for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
@@ -912,11 +925,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 if FIELDS not in server_response:
                     server_response[FIELDS] = getattr(self, FIELDS)
 
-            if all([server_response.get(k) for k in (FIELDS, FEATURES)]):
+            if all(map(lambda k: k in server_response, [FIELDS, FEATURES])):
                 if records:
                     server_response[FEATURES] = server_response[FEATURES][:records]
                 return FeatureSet(server_response)
             else:
+                p
                 if records:
                     if isinstance(server_response, list):
                         return server_response[:records]
@@ -953,7 +967,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         for k,v in kwargs.iteritems():
             params[k] = v
-        return RelatedRecords(do_post(query_url, params, token=self.token, cookies=self._cookie))
+        return RelatedRecords(self.request(query_url, params))
 
     def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, add_params={}, **kwargs):
         """Selects features by location of a geometry, returns a feature set
@@ -1057,7 +1071,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         """
         if self.hasAttachments:
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
-            r = do_post(query_url, token=self.token, cookies=self._cookie)
+            r = self.request(query_url)
 
             add_tok = ''
             if self.token:
@@ -1155,7 +1169,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return Cursor(fs, fields)
 
     def export_layer(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None,
-                     include_domains=False, include_attachments=False):
+                     include_domains=True, include_attachments=False):
         """Method to export a feature class or shapefile from a service layer
 
         Required:
@@ -1443,7 +1457,7 @@ class MapService(BaseService):
                 params[k] = v
 
         # do post
-        r = do_post(query_url, params, ret_json=False)
+        r = self.request(query_url, params, ret_json=False)
 
         # save image
         with open(out_image, 'wb') as f:
@@ -1502,7 +1516,7 @@ class MapService(BaseService):
         lyr = self.layer(layer_name)
         return lyr.cursor(fields, where, add_params, records, exceed_limit)
 
-    def layer_to_fc(self, layer_name,  out_fc, fields='*', where='1=1',
+    def export_layer(self, layer_name,  out_fc, fields='*', where='1=1',
                     records=None, params={}, exceed_limit=False, sr=None):
         """Method to export a feature class from a service layer
 
@@ -1564,6 +1578,9 @@ class MapService(BaseService):
         for lyr in self.layers:
             yield lyr
 
+# Legacy support
+MapService.layer_to_fc = MapService.export_layer
+
 class FeatureService(MapService):
     """class to handle Feature Service
 
@@ -1582,7 +1599,7 @@ class FeatureService(MapService):
     def replicas(self):
         """returns a list of replica objects"""
         if self.syncEnabled:
-            reps = do_post(self.url + '/replicas', token=self.token, cookies=self._cookie)
+            reps = self.request(self.url + '/replicas')
             return [namedTuple('Replica', r) for r in reps]
         else:
             return []
@@ -1714,12 +1731,12 @@ class FeatureService(MapService):
             options[SYNC_MODEL] = PER_LAYER
 
         if options[ASYNC] in (TRUE, True) and self.syncCapabilities.supportsAsync:
-            st = do_post(self.url + '/createReplica', options, token=self.token, cookies=self._cookie)
+            st = self.request(self.url + '/createReplica', options, )
             while STATUS_URL not in st:
                 time.sleep(1)
         else:
             options[ASYNC] = 'false'
-            st = do_post(self.url + '/createReplica', options, token=self.token, cookies=self._cookie)
+            st = self.request(self.url + '/createReplica', options)
 
         if returnReplicaObject:
             return self.fetchReplica(st)
@@ -1775,7 +1792,7 @@ class FeatureService(MapService):
             replicaID -- ID of replica
         """
         query_url = self.url + '/replicas/{}'.format(replicaID)
-        return namedTuple('ReplicaInfo', do_post(query_url, token=self.token, cookies=self._cookie))
+        return namedTuple('ReplicaInfo', self.request(query_url))
 
     def syncReplica(self, replicaID, **kwargs):
         """synchronize a replica.  Must be called to sync edits before a fresh replica
@@ -1803,7 +1820,7 @@ class FeatureService(MapService):
         for k,v in kwargs.iteritems():
             params[k] = v
 
-        return do_post(query_url, params, token=self.token, cookies=self._cookie)
+        return self.request(query_url, params)
 
 
     def unRegisterReplica(self, replicaID):
@@ -1814,15 +1831,15 @@ class FeatureService(MapService):
         """
         query_url = self.url + '/unRegisterReplica'
         params = {REPLICA_ID: replicaID}
-        return do_post(query_url, params, token=self.token, cookies=self._cookie)
+        return self.request(query_url, params)
 
 class FeatureLayer(MapServiceLayer):
 
-    def __init__(self, url='', usr='', pw='', token='', proxy=None):
+    def __init__(self, url='', usr='', pw='', token='', proxy=None, referer=None):
         """class to handle Feature Service Layer
 
         Required:
-            url -- image service url
+            url -- feature service layer url
 
         Optional (below params only required if security is enabled):
             usr -- username credentials for ArcGIS Server
@@ -1830,8 +1847,10 @@ class FeatureLayer(MapServiceLayer):
             token -- token to handle security (alternative to usr and pw)
             proxy -- option to use proxy page to handle security, need to provide
                 full path to proxy url.
+            referer -- option to add Referer Header if required by proxy, this parameter
+                is ignored if no proxy is specified.
         """
-        super(FeatureLayer, self).__init__(url, usr, pw, token, proxy)
+        super(FeatureLayer, self).__init__(url, usr, pw, token, proxy, referer)
 
         # store list of EditResult() objects to track changes
         self.editResults = []
@@ -2287,7 +2306,7 @@ class FeatureLayer(MapServiceLayer):
                   F: PJSON}
 
         # add features
-        return self.__edit_handler(do_post(add_url, params, token=self.token, cookies=self._cookie))
+        return self.__edit_handler(self.request(add_url, params))
 
     def updateFeatures(self, features, gdbVersion='', rollbackOnFailure=True):
         """update features in feature service layer
@@ -2317,7 +2336,7 @@ class FeatureLayer(MapServiceLayer):
                   F: JSON}
 
         # update features
-        return self.__edit_handler(do_post(update_url, params, token=self.token, cookies=self._cookie))
+        return self.__edit_handler(self.reques(update_url, params))
 
     def deleteFeatures(self, oids='', where='', geometry='', geometryType='',
                        spatialRel='', inSR='', gdbVersion='', rollbackOnFailure=True):
@@ -2355,7 +2374,7 @@ class FeatureLayer(MapServiceLayer):
                   F: JSON}
 
         # delete features
-        return self.__edit_handler(do_post(del_url, params, token=self.token, cookies=self._cookie))
+        return self.__edit_handler(self.request(del_url, params))
 
     def applyEdits(self, adds=None, updates=None, deletes=None, attachments=None, gdbVersion=None, rollbackOnFailure=TRUE, useGlobalIds=False, **kwargs):
         """apply edits on a feature service layer
@@ -2459,7 +2478,7 @@ class FeatureLayer(MapServiceLayer):
         # add other keyword arguments
         for k,v in kwargs.iteritems():
             kwargs[k] = v
-        return self.__edit_handler(do_post(edits_url, params, token=self.token, cookies=self._cookie))
+        return self.__edit_handler(self.request(edits_url, params))
 
     def addAttachment(self, oid, attachment, content_type='', gdbVersion=''):
         """add an attachment to a feature service layer
@@ -2581,7 +2600,7 @@ class FeatureLayer(MapServiceLayer):
                 CALC_EXPRESSION: json.dumps(exp, ensure_ascii=False),
                 SQL_FORMAT: sqlFormat}
 
-            return do_post(calc_url, params=p, token=self.token, cookies=self._cookie)
+            return self.request(calc_url, params=p)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support field calculations!'.format(self.name))
@@ -2603,11 +2622,11 @@ class GeometryService(RESTEndpoint):
     linear_units = sorted(LINEAR_UNITS.keys())
     _default_url = 'https://utility.arcgisonline.com/ArcGIS/rest/services/Geometry/GeometryServer'
 
-    def __init__(self, url=None, usr=None, pw=None, token=None, proxy=None):
+    def __init__(self, url=None, usr=None, pw=None, token=None, proxy=None, referer=None):
         if not url:
             # use default arcgis online Geometry Service
             url = self._default_url
-        super(GeometryService, self).__init__(url, usr, pw, token, proxy)
+        super(GeometryService, self).__init__(url, usr, pw, token, proxy, referer)
 
     @staticmethod
     def getLinearUnits():
@@ -2694,7 +2713,7 @@ class GeometryService(RESTEndpoint):
 
         # perform operation
         print('params: {}'.format({k:v for k,v in params.iteritems() if k != GEOMETRIES}))
-        return GeometryCollection(do_post(buff_url, params, token=self.token, cookies=self._cookie),
+        return GeometryCollection(self.request(buff_url, params),
                                   spatialReference=outSR if outSR else inSR)
 
     @geometry_passthrough
@@ -2715,7 +2734,7 @@ class GeometryService(RESTEndpoint):
             GEOMETRIES: geometries,
             SR: sr
         }
-        return GeometryCollection(do_post(query_url, params, token=self.token, cookies=self._cookie), spatialReference=sr)
+        return GeometryCollection(self.request(query_url, params), spatialReference=sr)
 
     def union(self, geometries, sr=None):
         """performs union on input geometries
@@ -2734,7 +2753,7 @@ class GeometryService(RESTEndpoint):
             GEOMETRIES: geometries,
             SR: sr
         }
-        return Geometry(do_post(url, params, token=self.token, cookies=self._cookie), spatialReference=sr)
+        return Geometry(self.request(url, params), spatialReference=sr)
 
     def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
         """finds the most applicable transformation based on inSR and outSR
@@ -2790,7 +2809,7 @@ class GeometryService(RESTEndpoint):
                   NUM_OF_RESULTS: numOfResults
                 }
 
-        res = do_post(self.url + '/findTransformations', params, token=self.token)
+        res = self.request(self.url + '/findTransformations', params)
         if int(numOfResults) == 1:
             return res[0]
         else:
@@ -2816,7 +2835,7 @@ class GeometryService(RESTEndpoint):
                   TRANSFORM_FORWARD: transformForward
                 }
 
-        return GeometryCollection(do_post(self.url + '/project', params, token=self.token),
+        return GeometryCollection(self.request(self.url + '/project', params),
                                 spatialReference=outSR if outSR else inSR)
 
     def __repr__(self):
@@ -2888,7 +2907,7 @@ class ImageService(BaseService):
             if k not in params:
                 params[k] = v
 
-        j = do_post(IDurl, params, token=self.token, cookies=self._cookie)
+        j = self.request(IDurl, params)
         return j.get(VALUE)
 
     def exportImage(self, poly, out_raster, envelope=False, rendering_rule=None, interp=BILINEAR_INTERPOLATION, nodata=None, **kwargs):
@@ -2976,10 +2995,10 @@ class ImageService(BaseService):
                 p[k] = v
 
         # post request
-        r = do_post(query_url, p, token=self.token, cookies=self._cookie)
+        r = self.request(query_url, p)
 
         if r.get('href', None) is not None:
-            tiff = do_post(r.get('href').strip(), ret_json=False).content
+            tiff = self.request(r.get('href').strip(), ret_json=False).content
             with open(out_raster, 'wb') as f:
                 f.write(tiff)
             print('Created: "{0}"'.format(out_raster))
@@ -3123,7 +3142,7 @@ class GPTask(BaseService):
         params_json[RETURN_Z] = returnZ
         params_json[RETURN_M] = returnZ
         params_json[F] = JSON
-        r = do_post(gp_exe_url, params_json, ret_json=False, token=self.token, cookies=self._cookie)
+        r = self.request(gp_exe_url, params_json, ret_json=False)
         gp_elapsed = r.elapsed
 
         # get result object as JSON
