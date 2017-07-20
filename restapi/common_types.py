@@ -930,7 +930,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     server_response[FEATURES] = server_response[FEATURES][:records]
                 return FeatureSet(server_response)
             else:
-                p
                 if records:
                     if isinstance(server_response, list):
                         return server_response[:records]
