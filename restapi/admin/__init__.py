@@ -1314,7 +1314,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         self._uploadsURL = self._adminURL + '/uploads'
         self._usagereportsURL = self._adminURL + '/usagereports'
         self.service_cache = []
-        self.psa = PrimarySiteAdministrator(self.request(self._securityURL + '/psa'))
+        self.psa = PrimarySiteAdministrator(self._securityURL + '/psa')
         self.roleStore = RoleStore(self._securityURL + '/roles')
         self.userStore = UserStore(self._securityURL + '/users')
         self.dataStore =  DataStore(self._dataURL)
