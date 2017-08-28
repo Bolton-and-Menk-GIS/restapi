@@ -134,21 +134,29 @@ class BaseDirectory(AdminRESTEndpoint):
                 public access.  Change to False to allow public access.
         """
         add_url = self._permissionsURL + '/add'
+        added_permissions = []
         if principal:
-            params = {'principal': principal, 'isAllowed': isAllowed}
+            params = {PRINCIPAL: principal, IS_ALLOWED: isAllowed}
             r = self.request(add_url, params)
 
-        params = {'principal': 'esriEveryone', 'isAllowed': 'false'}
+            for k,v in paramss.iteritems():
+                r[k] = v
+            added_permissions.append(r)
 
-        if private:
-            esriEveryone = self.request(add_url, params)
-        else:
-            params['isAllowed'] = 'true'
-            esriEveryone = self.request(add_url, params)
+        if principal != ESRI_EVERYONE:
+            params = {PRINCIPAL: ESRI_EVERYONE, IS_ALLOWED: FALSE}
 
-        if not principal:
-            r = esriEveryone
-        return r
+            if private:
+                r = self.request(add_url, params)
+            else:
+                params[IS_ALLOWED] = TRUE
+                r = self.request(add_url, params)
+
+            for k,v in paramss.iteritems():
+                r[k] = v
+            added_permissions.append(r)
+
+        return added_permissions
 
     @passthrough
     def hasChildPermissionsConflict(self, principal, permission=None):
@@ -236,16 +244,6 @@ class Item(AdminRESTEndpoint):
 
 class PrimarySiteAdministrator(AdminRESTEndpoint):
     """Primary Site Administrator object"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(PrimarySiteAdministrator, self).__init__(url, usr, pw, token)
-        self.disabled = ''
-        if 'disabled' in self.response:
-            self.disabled = self.response['disabled']
-
-        # in case esri add future params
-        for k,v in self.response.iteritems():
-            if k != 'disabled':
-                setattr(self, k, v)
 
     @passthrough
     def disable(self):
@@ -282,9 +280,10 @@ class PrimarySiteAdministrator(AdminRESTEndpoint):
 
 class RoleStore(AdminRESTEndpoint):
     """Role Store object"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(RoleStore, self).__init__(url, usr, pw, token)
-        self.roles = self.request(self.url + '/search')['roles']
+
+    @property
+    def specialRoles(self):
+        return self.request(self.url + '/specialRoles').get('specialRoles')
 
     @passthrough
     def addRole(self, rolename, description=''):
@@ -464,30 +463,14 @@ class RoleStore(AdminRESTEndpoint):
         query_url = self.url + '/getRolesByPrivilege'
         return self.request(query_url, {'privilege': privilege.upper()})
 
-    def __len__(self):
-        """return number of Roles"""
-        return len(self.roles)
-
-    def __nonzero__(self):
-        """returns True if there are roles"""
-        return bool(len(self))
-
     def __iter__(self):
         """make iterable"""
-        for role in self.roles:
+        for role in self.getRoles():
             yield role
 
-    def __getitem__(self, i):
-        """allows indexing of roles"""
-        return self.roles[i]
 
 class UserStore(AdminRESTEndpoint):
     """User Store object"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(UserStore, self).__init__(url, usr, pw, token)
-        for k,v in self.response.iteritems():
-            setattr(self, k, v)
-        self.users = self.request(self.url + '/search')['users']
 
     @passthrough
     def addUser(self, username, password, fullname='', description='', email=''):
@@ -620,31 +603,13 @@ class UserStore(AdminRESTEndpoint):
         params = {'username': username}
         return self.request(query_url, params)
 
-    def __len__(self):
-        """return number of Users"""
-        return len(self.users)
-
-    def __nonzero__(self):
-        """returns True if there are users"""
-        return bool(len(self))
-
     def __iter__(self):
         """make iterable"""
-        for user in self.users:
+        for user in self.getUsers():
             yield user
-
-    def __getitem__(self, i):
-        """allows indexing of users"""
-        return self.users[i]
 
 class DataStore(AdminRESTEndpoint):
     """class to handle Data Store operations"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(DataStore, self).__init__(url, usr, pw, token)
-        for k,v in self.response.iteritems():
-            setattr(self, k, v)
-        self.url = self.url.split('/data')[0] + '/data'
-        self.items = self.getItems()
 
     @passthrough
     def config(self):
@@ -824,30 +789,13 @@ class DataStore(AdminRESTEndpoint):
             datastoreConfig = '{"blockDataCopy":"true"}'
         return self.request(query_url, {'datastoreConfig': datastoreConfig})
 
-    def __len__(self):
-        """return number of items"""
-        return len(self.items)
-
-    def __nonzero__(self):
-        """returns True if there are roles"""
-        return bool(len(self))
-
     def __iter__(self):
         """make iterable"""
-        for item in self.items:
+        for item in self.getItems():
             yield item
-
-    def __getitem__(self, i):
-        """allows indexing of roles"""
-        return self.items[i]
 
 class Cluster(AdminRESTEndpoint):
     """class to handle Cluster object"""
-    def __init__(self, url, usr='', pw='', token=''):
-        super(Cluster, self).__init__(url, usr, pw, token)
-
-        for k,v in self.response.iteritems():
-            setattr(self, k, v)
 
     @property
     def machines(self):
@@ -2305,21 +2253,28 @@ class ArcServerAdmin(AdminRESTEndpoint):
             service = 'Projects/HighwayReconstruction.MapServer'
         """
         add_url = self._servicesURL + '/{}/permissions/add'.format(resource)
+        added_permissions = []
         if principal:
-            params = {'principal': principal, 'isAllowed': isAllowed}
+            params = {PRINCIPAL: principal, IS_ALLOWED: isAllowed}
             r = self.request(add_url, params)
+            for k,v in params.iteritems():
+                r[k] = v
+            params.append(r)
 
-        params = {'principal': 'esriEveryone', 'isAllowed': 'false'}
+        if principal != ESRI_EVERYONE:
+            params = {PRINCIPAL: ESRI_EVERYONE, IS_ALLOWED: FALSE}
 
-        if private:
-            esriEveryone = self.request(add_url, params)
-        else:
-            params['isAllowed'] = 'true'
-            esriEveryone = self.request(add_url, params)
+            if private:
+                r = self.request(add_url, params)
+            else:
+                params[IS_ALLOWED] = TRUE
+                r = self.request(add_url, params)
 
-        if not principal:
-            r = esriEveryone
-        return r
+            for k,v in paramss.iteritems():
+                r[k] = v
+            added_permissions.append(r)
+
+        return added_permissions
 
     @passthrough
     def hasChildPermissionsConflict(self, resource, principal, permission=None):

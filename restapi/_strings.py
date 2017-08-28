@@ -252,7 +252,12 @@ COPY_RUNTIME_GDB_TO_FILE_GDB = 'CopyRuntimeGdbToFileGdb'
 DEFAULT_VALUE = 'defaultValue'
 SQL_GLOBAL_ID_EXP = 'NEWID() WITH VALUES'
 SQL_AUTO_DATE_EXP = 'GetDate() WITH VALUES'
+
+# admin
 ADMIN_URL = 'adminURL'
+ESRI_EVERYONE = 'esriEveryone'
+IS_ALLOWED = 'isAllowed'
+PRINCIPAL = 'principal'
 
 # AGOL
 AGOL_BASE = 'www.arcgis.com'
