@@ -339,6 +339,7 @@ FIELD_KEYS_CREATE = [NAME, ALIAS, TYPE, DOMAIN, LENGTH]
 
 GEOM_CODE = {v:k for k,v in GEOM_DICT.iteritems()}
 BASE_PATTERN = 'http*://*/rest/services*'
+VERSION = '1.0'
 USER_AGENT = 'restapi (Python)'
 PROTOCOL = ''
 

@@ -100,6 +100,11 @@ class AdminRESTEndpoint(JsonGetter):
         self.response = self.raw_response.json()
         self.json = munchify(self.response)
 
+    def request(self, *args, **kwargs):
+        """wrapper for request to automatically pass in credentials"""
+        if 'token' not in kwargs:
+            kwargs['token'] = self.token
+        return do_post(*args, **kwargs)
 
     def refresh(self):
         """refreshes the service properties"""
@@ -115,7 +120,7 @@ class BaseDirectory(AdminRESTEndpoint):
     @property
     def permissions(self):
         """return permissions for service"""
-        perms = do_post(self._permissionsURL, token=self.token)['permissions']
+        perms = self.request(self._permissionsURL)['permissions']
         return [Permission(r) for r in perms]
 
     @passthrough
@@ -131,15 +136,15 @@ class BaseDirectory(AdminRESTEndpoint):
         add_url = self._permissionsURL + '/add'
         if principal:
             params = {'principal': principal, 'isAllowed': isAllowed}
-            r = do_post(add_url, params, token=self.token)
+            r = self.request(add_url, params)
 
         params = {'principal': 'esriEveryone', 'isAllowed': 'false'}
 
         if private:
-            esriEveryone = do_post(add_url, params, token=self.token)
+            esriEveryone = self.request(add_url, params)
         else:
             params['isAllowed'] = 'true'
-            esriEveryone = do_post(add_url, params, token=self.token)
+            esriEveryone = self.request(add_url, params)
 
         if not principal:
             r = esriEveryone
@@ -163,11 +168,11 @@ class BaseDirectory(AdminRESTEndpoint):
 
         query_url = self.url + '/permissions/hasChildPermissionConflict'
         params = {'principal': principal, 'permission': permission}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     def report(self):
         """generate a report for resource"""
-        return [Report(r) for r in do_post(self.url + '/report', token=self.token)['reports']]
+        return [Report(r) for r in self.request(self.url + '/report')['reports']]
 
 class BaseResource(JsonGetter):
     def __init__(self, in_json):
@@ -202,7 +207,7 @@ class DataItem(BaseResource):
             machineName -- name of machine to make primary
         """
         query_url = self.url + '/machines/{}/makePrimary'.format(machineName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     def validateDataStore(self, machineName):
         """ensures that the data store is valid
@@ -211,7 +216,7 @@ class DataItem(BaseResource):
             machineName -- name of machine to validate data store against
         """
         query_url = self.url + '/machines/{}/validate'.format(machineName)
-        return do_post(query_url)
+        return self.request(query_url)
 
 class Item(AdminRESTEndpoint):
     """ This resource represents an item that has been uploaded to the server. Various
@@ -246,13 +251,13 @@ class PrimarySiteAdministrator(AdminRESTEndpoint):
     def disable(self):
         """disables the primary site administartor account"""
         query_url = self.url + '/disable'
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def enable(self):
         """enables the primary site administartor account"""
         query_url = self.url + '/enable'
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def update(self, username, password):
@@ -269,7 +274,7 @@ class PrimarySiteAdministrator(AdminRESTEndpoint):
         params = {'username': username,
                   'password': password}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     def __bool__(self):
         """returns True if PSA is enabled"""
@@ -279,9 +284,7 @@ class RoleStore(AdminRESTEndpoint):
     """Role Store object"""
     def __init__(self, url, usr='', pw='', token=''):
         super(RoleStore, self).__init__(url, usr, pw, token)
-
-        self.role_cache = do_post(self.url + '/search', token=self.token)['roles']
-        self.roles = [namedTuple('Role', r) for r in self.role_cache]
+        self.roles = self.request(self.url + '/search')['roles']
 
     @passthrough
     def addRole(self, rolename, description=''):
@@ -297,9 +300,9 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'description': description}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
-    def getRoles(self, startIndex='', pageSize=''):
+    def getRoles(self, startIndex='', pageSize=1000):
         """This operation gives you a pageable view of roles in the role store. It is intended
         for iterating through all available role accounts. To search for specific role accounts
         instead, use the searchRoles() method. <- from Esri help
@@ -313,8 +316,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'startIndex': startIndex,
                   'pageSize': pageSize}
 
-        r = do_post(query_url, params, token=self.token)['roles']
-        return [namedTuple('Role', r) for r in self.role_cache]
+        return self.request(query_url, params)
 
     def searchRoles(self, filter='', maxCount=''):
         """search the role store
@@ -328,8 +330,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'filter': filter,
                   'maxCount': maxCount}
 
-        r = do_post(query_url, params, token=self.token)['roles']
-        return [namedTuple('Role', r) for r in self.role_cache]
+        return self.request(query_url, params)
 
     @passthrough
     def removeRole(self, rolename):
@@ -339,7 +340,7 @@ class RoleStore(AdminRESTEndpoint):
             rolename -- name of role
         """
         query_url = self.url + '/remove'
-        return do_post(query_url, {'rolename':rolename}, token=self.token)
+        return self.request({'rolename':rolename})
 
     @passthrough
     def updateRole(self, rolename, description=''):
@@ -356,10 +357,10 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'description': description}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
-    def getRolesForUser(self, username, filter='', maxCount=10):
+    def getRolesForUser(self, username, filter='', maxCount=100):
         """returns the privilege associated with a user
 
         Required:
@@ -372,10 +373,10 @@ class RoleStore(AdminRESTEndpoint):
                   'filter': filter,
                   'maxCount': maxCount}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
-    def getUsersWithinRole(self, rolename, filter='', maxCount=10):
+    def getUsersWithinRole(self, rolename, filter='', maxCount=100):
         """get all user accounts to whom this role has been assigned
 
         Required:
@@ -390,7 +391,7 @@ class RoleStore(AdminRESTEndpoint):
                   'filter': filter,
                   'maxCount': maxCount}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def addUsersToRole(self, rolename, users):
@@ -408,7 +409,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'users': users}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def removeUsersFromRole(self, rolename, users):
@@ -426,7 +427,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'users': users}
 
-        return _POST(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def assignPrivilege(self, rolename, privilege='ACCESS'):
@@ -441,7 +442,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'privilege': privilege.upper()}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def getPrivilegeForRole(self, rolename):
@@ -451,7 +452,7 @@ class RoleStore(AdminRESTEndpoint):
             rolename -- name of role
         """
         query_url = self.url + '/getPrivilege'
-        return do_post(query_url, {'rolename':rolename}, token=self.token)
+        return self.request(query_url, {'rolename':rolename})
 
     @passthrough
     def getRolesByPrivilege(self, privilege):
@@ -461,7 +462,7 @@ class RoleStore(AdminRESTEndpoint):
             privilege -- name of privilege (ADMINISTER | PUBLISH)
         """
         query_url = self.url + '/getRolesByPrivilege'
-        return do_post(query_url, {'privilege': privilege.upper()}, token=self.token)
+        return self.request(query_url, {'privilege': privilege.upper()})
 
     def __len__(self):
         """return number of Roles"""
@@ -486,9 +487,7 @@ class UserStore(AdminRESTEndpoint):
         super(UserStore, self).__init__(url, usr, pw, token)
         for k,v in self.response.iteritems():
             setattr(self, k, v)
-
-        self.user_cache = do_post(self.url + '/search', token=self.token)['users']
-        self.users = [namedTuple('User', u) for u in self.user_cache]
+        self.users = self.request(self.url + '/search')['users']
 
     @passthrough
     def addUser(self, username, password, fullname='', description='', email=''):
@@ -510,7 +509,7 @@ class UserStore(AdminRESTEndpoint):
                   'description': description,
                   'email': email}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def getUsers(self, startIndex='', pageSize=''):
@@ -525,8 +524,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'startIndex': startIndex,
                   'pageSize': pageSize}
 
-        r = do_post(query_url, params, token=self.token)
-        return [namedTuple('User', u) for u in r['users']]
+        return self.request(query_url, params)
 
     def searchUsers(self, filter='', maxCount=''):
         """search the user store, returns User objects
@@ -540,9 +538,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'filter': filter,
                   'maxCount': maxCount}
 
-        r = do_post(query_url, params, token=self.token)
-        return [namedTuple('User', u) for u in r['users']]
-
+        return self.request(query_url, params)
 
     @passthrough
     def removeUser(self, username):
@@ -552,7 +548,7 @@ class UserStore(AdminRESTEndpoint):
             username -- name of user to remove
         """
         query_url = self.url + '/remove'
-        return do_post(query_url, {'username':username}, token=self.token)
+        return self.request(query_url, {'username':username})
 
     @passthrough
     def updateUser(self, username, password, fullname='', description='', email=''):
@@ -574,7 +570,7 @@ class UserStore(AdminRESTEndpoint):
                   'description': description,
                   'email': email}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def assignRoles(self, username, roles):
@@ -592,7 +588,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'username': username,
                   'roles': roles}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def removeRoles(self, username, rolenames):
@@ -611,7 +607,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'username': username,
                   'roles': roles}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def getPrivilegeForUser(self, username):
@@ -622,7 +618,7 @@ class UserStore(AdminRESTEndpoint):
         """
         query_url = self.url + '/getPrivilege'
         params = {'username': username}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     def __len__(self):
         """return number of Users"""
@@ -653,7 +649,7 @@ class DataStore(AdminRESTEndpoint):
     @passthrough
     def config(self):
         """return configuratoin properties"""
-        return do_post(self.url + '/config', token=self.token)
+        return self.request(self.url + '/config')
 
     # not available in ArcGIS REST API out of the box, included here to refresh data store cache
     def getItems(self):
@@ -683,7 +679,7 @@ class DataStore(AdminRESTEndpoint):
         """
         if self.validateItem(item):
             query_url = self.url + '/registerItem'
-            return do_post(query_url, params={'item': item}, token=self.token)
+            return self.request(query_url, params={'item': item})
 
         return None
 
@@ -695,7 +691,7 @@ class DataStore(AdminRESTEndpoint):
             itemPath -- path to data item to unregister (DataItem.path)
         """
         query_url = self.url + '/unregisterItem'
-        return do_post(query_url, {'itemPath': itemPath}, token=self.token)
+        return self.request(query_url, {'itemPath': itemPath})
 
     def findItems(self, parentPath, ancestorPath='', types='', id=''):
         """search through items registered in data store
@@ -714,7 +710,7 @@ class DataStore(AdminRESTEndpoint):
                   'types': types,
                   'id': id}
 
-        ds_items = do_post(query_url, params, token=self.token)['items']
+        ds_items = self.request(query_url, params)['items']
         for d in ds_items:
             d['url'] = '{}/items{}'.format(self.url, d['path'])
 
@@ -727,7 +723,7 @@ class DataStore(AdminRESTEndpoint):
             item -- JSON representation of new data store item to validate
         """
         query_url = self.url + '/validateDataItem'
-        r = do_post(query_url, {'item': item}, token=self.token)
+        r = self.request(query_url, {'item': item})
         if 'status' in r and r['status'] == 'success':
             return True
         else:
@@ -740,7 +736,7 @@ class DataStore(AdminRESTEndpoint):
         VERY time consuming, depending on how many items are registered with the
         data store
         """
-        return do_post(self.url + '/validateAllDataItems', token=self.token)
+        return self.request(self.url + '/validateAllDataItems')
 
     def computeRefCount(self, path):
         """get the total number of references to a given data item that exists on
@@ -751,12 +747,12 @@ class DataStore(AdminRESTEndpoint):
             path -- path to resource on server (DataItem.path)
         """
         query_url = self.url + '/computeTotalRefCount'
-        r  = passthrough(do_post(query_url, {'path': path}, token=self.token))
+        r  = passthrough(self.request(query_url, {'path': path}))
         return int(r['totalRefCount'])
 
     def getRootItems(self):
         """method to get all data store items at the root"""
-        return do_post(self.url + '/items', token=self.token)['rootItems']
+        return self.request(self.url + '/items')['rootItems']
 
     @passthrough
     def startMachine(self, dataItem, machineName):
@@ -767,7 +763,7 @@ class DataStore(AdminRESTEndpoint):
             machineName -- name of machine to validate data store against
         """
         query_url = self.url + '/items/{}/machines/{}/start'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def stopMachine(self, dataItem, machineName):
@@ -778,7 +774,7 @@ class DataStore(AdminRESTEndpoint):
             machineName -- name of machine to validate data store against
         """
         query_url = self.url + '/items/{}/machines/{}/stop'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def removeMachine(self, dataItem, machineName):
@@ -790,7 +786,7 @@ class DataStore(AdminRESTEndpoint):
             machineName -- name of machine to validate data store against
         """
         query_url = self.url + '/items/{}/machines/{}/remove'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def makePrimary(self, dataItem, machineName):
@@ -802,7 +798,7 @@ class DataStore(AdminRESTEndpoint):
             machineName -- name of machine to make primary
         """
         query_url = self.url + '/items/{}/machines/{}/makePrimary'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     def validateDataStore(self, dataItem, machineName):
         """ensures that the data store is valid
@@ -812,7 +808,7 @@ class DataStore(AdminRESTEndpoint):
             machineName -- name of machine to validate data store against
         """
         query_url = self.url + '/items/{}/machines/{}/validate'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def updateDatastoreConfig(self, datastoreConfig={}):
@@ -826,7 +822,7 @@ class DataStore(AdminRESTEndpoint):
         query_url = self.url + '/config/update'
         if not datastoreConfig:
             datastoreConfig = '{"blockDataCopy":"true"}'
-        return do_post(query_url, {'datastoreConfig': datastoreConfig}, token=self.token)
+        return self.request(query_url, {'datastoreConfig': datastoreConfig})
 
     def __len__(self):
         """return number of items"""
@@ -856,22 +852,22 @@ class Cluster(AdminRESTEndpoint):
     @property
     def machines(self):
         """list all server machines participating in the cluster"""
-        return [Machine(**r) for r in do_post(self.url + '/machines', token=self.token)]
+        return [Machine(**r) for r in self.request(self.url + '/machines')]
 
     @property
     def services(self):
         """get a list of all services in the cluster"""
-        return [namedTuple('ServiceProperties', r) for r in do_post(self.url + '/services', token=self.token)['services']]
+        return self.request(self.url + '/services')['services']
 
     @passthrough
     def start(self):
         """starts the cluster"""
-        return do_post(self.url + '/start', token=self.token)
+        return self.request(self.url + '/start')
 
     @passthrough
     def stop(self):
         """stops the cluster"""
-        return do_post(self.url + '/stop', token=self.token)
+        return self.request(self.url + '/stop')
 
     @passthrough
     def delete(self):
@@ -879,7 +875,7 @@ class Cluster(AdminRESTEndpoint):
         and returened to pool of registered machines.  All GIS services in cluster are
         stopped
         """
-        return do_post(self.url + '/delete', token=self.token)
+        return self.request(self.url + '/delete')
 
     @passthrough
     def editProtocol(self, clusterProtocol):
@@ -901,7 +897,7 @@ class Cluster(AdminRESTEndpoint):
         query_url = self.url + '/editProtocol'
         params = {'clusterProtocol': clusterProtocol}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def addMachines(self, machineNames):
@@ -918,7 +914,7 @@ class Cluster(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return do_post(query_url, {'machineNames': machineNames}, token=self.token)
+        return self.request(query_url, {'machineNames': machineNames})
 
     @passthrough
     def removeMachines(self, machineNames):
@@ -934,7 +930,7 @@ class Cluster(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return do_post(query_url, {'machineNames': machineNames}, token=self.token)
+        return self.request(query_url, {'machineNames': machineNames})
 
 
 class Folder(BaseDirectory):
@@ -952,13 +948,13 @@ class Folder(BaseDirectory):
         """iterate through folder and return Service Objects"""
         for service in self.services:
             serviceUrl = '.'.join(['/'.join([self.url, service.serviceName]), service.type])
-            yield Service(serviceUrl, token=self.token)
+            yield Service(serviceUrl)
 
     @passthrough
     def delete(self):
         """deletes the folder"""
         query_url = self.url + '/deleteFolder'
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def edit(self, description, webEncrypted):
@@ -970,7 +966,7 @@ class Folder(BaseDirectory):
         """
         query_url = self.url + '/editFolder'
         params = {'description': description, 'webEncrypted': webEncrypted}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     def __getitem__(self, i):
         """get service by index"""
@@ -1024,7 +1020,7 @@ class Service(BaseDirectory):
     @property
     def status(self):
         """return status JSON object for service"""
-        return munchify(do_post(self.url + '/status', token=self.token))
+        return munchify(self.request(self.url + '/status'))
 
     @passthrough
     def enableExtensions(self, extensions):
@@ -1087,7 +1083,7 @@ class Service(BaseDirectory):
         """starts the service"""
         r = {}
         if self.configuredState.lower() == 'stopped':
-            r = do_post(self.url + '/start', token=self.token)
+            r = self.request(self.url + '/start')
             if 'success' in r:
                 print('started: {}'.format(self.fullName))
             self.refresh()
@@ -1100,7 +1096,7 @@ class Service(BaseDirectory):
         """stops the service"""
         r = {}
         if self.configuredState.lower() == 'started':
-            r = do_post(self.url + '/stop', token=self.token)
+            r = self.request(self.url + '/stop')
             if 'success' in r:
                 print('stoppedd: {}'.format(self.fullName))
             self.refresh()
@@ -1135,14 +1131,14 @@ class Service(BaseDirectory):
         for k,v in kwargs.iteritems():
             serviceJSON[k] = v
         params = {'service': serviceJSON}
-        r = do_post(self.url + '/edit', params, token=self.token)
+        r = self.request(self.url + '/edit', params)
         self.refresh()
         return r
 
     @passthrough
     def delete(self):
         """deletes the service, proceed with caution"""
-        r = do_post(self.url + '/delete', token=self.token)
+        r = self.request(self.url + '/delete')
         self.response = None
         self.url = None
         return r
@@ -1150,7 +1146,7 @@ class Service(BaseDirectory):
     def itemInfo(self):
         """get service metadata"""
         query_url = self.url + '/iteminfo'
-        return namedTuple('ItemInfo', do_post(query_url, token=self.token))
+        return self.request(query_url)
 
     @passthrough
     def editItemInfo(self, itemInfo, thumbnailFile=None):
@@ -1195,19 +1191,19 @@ class Service(BaseDirectory):
         file -- full path to file to be uploaded to server
         """
         query_url = self.url + '/iteminfo/upload'
-        return do_post(query_url, {'folder': folder, 'file':file}, token=self.token)
+        return self.request(query_url, {'folder': folder, 'file':file})
 
     @passthrough
     def deleteItemInformation(self):
         """deletes information about the service, configuration is not changed"""
         query_url = self.url + '/iteminfo/delete'
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     def manifest(self):
         """get service manifest.  This  documents the data and other resources that define the
         service origins and power the service"""
         query_url = self.url + '/iteminfo/manifest/manifest.json'
-        return BaseResource(do_post(query_url, token=self.token))
+        return BaseResource(self.request(query_url))
 
     def statistics(self):
         """return service statistics object"""
@@ -1218,7 +1214,7 @@ class Service(BaseDirectory):
                     setattr(self, k, v)
                 objectize(self)
 
-        return ServiceStatistics(**do_post(self.url + '/statistics', token=self.token))
+        return ServiceStatistics(**self.request(self.url + '/statistics'))
 
     #**********************************************************************************
     #
@@ -1318,46 +1314,27 @@ class ArcServerAdmin(AdminRESTEndpoint):
         self._uploadsURL = self._adminURL + '/uploads'
         self._usagereportsURL = self._adminURL + '/usagereports'
         self.service_cache = []
+        self.psa = PrimarySiteAdministrator(self.request(self._securityURL + '/psa'))
+        self.roleStore = RoleStore(self._securityURL + '/roles')
+        self.userStore = UserStore(self._securityURL + '/users')
+        self.dataStore =  DataStore(self._dataURL)
 
     #----------------------------------------------------------------------
     # general methods and properties
     @property
     def machines(self):
         """return machines"""
-        return munchify(do_post(self._machinesURL, token=self.token))
+        return munchify(self.request(self._machinesURL))
 
     @property
     def clusters(self):
         """get a list of cluster objects"""
-        r = do_post(self._clusterURL, token=self.token)
-        return [namedTuple('AGSCluster', d) for d in r['clusters']]
+        return self.request(self._clusterURL)
 
     @property
     def types(self):
         """get a list of all server service types and extensions (types)"""
-        r = do_post(self._servicesURL + '/types', token=self.token)
-        return [namedTuple('Type', d) for d in r['types']]
-
-    @property
-    def psa(self):
-        """returns Primary Site Administrator object"""
-        query_url = self._securityURL + '/psa'
-        return PrimarySiteAdministrator(do_post(query_url, token=self.token))
-
-    @property
-    def roleStore(self):
-        """returns RoleStore object"""
-        return RoleStore(self._securityURL + '/roles', token=self.token)
-
-    @property
-    def userStore(self):
-        """returns a UserStore object"""
-        return UserStore(self._securityURL + '/users', token=self.token)
-
-    @property
-    def dataStore(self):
-        """returns a DataStore object"""
-        return DataStore(self._dataURL, token=self.token)
+        return self.request(self._servicesURL + '/types')
 
     @property
     def publicKey(self):
@@ -1368,8 +1345,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         also required to send to the server an additional flag encrypted
         with value set to true.
         """
-        r = do_post(self.url + '/publicKey', token=self.token)
-        return namedTuple('PublicKey', r)
+        return self.request(self.url + '/publicKey')
 
     def cluster(self, clusterName):
         """returns a Cluster object
@@ -1377,7 +1353,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             clusterName -- name of cluster to connect to
         """
-        return Cluster(do_post(self._clusterURL + '/{}'.format(clusterName), token=self.token))
+        return Cluster(self.request(self._clusterURL + '/{}'.format(clusterName)))
 
     def list_services(self):
         """list of fully qualified service names"""
@@ -1386,7 +1362,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                     for serv in self.response['services']]
 
         for f in self.folders:
-            folder = Folder(self._servicesURL + '/{}'.format(f), token=self.token)
+            folder = Folder(self._servicesURL + '/{}'.format(f))
             for service in folder.list_services():
                 services.append('/'.join(map(str, [self._servicesURL, folder, service])))
 
@@ -1423,13 +1399,13 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'machineNames': machineNames,
                   'topClusterPort': topCluserPort}
 
-        return do_post(self._clusterURL + '/create', params, token=self.token)
+        return self.request(self._clusterURL + '/create', params)
 
     def getAvailableMachines(self):
         """list all server machines that don't participate in a cluster and are
         available to be added to a cluster (i.e. registered with server"""
         query_url = self.url.split('/clusters')[0] + '/clusters/getAvailableMachines'
-        return do_post(query_url, token=self.token)['machines']
+        return self.request(query_url)['machines']
 
     @passthrough
     def startCluster(self, clusterName):
@@ -1439,7 +1415,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             clusterName -- name of cluster to start
         """
         self._clusterURL + '/{}/start'.format(clusterName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def stopCluster(self, clusterName):
@@ -1449,7 +1425,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             clusterName -- name of cluster to start
         """
         self._clusterURL + '/{}/stop'.format(clusterName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def editProtocol(self, clusterName, clusterProtocol):
@@ -1472,7 +1448,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         query_url = self._clusterURL + '/{}/editProtocol'.format(clusterName)
         params = {'clusterProtocol': clusterProtocol}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def deleteCluster(self, clusterName):
@@ -1481,7 +1457,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         clusterName -- cluster to be deleted
         """
         query_url = self._clusterURL + '/{}/delete'.format(clusterName)
-        do_post(query_url, {'clusterName': clusterName}, token=self.token)
+        self.request(query_url, {'clusterName': clusterName})
 
     def getMachinesInCluster(self, clusterName):
         """list all server machines participating in a cluster
@@ -1490,7 +1466,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             clusterName -- name of cluster
         """
         query_url = self._clusterURL + '/{}/machines'.format(clusterName)
-        return [ClusterMachine(r) for r in do_post(query_url, token=self.token)]
+        return [ClusterMachine(r) for r in self.request(query_url)]
 
     def getServicesInCluster(self, clusterName):
         """get a list of all services in a cluster
@@ -1499,8 +1475,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             clusterName -- name of cluster to search for services
         """
         query_url = self._clusterURL+ '{}/services'.format(clusterName)
-        resp = do_post(query_url, token=self.token)
-        return [namedTuple('ServiceProperties', r) for r in resp['services']]
+        return self.request(query_url).get('services', [])
 
     @passthrough
     def addMachinesToCluster(self, clusterName, machineNames):
@@ -1514,7 +1489,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return do_post(query_url, {'machineNames': machineNames}, token=self.token)
+        return self.request(query_url, {'machineNames': machineNames})
 
     @passthrough
     def removeMachinesFromCluster(self, clusterName, machineNames):
@@ -1531,7 +1506,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return do_post(query_url, {'machineNames': machineNames}, token=self.token)
+        return self.request(query_url, {'machineNames': machineNames})
 
     #----------------------------------------------------------------------
     # data store.  To use all data store methods connect to data store
@@ -1542,7 +1517,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     @passthrough
     def config(self):
         """return configuratoin properties"""
-        return do_post(self._dataURL + '/config', token=self.token)
+        return self.request(self._dataURL + '/config')
 
     # not available in ArcGIS REST API, included here to refresh data store cache
     def getDataItems(self):
@@ -1570,11 +1545,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             		}
             	}
         """
-        if self.validateItem(item):
-            query_url = self._dataURL + '/registerItem'
-            return do_post(query_url, {'item': item}, token=self.token)
-
-        return None
+        return self.dataStore.registerItem(item)
 
     @passthrough
     def unregisterDataItem(self, itemPath):
@@ -1583,8 +1554,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             itemPath -- path to data item to unregister (DataItem.path)
         """
-        query_url = self._dataURL + '/registerItem'
-        return do_post(query_url, {'itemPath': itemPath}, token=self.token)
+        return self.dataStore.unregisterItem(itemPath)
 
     def findDataItems(self, parentPath, ancestorPath='', types='', id=''):
         """search through items registered in data store
@@ -1597,17 +1567,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             types -- filter for the type of items to search
             id -- filter to search the ID of the item
         """
-        query_url = self._dataURL + '/findItems'
-        params = {'parentPath': parentPath,
-                  'ancestorPath': ancestorPath,
-                  'types': types,
-                  'id': id}
-
-        ds_items = do_post(query_url, params, token=self.token)['items']
-        for d in ds_items:
-            d['url'] = '{}/items{}'.format(self._dataURL, d['path'])
-
-        return [DataItem(d) for d in ds_items]
+        return self.dataStore.findItems(parentPath, ancestorPath, types, id)
 
     def validateDataItem(self, item):
         """validates a data store item
@@ -1615,13 +1575,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             item -- JSON representation of new data store item to validate
         """
-        query_url = self._dataURL + '/validateDataItem'
-        r = do_post(query_url, {'item': item}, token=True)
-        if 'status' in r and r['status'] == 'success':
-            return True
-        else:
-            pprint.pprint(r)
-            return False
+        return self.dataStore.validateItem(item)
 
     @passthrough
     def validateAllDataItems(self):
@@ -1629,7 +1583,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         VERY time consuming, depending on how many items are registered with the
         data store
         """
-        return do_post(self._dataURL + '/validateAllDataItems', token=self.token)
+        return self.dataStore.validateAllDataItems()
 
     def computeRefCount(self, path):
         """get the total number of references to a given data item that exists on
@@ -1639,13 +1593,11 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             path -- path to resource on server (DataItem.path)
         """
-        query_url = self._dataURL + '/computeTotalRefCount'
-        r  = passthrough(do_post(query_url, {'path': path}, token=self.token))
-        return int(r['totalRefCount'])
+        return self.dataStore.computeRefCount(path)
 
     def getRootItems(self):
         """method to get all data store items at the root"""
-        return do_post(self._dataURL + '/items', token=self.token)['rootItems']
+        return self.dataStore.getRootItems()
 
     @passthrough
     def startDataStoreMachine(self, dataItem, machineName):
@@ -1655,8 +1607,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             dataItem -- name of data item (DataItem.path)
             machineName -- name of machine to validate data store against
         """
-        query_url = self._dataURL + '/items/{}/machines/{}/start'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.dataStore.startMachine(dataItem, machineName)
 
     @passthrough
     def stopDataStoreMachine(self, dataItem, machineName):
@@ -1666,8 +1617,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             dataItem -- name of data item (DataItem.path)
             machineName -- name of machine to validate data store against
         """
-        query_url = self._dataURL + '/items/{}/machines/{}/stop'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.dataStore.stopMachine(dataItem, machineName)
 
     @passthrough
     def removeDataStoreMachine(self, dataItem, machineName):
@@ -1675,11 +1625,10 @@ class ArcServerAdmin(AdminRESTEndpoint):
         supported on the primary data store machine
 
         Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+            dataItem -- name of data item (ex: enterpriseDatabases)
+            machineName -- name of machine to remove
         """
-        query_url = self._dataURL + '/items/{}/machines/{}/remove'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.dataStore.removeMachine(dataItem, machineName)
 
     @passthrough
     def makeDataStorePrimaryMachine(self, dataItem, machineName):
@@ -1690,8 +1639,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             dataItem -- name of data item (DataItem.path)
             machineName -- name of machine to make primary
         """
-        query_url = self._dataURL + '/items/{}/machines/{}/makePrimary'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.dataStore.makePrimary(dataItem, machineName)
 
     def validateDataStore(self, dataItem, machineName):
         """ensures that the data store is valid
@@ -1700,8 +1648,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             dataItem -- name of data item (DataItem.path)
             machineName -- name of machine to validate data store against
         """
-        query_url = self._dataURL + '/items/{}/machines/{}/validate'.format(dataItem, machineName)
-        return do_post(query_url, token=self.token)
+        return self.dataStore.validateDataStore(dataItem, machineName)
 
     @passthrough
     def updateDatastoreConfig(self, datastoreConfig={}):
@@ -1712,10 +1659,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             datastoreConfig -- JSON object representing datastoreConfiguration.  if none
                 supplied, it will default to disabling copying data locally to the server.
         """
-        query_url = self._dataURL + '/config/update'
-        if not datastoreConfig:
-            datastoreConfig = '{"blockDataCopy":"true"}'
-        return do_post(query_url, {'datastoreConfig': datastoreConfig}, token=self.token)
+        return self.dataStore.updateDatastoreConfig(datastoreConfig)
 
     @passthrough
     def copyDataStore(self, other):
@@ -1749,7 +1693,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def logSettings(self):
         """returns log settings"""
         query_url = self._logsURL + '/settings'
-        return namedTuple('LogSettings', do_post(query_url, token=self.token)['settings'])
+        return self.request(query_url).get('settings', [])
 
     @passthrough
     def editLogSettings(self, logLevel='WARNING', logDir=None, maxLogFileAge=90, maxErrorReportsCount=10):
@@ -1769,7 +1713,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'maxLogFileAge': maxLogFileAge,
                   'maxErrorReportsCount': maxErrorReportsCount}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     def queryLogs(self, startTime='', endTime='', sinceLastStarted=False, level='WARNING', filter=None, pageSize=1000):
         """query all log reports accross an entire site
@@ -1828,7 +1772,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'pageSize': pageSize
                   }
 
-        r = do_post(query_url, params, token=self.token)
+        r = self.request(query_url, params)
 
         class LogQuery(JsonGetter):
             """class to handle LogQuery Report instance"""
@@ -1870,12 +1814,12 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Optional:
             machines -- machine names to count error reports on.  Default is All
         """
-        return do_post(self._logsURL + 'countErrorReports', token=self.token)
+        return self.request(self._logsURL + 'countErrorReports')
 
     @passthrough
     def cleanLogs(self):
         """clean all log reports. Proceed with caution, cannot be undone!"""
-        return do_post(self._logsURL + '/clean', token=self.token)
+        return self.request(self._logsURL + '/clean')
     #----------------------------------------------------------------------
     # SECURITY
 
@@ -1893,29 +1837,16 @@ class ArcServerAdmin(AdminRESTEndpoint):
             description -- description for user
             email -- email address for user account
         """
-        query_url = self._securityURL + '/users/add'
-        params = {'username': username,
-                  'password': password,
-                  'fullname': fullname,
-                  'description': description,
-                  'email': email}
+        return self.userStore.addUser(username, password, fullname, description, email)
 
-        return do_post(query_url, params, token=self.token)
-
-    def getUsers(self, startIndex='', pageSize=''):
+    def getUsers(self, startIndex='', pageSize=1000):
         """get all users in user store, intended for iterating over all user accounts
 
         Optional:
             startIndex -- zero-based starting index from roles list. Default is 0.
             pageSize -- maximum number of roles to return. Default is 10.
         """
-        query_url = self._securityURL + '/users/getUsers'
-
-        params = {'startIndex': startIndex,
-                  'pageSize': pageSize}
-
-        r = do_post(query_url, params, token=self.token)
-        return [namedTuple('User', u) for u in r['users']]
+        return self.userStore.getUsers(startIndex, pageSize)
 
     def searchUsers(self, filter='', maxCount=''):
         """search the user store, returns UserStore object
@@ -1924,13 +1855,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             filter -- filter string for users (ex: "john")
             maxCount -- maximimum number of records to return
         """
-        query_url = self._securityURL + '/users/search'
-
-        params = {'filter': filter,
-                  'maxCount': maxCount}
-
-        r = do_post(query_url, params, token=self.token)
-        return [namedTuple('User', u) for u in r['users']]
+        return self.userStore.searchUsers(filter, maxCount)
 
     @passthrough
     def removeUser(self, username):
@@ -1939,8 +1864,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             username -- name of user to remove
         """
-        query_url = self._securityURL + '/users/remove'
-        return do_post(query_url, {'username':username}, token=self.token)
+        return self.userStore.removeUser(username)
 
     @passthrough
     def updateUser(self, username, password, fullname='', description='', email=''):
@@ -1955,14 +1879,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             description -- description for user
             email -- email address for user account
         """
-        query_url = self._securityURL + '/users/update'
-        params = {'username': username,
-                  'password': password,
-                  'fullname': fullname,
-                  'description': description,
-                  'email': email}
-
-        return do_post(query_url, params, token=self.token)
+        return self.userStore.updateUser(username, password, fullname, description, email)
 
     @passthrough
     def assignRoles(self, username, roles):
@@ -1972,15 +1889,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             username -- name of user
             roles -- list or comma separated list of roles
         """
-        query_url = self._securityURL + '/users/assignRoles'
-
-        if isinstance(roles, (list, tuple)):
-            roles = ','.join(map(str, roles))
-
-        params = {'username': username,
-                  'roles': roles}
-
-        return do_post(query_url, params, token=self.token)
+        return self.userStore.assignRoles(username, roles)
 
     @passthrough
     def removeRoles(self, username, rolenames):
@@ -1991,15 +1900,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             username -- name of the user
             roles -- list or comma separated list of role names
         """
-        query_url = self._securityURL + '/users/removeRoles'
-
-        if isinstance(roles, (list, tuple)):
-            roles = ','.join(map(str, roles))
-
-        params = {'username': username,
-                  'roles': roles}
-
-        return _POST(query_url, params, token=self.token)
+        return self.userStore.removeRoles(username, rolenames)
 
     @passthrough
     def getPrivilegeForUser(self, username):
@@ -2008,8 +1909,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             username -- name of user
         """
-        query_url = self._securityURL + '/users/getPrivilege'
-        return do_post(query_url, {'username': username}, token=self.token)
+        return self.userStore.getPrivilegeForUser(username)
 
     # ROLES -----------------------------------------
     @passthrough
@@ -2022,13 +1922,9 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Optional:
             description -- optional description for new role
         """
-        query_url = self._securityURL + '/roles/add'
-        params = {'rolename': rolename,
-                  'description': description}
+        return self.roleStore.addRole(rolename, description)
 
-        return do_post(query_url, params, token=self.token)
-
-    def getRoles(self, startIndex='', pageSize=''):
+    def getRoles(self, startIndex='', pageSize=1000):
         """This operation gives you a pageable view of roles in the role store. It is intended
         for iterating through all available role accounts. To search for specific role accounts
         instead, use the searchRoles() method. <- from Esri help
@@ -2037,13 +1933,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             startIndex -- zero-based starting index from roles list.
             pageSize -- maximum number of roles to return.
         """
-        query_url = self._securityURL + '/roles/getRoles'
-
-        params = {'startIndex': startIndex,
-                  'pageSize': pageSize}
-
-        r = do_post(query_url, params, token=self.token)['roles']
-        return [namedTuple('Role', r) for r in self.role_cache]
+        return self.roleStore.getRoles(startIndex, pageSize)
 
     def searchRoles(self, filter='', maxCount=''):
         """search the role store
@@ -2052,13 +1942,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             filter -- filter string for roles (ex: "editors")
             maxCount -- maximimum number of records to return
         """
-        query_url = self._securityURL + '/roles/search'
-
-        params = {'filter': filter,
-                  'maxCount': maxCount}
-
-        r = do_post(query_url, params, token=self.token)['roles']
-        return [namedTuple('Role', r) for r in self.role_cache]
+        return self.roleStore.searchRoles(filter, maxCount)
 
     @passthrough
     def removeRole(self, rolename):
@@ -2067,8 +1951,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             rolename -- name of role
         """
-        query_url = self._securityURL + '/roles/remove'
-        return do_post(query_url, {'rolename':rolename}, token=self.token)
+        return self.roleStore.removeRole(rolename)
 
     @passthrough
     def updateRole(self, rolename, description=''):
@@ -2080,12 +1963,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Optional:
             description -- descriptoin of role
         """
-        query_url = self._securityURL + '/roles/update'
-
-        params = {'rolename': rolename,
-                  'description': description}
-
-        return do_post(query_url, params, token=self.token)
+        return self.roleStore.updateRole(rolename, description)
 
     @passthrough
     def getRolesForUser(self, username, filter='', maxCount=10):
@@ -2094,15 +1972,10 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             privilege -- name of privilege (ADMINISTER | PUBLISH)
         """
-        query_url = self._securityURL + '/roles/getRolesForUser'
-        params = {'username': username,
-                  'filter': filter,
-                  'maxCount': maxCount}
-
-        return do_post(query_url, params, token=self.token)
+        return self.roleStore.getRolesForUser(username, filter, maxCount)
 
     @passthrough
-    def getUsersWithinRole(self, rolename, filter='', maxCount=10):
+    def getUsersWithinRole(self, rolename, filter='', maxCount=100):
         """get all user accounts to whom this role has been assigned
 
         Required:
@@ -2112,12 +1985,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             filter -- optional filter to be applied to the resultant user set
             maxCount -- maximum number of results to return
         """
-        query_url = self._securityURL + '/roles/getUsersWithinRole'
-        params = {'rolename': username,
-                  'filter': filter,
-                  'maxCount': maxCount}
-
-        return do_post(query_url, params, token=self.token)
+        return self.roleStore.getUsersWithinRole(rolename, filter, maxCount)
 
     @passthrough
     def addUsersToRole(self, rolename, users):
@@ -2127,15 +1995,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             rolename -- name of role
             users -- list of users or comma separated list
         """
-        query_url = self._securityURL + '/roles/addUsersToRole'
-
-        if isinstance(users, (list, tuple)):
-            users = ','.join(map(str, users))
-
-        params = {'rolename': rolename,
-                  'users': users}
-
-        return do_post(query_url, params, token=self.token)
+        return self.roleStore.addUsersToRole(rolename, users)
 
     @passthrough
     def removeUsersFromRole(self, rolename, users):
@@ -2145,15 +2005,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             rolename -- name of role
             users -- list or comma separated list of user names
         """
-        query_url = self._securityURL + '/roles/removeUsersFromRole'
-
-        if isinstance(users, (list, tuple)):
-            users = ','.join(map(str, users))
-
-        params = {'rolename': rolename,
-                  'users': users}
-
-        return _POST(query_url, params, token=self.token)
+        return self.roleStore.removeUsersFromRole(rolenameme, users)
 
     @passthrough
     def assignPrivilege(self, rolename, privilege='ACCESS'):
@@ -2163,12 +2015,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             rolename -- name of role
             privilege -- administrative capability to assign (ADMINISTER | PUBLISH | ACCESS)
         """
-        query_url -- self._securityURL + '/roles/assignPrivilege'
-
-        params = {'rolename': rolename,
-                  'privilege': privilege.upper()}
-
-        return do_post(query_url, params, token=self.token)
+        return self.roleStore.assignPrivilege(rolename, privilege)
 
     @passthrough
     def getPrivilegeForRole(self, rolename):
@@ -2177,8 +2024,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             rolename -- name of role
         """
-        query_url = self._securityURL + '/roles/getPrivilege'
-        return do_post(query_url, {'rolename':rolename}, token=self.token)
+        return self.roleStore.getPrivilegeForRole(rolename)
 
     @passthrough
     def getRolesByPrivilege(self, privilege):
@@ -2187,8 +2033,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Required:
             privilege -- name of privilege (ADMINISTER | PUBLISH)
         """
-        query_url = self._securityURL + '/roles/getRolesByPrivilege'
-        return do_post(query_url, {'privilege': privilege.upper()}, token=self.token)
+        return self.roleStore.getRolesByPrivilege(privilege)
 
     # GENERAL SECURITY ------------------------------
     @passthrough
@@ -2197,7 +2042,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Security_Configuration/02r3000001t9000000/
         """
-        return do_post(self._securityURL + '/config', token=self.token)
+        return self.request(self._securityURL + '/config')
 
     @passthrough
     def updateSecurityConfig(self, securityConfig):
@@ -2224,7 +2069,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         params = {'securityConfig': json.dumps(securityConfig)
                     if isinstance(securityConfig, dict) else securityConfig}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def updateIdentityStore(self, userStoreConfig, roleStoreConfig):
@@ -2272,7 +2117,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'roleStoreConfig': json.dumps(roleStoreConfig)
                     if isinstance(roleStoreConfig, dict) else roleStoreConfig}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def testIdentityStore(self, userStoreConfig, roleStoreConfig):
@@ -2306,14 +2151,14 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'roleStoreConfig': json.dumps(roleStoreConfig)
                     if isinstance(roleStoreConfig, dict) else roleStoreConfig}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     # TOKENS -----------------------------------------
     @passthrough
     def tokens(self):
         """returns the token configuration with the server, can use updatetoken()
         to change the shared secret key or valid token durations"""
-        return do_post(self._securityURL + '/tokens', token=self.token)
+        return self.request(self._securityURL + '/tokens')
 
     @passthrough
     def updateTokenConfig(self, tokenManagerConfig):
@@ -2337,20 +2182,20 @@ class ArcServerAdmin(AdminRESTEndpoint):
         params = {'securityConfig': json.dumps(tokenManagerConfig)
                     if isinstance(tokenManagerConfig, dict) else tokenManagerConfig}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     # PRIMARY SITE ADMINISTRATOR ------------------------------
     @passthrough
     def disablePSA(self):
         """disables the primary site administartor account"""
         query_url = self._securityURL + '/psa/disable'
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def enablePSA(self):
         """enables the primary site administartor account"""
         query_url = self._securityURL + '/psa/enable'
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def updatePSA(self, username, password):
@@ -2367,7 +2212,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         params = {'username': username,
                   'password': password}
 
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     #----------------------------------------------------------------------
     # services
@@ -2407,7 +2252,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         folderName -- name of folder to connect to
         """
         query_url = self._servicesURL + '/{}'.format(folderName)
-        return Folder(query_url, token=self.token)
+        return Folder(query_url)
 
     def service(self, service_name_or_wildcard):
         """return a restapi.admin.Service() object
@@ -2420,7 +2265,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         else:
             service_url = self.get_service_url(service_name_or_wildcard, False)
         if service_url:
-            return Service(service_url, token=self.token)
+            return Service(service_url)
         else:
             print('No Service found matching: "{}"'.format(service_name_or_wildcard))
             return None
@@ -2438,7 +2283,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
         query_url = self._servicesURL + '/{}/permissions'.format(resource)
 
-        perms = do_post(query_url, token=self.token)['permissions']
+        perms = self.request(query_url)['permissions']
         return [Permission(r) for r in perms]
 
     @passthrough
@@ -2449,7 +2294,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             resource -- name of folder or folder/service
 
         Optional:
-            principal -- name of the role whome the permission is being assigned
+            principal -- name of the role whom the permission is being assigned
             isAllowed -- tells if a resource is allowed or denied
             private -- default is True.  Secures service by making private, denies
                 public access.  Change to False to allow public access.
@@ -2462,15 +2307,15 @@ class ArcServerAdmin(AdminRESTEndpoint):
         add_url = self._servicesURL + '/{}/permissions/add'.format(resource)
         if principal:
             params = {'principal': principal, 'isAllowed': isAllowed}
-            r = do_post(add_url, params, token=self.token)
+            r = self.request(add_url, params)
 
         params = {'principal': 'esriEveryone', 'isAllowed': 'false'}
 
         if private:
-            esriEveryone = do_post(add_url, params, token=self.token)
+            esriEveryone = self.request(add_url, params)
         else:
             params['isAllowed'] = 'true'
-            esriEveryone = do_post(add_url, params, token=self.token)
+            esriEveryone = self.request(add_url, params)
 
         if not principal:
             r = esriEveryone
@@ -2500,7 +2345,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         query_url = self._servicesURL + '/{}/permissions/hasChildPermissionConflict'.format(resource)
         params = {'principal': principal, 'permission': permission}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def cleanPermissions(self, principal):
@@ -2510,7 +2355,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         principal -- name of role to delete permisssions
         """
         query_url = self._permissionsURL + '/clean'
-        return do_post(query_url, {'principal': principal}, token=self.token)
+        return self.request(query_url, {'principal': principal})
 
     @passthrough
     def createFolder(self, folderName, description=''):
@@ -2525,7 +2370,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
         query_url = self._servicesURL + '/createFolder'
         params = {'folderName': folderName, 'description': description}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def deleteFolder(self, folderName):
@@ -2534,7 +2379,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         folderName -- name of new folder
         """
         query_url = self._servicesURL + '{}/deleteFolder'.format(folderName)
-        return do_post(query_url, token=self.token)
+        return self.request(query_url)
 
     @passthrough
     def editFolder(self, folderName, description, webEncrypted):
@@ -2547,11 +2392,11 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
         query_url = self._servicesURL + '/{}/editFolder'.format(folderName)
         params = {'description': description, 'webEncrypted': webEncrypted}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     def extensions(self):
         """return list of custom server object extensions that are registered with the server"""
-        return[namedTuple('Extension', r) for r in do_post(self._extensionsURL, token=self.token)['extensions']]
+        return self.request(self._extensionsURL).get('extensions', [])
 
     @passthrough
     def registerExtension(self, id):
@@ -2561,7 +2406,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         id -- itemID of the uploaded .SOE file
         """
         query_url = self._extensionsURL + '/register'
-        return do_post(query_url, {'id': id}, token=self.token)
+        return self.request(query_url, {'id': id})
 
     @passthrough
     def unregisterExtension(self, extensionFileName):
@@ -2570,7 +2415,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         extensionFileName -- name of .SOE file to unregister
         """
         query_url = self._extensionsURL + '/unregister'
-        return do_post(query_url, {'extensionFileName': extensionFileName}, token=self.token)
+        return self.request(query_url, {'extensionFileName': extensionFileName})
 
     @passthrough
     def updateExtension(self, id):
@@ -2578,19 +2423,19 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         id -- itemID of the uploaded .SOE file
         """
-        return do_post(self._extensionsURL + '/update', {'id': id}, token=self.token)
+        return self.request(self._extensionsURL + '/update', {'id': id})
 
     @passthrough
     def federate(self):
         """federates ArcGIS Server with Portal for ArcGIS.  Imports services to make them available
         for portal.
         """
-        return do_post(self._servicesURL + '/federate', token=self.token)
+        return self.request(self._servicesURL + '/federate')
 
     @passthrough
     def unfederate(self):
         """unfederate ArcGIS Server from Portal for ArcGIS. Removes services from Portal"""
-        return do_post(self._servicesURL + '/unfederate', token=self.token)
+        return self.request(self._servicesURL + '/unfederate')
 
     @passthrough
     def startServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
@@ -2629,7 +2474,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         elif folderName:
             servicesAsJSON = {'services': []}
-            folder = Folder(self._servicesURL + '/{}'.format(folderName), token=self.token)
+            folder = Folder(self._servicesURL + '/{}'.format(folderName))
             if not serviceName and not type:
                 for serv in folder.services:
                     serv.pop(DESCRIPTION)
@@ -2654,7 +2499,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             return RequestError({'error': 'no services specified!'})
 
         params = {'services': json.dumps(servicesAsJSON) if isinstance(servicesAsJSON, dict) else servicesAsJSON}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def stopServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
@@ -2693,7 +2538,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         elif folderName:
             servicesAsJSON = {'services': []}
-            folder = Folder(self._servicesURL + '/{}'.format(folderName), token=self.token)
+            folder = Folder(self._servicesURL + '/{}'.format(folderName))
             if not serviceName and not type:
                 for serv in folder.services:
                     serv.pop(DESCRIPTION)
@@ -2718,7 +2563,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             return RequestError({'error': 'no services specified!'})
 
         params = {'services': json.dumps(servicesAsJSON) if isinstance(servicesAsJSON, dict) else servicesAsJSON}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def restartServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
@@ -2758,7 +2603,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def report(self):
         """return a list of service report objects"""
 
-        reps = do_post(self.url + '/report', token=self.token)['reports']
+        reps = self.request(self.url + '/report')['reports']
         return [Report(rep) for rep in reps]
 
     #----------------------------------------------------------------------
@@ -2835,7 +2680,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'configStoreConnection': configStoreConnection,
                   'directories': directories,
                   'cluster': cluster}
-        return do_post(query_url, params, token=self.token)
+        return self.request(query_url, params)
 
     @passthrough
     def deleteSite(self, f=JSON):
@@ -2845,7 +2690,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Optional:
             f -- format for response (html|json)
         """
-        return do_post(self._adminURL + '/deleteSite', {F: f}, token=self.token)
+        return self.request(self._adminURL + '/deleteSite', {F: f})
 
     @passthrough
     def exportSite(self, location=None, f=JSON):
@@ -2865,7 +2710,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             LOCATION: location,
             F: f
         }
-        return do_post(url, params, token=self.token)
+        return self.request(url, params)
 
     def generate_token(self, usr, pw, expiration=60):
         """Generates a token to handle ArcGIS Server Security, this is
@@ -2900,7 +2745,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             LOCATION: location,
             F: f
         }
-        return do_post(url, params, token=self.token)
+        return self.request(url, params)
 
     def joinSite(self, adminURL, username, password, f):
         """This is used to connect a server machine to an existing site. This is
@@ -2924,7 +2769,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             PASSWORD: password,
             F: f
         }
-        return do_post(url, params, token=self.token)
+        return self.request(url, params)
 
     def publicKey(self, f=JSON):
         """Returns the public key of the server that can be used by a client application
@@ -2937,7 +2782,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             f -- format for response, if json it is wrapped in a Munch object. (html|json)
         """
         url = self._adminURL + '/publicKey'
-        return munchify(do_post(url, {F: f}, token=self.token))
+        return munchify(self.request(url, {F: f}))
 
     def __len__(self):
         """gets number of services"""
@@ -2957,6 +2802,9 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if not self.service_cache:
             self.list_services()
         return self.service_cache[i]
+
+    def __repr__(self):
+        return '<{}: {}>'.format(self.__class__.__name__, self.token.domain.split('//')[1].split(':')[0])
 
 class AGOLAdminInitializer(AdminRESTEndpoint):
      def __init__(self, url, usr='', pw='', token=''):
@@ -3078,7 +2926,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
             ASYNC: async
         }
 
-        result = do_post(url, params, token=self.token)
+        result = self.request(url, params)
         self.refresh()
         self.reload()
         return result
@@ -3102,7 +2950,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
             ASYNC: async
         }
 
-        result = do_post(url, params, token=self.token)
+        result = self.request(url, params)
         self.refresh()
         self.reload()
         return result
@@ -3126,7 +2974,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
             ASYNC: async
         }
 
-        result = do_post(url, params, token=self.token)
+        result = self.request(url, params)
         self.refresh()
         self.reload()
         return result
@@ -3147,7 +2995,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
     @passthrough
     def refresh(self):
         """refreshes server cache for this layer"""
-        return do_post(self.url + '/refresh', token=self.token)
+        return self.request(self.url + '/refresh')
 
     def reload(self):
         """reloads the service to catch any changes"""
@@ -3156,7 +3004,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
     def status(self):
         """returns the status on service (whether it is topped or started)"""
         url = self.url + '/status'
-        return do_post(url, token=self.token)
+        return self.request(url)
 
     def __repr__(self):
         return '<{}: "{}">'.format(self.__class__.__name__, self.url.split('/')[-2])
@@ -3167,7 +3015,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
     def status(self):
         """returns the status on service (whether it is topped or started)"""
         url = self.url.split('/FeatureServer/')[0] + '/FeatureServer/status'
-        return do_post(url, token=self.token)
+        return self.request(url)
 
     @passthrough
     def truncate(self, attachmentOnly=TRUE, async=FALSE):
@@ -3186,7 +3034,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
             ASYNC: async
         }
 
-        return do_post(url, params, token=self.token)
+        return self.request(url, params)
 
     def __repr__(self):
         return '<{}: "{}">'.format(self.__class__.__name__, self.name)

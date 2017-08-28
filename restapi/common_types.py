@@ -76,8 +76,29 @@ def getFeatureExtent(in_features):
         full_extent[attr] = op([e.get(attr) for e in extents])
     return munch.munchify(full_extent)
 
+def unqualify_fields(fs):
+    """removes fully qualified field names from a feature set
+
+    Required:
+        fs -- restapi.FeatureSet() object or JSON
+    """
+    if not isinstance(fs, FeatureSet):
+        fs = FeatureSet(fs)
+
+    clean_fields = {}
+    for f in fs.fields:
+        clean = f.name.split('.')[-1]
+        clean_fields[f.name] = clean
+        f.name = clean
+
+    for i,feature in enumerate(fs.features):
+        feature_copy = {}
+        for f, val in feature.attributes.iteritems():
+            feature_copy[clean_fields.get(f, f)] = val
+        fs.features[i].attributes = munch.munchify(feature_copy)
+
 if has_arcpy:
-    def exportFeatureSet(feature_set, out_fc, include_domains=False):
+    def exportFeatureSet(feature_set, out_fc, include_domains=False, qualified_fieldnames=False):
         """export FeatureSet (JSON result)  to shapefile or feature class
 
         Required:
@@ -87,6 +108,9 @@ if has_arcpy:
         Optional:
             include_domains -- if True, will manually create the feature class and add domains to GDB
                 if output is in a geodatabase.
+            qualified_fieldnames -- default is False, in situations where there are table joins, there
+                are qualified table names such as ["table1.Field_from_tab1", "table2.Field_from_tab2"].
+                By setting this to false, exported fields would be: ["Field_from_tab1", "Field_from_tab2"]
 
         at minimum, feature set must contain these keys:
             [u'features', u'fields', u'spatialReference', u'geometryType']
@@ -94,6 +118,9 @@ if has_arcpy:
         # validate features input (should be list or dict, preferably list)
         if not isinstance(feature_set, FeatureSet):
             feature_set = FeatureSet(feature_set)
+
+        if not qualified_fieldnames:
+            unqualify_fields(feature_set)
 
         # find workspace type and path
         ws, wsType = find_ws_type(out_fc)
@@ -288,12 +315,12 @@ def exportGeometryCollection(gc, output, **kwargs):
     fs = FeatureSet(fs_dict)
     return exportFeatureSet(fs, output, **kwargs)
 
-def castToFeatures(obj):
+def featureIterator(obj):
     if hasattr(obj, 'features'):
     	for ft in obj.features:
     		yield Feature(ft)
 
-FeatureSet.__iter__ = castToFeatures
+FeatureSet.__iter__ = featureIterator
 
 class Cursor(FeatureSet):
     """Class to handle Cursor object"""
@@ -649,6 +676,13 @@ class ArcServer(RESTEndpoint):
             self.service_cache = self.list_services()
         return [s for s in self.service_cache if s.endswith('GPServer')]
 
+    def folder(self, name):
+        """returns a restapi.Folder() object
+
+        Required:
+            name -- name of folder
+        """
+        return Folder(self.request(self.url + '/{}'.format(name)))
 
     def list_services(self, filterer=True):
         """returns a list of all services"""
@@ -862,6 +896,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         for k,v in kwargs.iteritems():
             params[k] = v
+
+        if RESULT_RECORD_COUNT in params and self.compatible_with_version('10.3'):
+            params[RESULT_RECORD_COUNT] = min([int(params[RESULT_RECORD_COUNT]), self.get(MAX_RECORD_COUNT)])
 
         # check for tokens (only shape and oid)
         fields = self._fix_fields(fields)

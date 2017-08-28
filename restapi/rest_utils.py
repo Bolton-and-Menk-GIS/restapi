@@ -46,7 +46,7 @@ class IdentityManager(object):
         """
         if self.tokens:
             if '/admin/' in url:
-                url = url.split('/admin/')[0] + '/admin/services'
+                url = url.split('/admin/')[0] + '/admin'
             else:
                 url = url.lower().split('/rest/services')[0] + '/rest/services'
             if url in self.tokens:
@@ -147,7 +147,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
                 if TOKEN not in params:
                     params[TOKEN] = str(token)
         elif token:
-            if not token.isAGOL and not token.isAdmin:
+            if isinstance(token, Token) and (not token.isAGOL and not token.isAdmin):
                 cookies = {AGS_TOKEN: str(token)}
             else:
                 if TOKEN not in params:
