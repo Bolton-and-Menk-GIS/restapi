@@ -258,6 +258,10 @@ ADMIN_URL = 'adminURL'
 ESRI_EVERYONE = 'esriEveryone'
 IS_ALLOWED = 'isAllowed'
 PRINCIPAL = 'principal'
+CAPABILITIES = 'capabilities'
+EDITOR_TRACKING_INFO = 'editorTrackingInfo'
+CHANGE_TRACKING = 'ChangeTracking'
+HAS_STATIC_DATA = 'hasStaticData'
 
 # AGOL
 AGOL_BASE = 'www.arcgis.com'

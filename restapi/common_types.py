@@ -1,6 +1,14 @@
 # look for arcpy access, otherwise use open source version
 from __future__ import print_function
 
+import sqlite3
+import base64
+import shutil
+import contextlib
+import urlparse
+from rest_utils import *
+from .decorator import decorator
+
 try:
     import arcpy
     from arc_restapi import *
@@ -38,13 +46,6 @@ except ImportError:
 
     arcpy = ArcpyPlaceholder()
 
-import sqlite3
-import base64
-import shutil
-import contextlib
-import urlparse
-from rest_utils import *
-from .decorator import decorator
 USE_GEOMETRY_PASSTHROUGH = True #can be set to false to not use @geometry_passthrough
 
 @decorator
@@ -2281,11 +2282,14 @@ class FeatureLayer(MapServiceLayer):
     def canApplyEditsWithAttachments(self):
         """convenience property to check if attachments can be edited in
         applyEdits() method"""
-        return all([
-            self.compatible_with_version(10.4),
-            hasattr(self, HAS_ATTACHMENTS),
-            getattr(self, HAS_ATTACHMENTS)
-        ])
+        try:
+            return all([
+                self.compatible_with_version(10.4),
+                hasattr(self, HAS_ATTACHMENTS),
+                getattr(self, HAS_ATTACHMENTS)
+            ])
+        except AttributeError:
+            return False
 
     @staticmethod
     def guess_content_type(attachment, content_type=''):

@@ -502,7 +502,7 @@ class Reader:
             elif not value.strip():
                 record.append(value)
                 continue
-            elif typ == "N":
+            elif typ in ("N", "F"):
                 value = value.replace(b('\0'), b('')).strip()
                 value = value.replace(b('*'), b(''))  # QGIS NULL is all '*' chars
                 if value == b(''):

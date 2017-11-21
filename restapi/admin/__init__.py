@@ -547,11 +547,18 @@ class UserStore(AdminRESTEndpoint):
             email -- email address for user account
         """
         query_url = self.url + '/update'
-        params = {'username': username,
-                  'password': password,
-                  'fullname': fullname,
-                  'description': description,
-                  'email': email}
+        params = {
+            'username': username,
+            'password': password
+        }
+        opts = {
+            'fullname': fullname,
+            'description': description,
+            'email': email
+        }
+        for k,v in opts.iteritems():
+            if v:
+                params[k] = v
 
         return self.request(query_url, params)
 
@@ -2781,75 +2788,6 @@ class AGOLFeatureService(AGOLAdminInitializer):
     """AGOL Feature Service"""
 
     @staticmethod
-    def createNewGlobalIdFieldDefinition():
-        """will add a new global id field json defition"""
-        return munchify({
-            NAME: 'GlobalID',
-            TYPE: GLOBALID,
-            ALIAS: 'GlobalID',
-            SQL_TYPE: SQL_TYPE_OTHER,
-            NULLABLE: FALSE,
-            EDITABLE: FALSE,
-            DOMAIN: NULL,
-            DEFAULT_VALUE: SQL_GLOBAL_ID_EXP
-        })
-
-    @staticmethod
-    def createNewDateFieldDefinition(name, alias='', autoUpdate=False):
-        """Will create a json definition for a new date field
-
-        Required:
-            name -- name of new date field
-
-        Optional:
-            alias -- field name for alias
-            autoUpdate -- option to automatically populate the field with the current
-                date/time when a new record is added or updated (like editor tracking).
-                The default is False.
-        """
-        return munchify({
-            NAME: name,
-            TYPE: DATE_FIELD,
-            ALIAS: alias or name,
-            SQL_TYPE: SQL_TYPE_OTHER,
-            NULLABLE: FALSE,
-            EDITABLE: TRUE,
-            DOMAIN: NULL,
-            DEFAULT_VALUE: SQL_AUTO_DATE_EXP if autoUpdate else NULL
-        })
-
-    @staticmethod
-    def createNewFieldDefinition(name, field_type, alias='', **kwargs):
-        """Will create a json definition for a new field
-
-        Required:
-            name -- name of new field
-            field_type -- type of field
-
-        Optional:
-            alias -- field name for alias
-            **kwargs other field keys to set
-        """
-        fd = munchify({
-            NAME: name,
-            TYPE: field_type,
-            ALIAS: alias or name,
-            SQL_TYPE: SQL_TYPE_OTHER,
-            NULLABLE: TRUE,
-            EDITABLE: TRUE,
-            DOMAIN: NULL,
-            DEFAULT_VALUE:  NULL,
-            LENGTH: NULL,
-            VISIBLE: TRUE
-        })
-        for k,v in kwargs.iteritems():
-            if k in fd:
-                fd[k] = v
-        if field_type == TEXT_FIELD and fd.get(LENGTH) in (NULL, None, ''):
-            fd[LENGTH] = 50 # default
-        return fd
-
-    @staticmethod
     def clearLastEditedDate(in_json):
         """clears the lastEditDate within json, will throw an error if updating
         a service JSON definition if this value is not an empty string/null.
@@ -2934,18 +2872,65 @@ class AGOLFeatureService(AGOLAdminInitializer):
         self.reload()
         return result
 
-    def addField(self, name, field_type, alias='', **kwargs):
-        """Will add a new field to layer
+    @passthrough
+    def enableEditorTracking(self):
+        capabilities = self.get(CAPABILITIES, '')
+        editorInfo = self.get(EDITOR_TRACKING_INFO, {
+            "enableEditorTracking": True,
+            "enableOwnershipAccessControl": False,
+            "allowOthersToUpdate": True,
+            "allowOthersToDelete": True,
+            "allowOthersToQuery": True,
+            "allowAnonymousToUpdate": True,
+            "allowAnonymousToDelete": True
+          })
+        editorInfo["enableEditorTracking"] = True
 
-        Required:
-            name -- name of new field
-            field_type -- type of field
+        # enable editor tracking at Feature Service level
+        result = {'layers': []}
+        if CHANGE_TRACKING not in capabilities:
+            capabilities = ','.join([capabilities, CHANGE_TRACKING])
+            result['enabled_at_feature_service'] = self.updateDefinition({CAPABILITIES: capabilities, HAS_STATIC_DATA: False, EDITOR_TRACKING_INFO: editorInfo})
+        else:
+            result['enabled_at_feature_service'] = {'status': 'already enabled'}
 
-        Optional:
-            alias -- field name for alias
-            **kwargs other field keys to set
-        """
-        self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias, **kwargs)]})
+        # loop through layers and enable editor tracking
+        editFields = {"editFieldsInfo":{"creationDateField":"","creatorField":"","editDateField":"","editorField":""}}
+        for lyrDef in self.layers:
+            url = '/'.join([self.url, str(lyrDef.id)])
+            lyr = AGOLFeatureLayer(url, token=self.token)
+            status = lyr.addToDefinition(editFields)
+            result['layers'].append({
+                'id': lyr.id,
+                'name': lyr.name,
+                'result': status
+            })
+        return munchify(result)
+
+    @passthrough
+    def disableEditorTracking(self):
+        capabilities = self.get(CAPABILITIES, '').split(',')
+        editorInfo = self.get(EDITOR_TRACKING_INFO, {
+            "enableEditorTracking": False,
+            "enableOwnershipAccessControl": False,
+            "allowOthersToUpdate": True,
+            "allowOthersToDelete": True,
+            "allowOthersToQuery": True,
+            "allowAnonymousToUpdate": True,
+            "allowAnonymousToDelete": True
+          })
+        editorInfo["enableEditorTracking"] = False
+
+        # enable editor tracking at Feature Service level
+        result = {}
+        if CHANGE_TRACKING in capabilities:
+            capabilities.remove(CHANGE_TRACKING)
+            capabilities = ','.join(capabilities)
+            result['disabled_at_feature_service'] = self.updateDefinition({CAPABILITIES: capabilities, HAS_STATIC_DATA: self.get(HAS_STATIC_DATA), EDITOR_TRACKING_INFO: editorInfo})
+        else:
+            result['disabled_at_feature_service'] = {'status': 'already disabled'}
+
+        return munchify(result)
 
     @passthrough
     def refresh(self):
@@ -2954,7 +2939,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
 
     def reload(self):
         """reloads the service to catch any changes"""
-        self.__init__(self.url, self.token)
+        self.__init__(self.url, token=self.token)
 
     def status(self):
         """returns the status on service (whether it is topped or started)"""
@@ -2971,6 +2956,88 @@ class AGOLFeatureLayer(AGOLFeatureService):
         """returns the status on service (whether it is topped or started)"""
         url = self.url.split('/FeatureServer/')[0] + '/FeatureServer/status'
         return self.request(url)
+
+    @staticmethod
+    def createNewGlobalIdFieldDefinition():
+        """will add a new global id field json defition"""
+        return munchify({
+            NAME: 'GlobalID',
+            TYPE: GLOBALID,
+            ALIAS: 'GlobalID',
+            SQL_TYPE: SQL_TYPE_OTHER,
+            NULLABLE: FALSE,
+            EDITABLE: FALSE,
+            DOMAIN: NULL,
+            DEFAULT_VALUE: SQL_GLOBAL_ID_EXP
+        })
+
+    @staticmethod
+    def createNewDateFieldDefinition(name, alias='', autoUpdate=False):
+        """Will create a json definition for a new date field
+
+        Required:
+            name -- name of new date field
+
+        Optional:
+            alias -- field name for alias
+            autoUpdate -- option to automatically populate the field with the current
+                date/time when a new record is added or updated (like editor tracking).
+                The default is False.
+        """
+        return munchify({
+            NAME: name,
+            TYPE: DATE_FIELD,
+            ALIAS: alias or name,
+            SQL_TYPE: SQL_TYPE_OTHER,
+            NULLABLE: FALSE,
+            EDITABLE: TRUE,
+            DOMAIN: NULL,
+            DEFAULT_VALUE: SQL_AUTO_DATE_EXP if autoUpdate else NULL
+        })
+
+    @staticmethod
+    def createNewFieldDefinition(name, field_type, alias='', **kwargs):
+        """Will create a json definition for a new field
+
+        Required:
+            name -- name of new field
+            field_type -- type of field
+
+        Optional:
+            alias -- field name for alias
+            **kwargs other field keys to set
+        """
+        fd = munchify({
+            NAME: name,
+            TYPE: field_type,
+            ALIAS: alias or name,
+            SQL_TYPE: SQL_TYPE_OTHER,
+            NULLABLE: TRUE,
+            EDITABLE: TRUE,
+            DOMAIN: NULL,
+            DEFAULT_VALUE:  NULL,
+            LENGTH: NULL,
+            VISIBLE: TRUE
+        })
+        for k,v in kwargs.iteritems():
+            if k in fd:
+                fd[k] = v
+        if field_type == TEXT_FIELD and fd.get(LENGTH) in (NULL, None, ''):
+            fd[LENGTH] = 50 # default
+        return fd
+
+    def addField(self, name, field_type, alias='', **kwargs):
+        """Will add a new field to layer
+
+        Required:
+            name -- name of new field
+            field_type -- type of field
+
+        Optional:
+            alias -- field name for alias
+            **kwargs other field keys to set
+        """
+        self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias, **kwargs)]})
 
     @passthrough
     def truncate(self, attachmentOnly=TRUE, async=FALSE):
