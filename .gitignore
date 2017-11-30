@@ -2,9 +2,9 @@
 __pycache__/
 *.py[cod]
 
+private_tests/
 tester.py
 fs_tester.py
-fs_test2.py
 admin_test.py
 rester.py
 lang_test.py

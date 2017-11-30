@@ -8,9 +8,13 @@ import shapefile
 import shp_helper
 import os
 import json
+import sys
 from collections import OrderedDict
 from rest_utils import *
 from shapefile import shapefile
+
+if sys.version_info[0] > 2:
+    basestring = str
 
 __opensource__ = True
 

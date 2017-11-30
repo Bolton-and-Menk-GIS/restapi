@@ -179,6 +179,25 @@ class Geometry(BaseGeometry):
             ])
             return arcpy.Polygon(ar, arcpy.SpatialReference(self.spatialReference))
 
+    def toPolygon(self):
+        if hasattr(self, GEOMETRY_TYPE):
+            if getattr(self, GEOMETRY_TYPE) == ESRI_ENVELOPE:
+                ext = getattr(self, 'json')
+                if ext:
+                    rings = [[
+                        [ext.get(XMIN, ext.get(YMIN))],
+                        [ext.get(XMIN, ext.get(YMAX))],
+                        [ext.get(XMAX, ext.get(YMAX))],
+                        [ext.get(XMAX, ext.get(YMIN))],
+                        [ext.get(XMIN, ext.get(YMIN))],
+                    ]]
+
+                    return Geometry({
+                        SPATIAL_REFERENCE: self._spatialReference,
+                        RINGS: rings
+                    })
+
+
     def __str__(self):
         """dumps JSON to string"""
         return self.dumps()

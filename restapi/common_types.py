@@ -683,7 +683,7 @@ class ArcServer(RESTEndpoint):
         Required:
             name -- name of folder
         """
-        return Folder(self.request(self.url + '/{}'.format(name)))
+        return Folder('/'.join([self.ur, name]), token=self.token)
 
     def list_services(self, filterer=True):
         """returns a list of all services"""
