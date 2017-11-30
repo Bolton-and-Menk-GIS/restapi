@@ -15,6 +15,9 @@ from ..decorator import decorator
 from ..munch import *
 from .._strings import *
 
+if sys.version_info[0] > 2:
+    basestring = str
+
 # Globals
 BASE_PATTERN = '*:*/arcgis/*admin*'
 AGOL_ADMIN_BASE_PATTERN = 'http*://*/rest/admin/services*'

@@ -18,7 +18,7 @@ except:
 
 __all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', 'has_arcpy',
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
-           'GeocodeService', 'GPService', 'GPTask', 'POST', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
+           'GeocodeService', 'GPService', 'GPTask', 'do_post', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
            'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name', 'exportGeometryCollection',
            'GeometryService', 'GeometryCollection', 'getFeatureExtent', 'JsonReplica', 'SQLiteReplica'] + \
            [d for d in dir(_strings) if not d.startswith('__')]
