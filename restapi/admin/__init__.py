@@ -142,7 +142,7 @@ class BaseDirectory(AdminRESTEndpoint):
             params = {PRINCIPAL: principal, IS_ALLOWED: isAllowed}
             r = self.request(add_url, params)
 
-            for k,v in paramss.iteritems():
+            for k,v in params.iteritems():
                 r[k] = v
             added_permissions.append(r)
 
@@ -155,7 +155,7 @@ class BaseDirectory(AdminRESTEndpoint):
                 params[IS_ALLOWED] = TRUE
                 r = self.request(add_url, params)
 
-            for k,v in paramss.iteritems():
+            for k,v in params.iteritems():
                 r[k] = v
             added_permissions.append(r)
 
@@ -659,14 +659,17 @@ class DataStore(AdminRESTEndpoint):
         return None
 
     @passthrough
-    def unregisterItem(self, itemPath):
+    def unregisterItem(self, itemPath, force=True):
         """unregisters an item with the data store
 
         Required:
             itemPath -- path to data item to unregister (DataItem.path)
+
+        Optional:
+            force -- added at 10.4, must be set to true
         """
         query_url = self.url + '/unregisterItem'
-        return self.request(query_url, {'itemPath': itemPath})
+        return self.request(query_url, {'itemPath': itemPath, 'force': force})
 
     def findItems(self, parentPath, ancestorPath='', types='', id=''):
         """search through items registered in data store
@@ -803,6 +806,9 @@ class DataStore(AdminRESTEndpoint):
         """make iterable"""
         for item in self.getItems():
             yield item
+
+    def __repr__(self):
+        return '<ArcGIS DataStore>'
 
 class Cluster(AdminRESTEndpoint):
     """class to handle Cluster object"""
@@ -1165,14 +1171,7 @@ class Service(BaseDirectory):
 
     def statistics(self):
         """return service statistics object"""
-        class ServiceStatistics(object):
-            """service statistics"""
-            def __init__(self, **kwargs):
-                for k,v in kwargs.iteritems():
-                    setattr(self, k, v)
-                objectize(self)
-
-        return ServiceStatistics(**self.request(self.url + '/statistics'))
+        return munchify(**self.request(self.url + '/statistics'))
 
     #**********************************************************************************
     #
@@ -2280,7 +2279,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 params[IS_ALLOWED] = TRUE
                 r = self.request(add_url, params)
 
-            for k,v in paramss.iteritems():
+            for k,v in params.iteritems():
                 r[k] = v
             added_permissions.append(r)
 

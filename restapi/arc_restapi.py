@@ -5,9 +5,13 @@ import arcpy
 import os
 import time
 import json
+import sys
 from rest_utils import *
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
+
+if sys.version_info[0] > 2:
+    basestring = str
 
 def find_ws_type(path):
     """determine output workspace (feature class if not FileSystem)
@@ -164,7 +168,7 @@ class Geometry(BaseGeometry):
             d = self.json
         if self.json.get(SPATIAL_REFERENCE):
             d[SPATIAL_REFERENCE] = self.json[SPATIAL_REFERENCE]
-        return d
+        return munch.munchify(d)
 
     def asShape(self):
         """returns JSON as arcpy.Geometry() object"""

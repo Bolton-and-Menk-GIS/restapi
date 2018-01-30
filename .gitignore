@@ -8,6 +8,7 @@ fs_tester.py
 admin_test.py
 rester.py
 lang_test.py
+thumbnail.py
 
 # C extensions
 *.so

@@ -8,6 +8,10 @@ import contextlib
 import urlparse
 from rest_utils import *
 from .decorator import decorator
+import sys
+
+if sys.version_info[0] > 2:
+    basestring = str
 
 try:
     import arcpy
@@ -828,20 +832,19 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                         field_list.append(f)
         return ','.join(field_list)
 
-    def iter_queries(self, where='1=1', add_params={}, max_recs=None, **kwargs):
+    def iter_queries(self, where='1=1', add_params={}, max_recs=None, chunk_size=None, **kwargs):
         """generator to form where clauses to query all records.  Will iterate through "chunks"
         of OID's until all records have been returned (grouped by maxRecordCount)
 
         *Thanks to Wayne Whitley for the brilliant idea to use itertools.izip_longest()
 
-        Required:
-            layer_url -- full path to layer url
-            oid -- oid field name
-            max_recs -- maximum amount of records returned
+
 
         Optional:
             where -- where clause for OID selection
-            add_params -- dictionary with any additional params you want to add
+            max_recs -- maximum amount of records returned for all queries for OID fetch
+            chunk_size -- size of chunks for each iteration of query iterator
+            add_params -- dictionary with any additional params you want to add (can also use **kwargs)
             token -- token to handle security (only required if security is enabled)
         """
         if isinstance(add_params, dict):
@@ -858,7 +861,10 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # iterate through groups to form queries
         # overwrite max_recs here with transfer limit from service
-        max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
+        if chunk_size and chunk_size < self.json.get(MAX_RECORD_COUNT, 1000):
+            max_recs = chunk_size
+        else:
+            max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
         for each in izip_longest(*(iter(oids),) * max_recs):
             theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
             if theRange:
@@ -916,6 +922,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 if getattr(geom, GEOMETRY_TYPE) and GEOMETRY_TYPE not in params:
                     params[GEOMETRY_TYPE] = getattr(geom, GEOMETRY_TYPE)
 
+        elif self.type == TABLE:
+            del params[RETURN_GEOMETRY]
+
         # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
             r = self.request(query_url, params)
@@ -934,6 +943,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if exceed_limit:
 
                 for i, where2 in enumerate(self.iter_queries(where, params, max_recs=records)):
+                    print('where2: {}'.format(where2))
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
                     params[WHERE] = sql
                     resp = self.request(query_url, params)
@@ -994,12 +1004,13 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             objectIds = ','.join(map(str, objectIds))
 
         query_url = self.url + '/queryRelatedRecords'
-        params = {OBJECT_IDS: objectIds,
-                  RELATIONSHIP_ID: relationshipId,
-                  OUT_FIELDS: outFields,
-                  DEFINITION_EXPRESSION: definitionExpression,
-                  RETURN_GEOMETRY: returnGeometry,
-                  OUT_SR: outSR
+        params = {
+            OBJECT_IDS: objectIds,
+            RELATIONSHIP_ID: relationshipId,
+            OUT_FIELDS: outFields,
+            DEFINITION_EXPRESSION: definitionExpression,
+            RETURN_GEOMETRY: returnGeometry,
+            OUT_SR: outSR
         }
 
         for k,v in kwargs.iteritems():
@@ -1206,7 +1217,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return Cursor(fs, fields)
 
     def export_layer(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None,
-                     include_domains=True, include_attachments=False):
+                     include_domains=True, include_attachments=False, qualified_fieldnames=False, **kwargs):
         """Method to export a feature class or shapefile from a service layer
 
         Required:
@@ -1226,6 +1237,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             include_attachments -- if True, will export features with attachments.  This argument is ignored
                 when the "out_fc" param is not a feature class, or the ObjectID field is not included in "fields"
                 param or if there is no access to arcpy.
+            qualified_fieldnames -- option to keep qualified field names, default is False.
         """
         if self.type in (FEATURE_LAYER, TABLE):
 
@@ -1236,7 +1248,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 params[OUT_SR] = sr
 
             # do query to get feature set
-            fs = self.query(where, fields, params, records, exceed_limit)
+            fs = self.query(where, fields, params, records, exceed_limit, **kwargs)
 
             # get any domain info
             f_dict = {f.name: f for f in self.fields}
@@ -1440,7 +1452,7 @@ class MapService(BaseService):
         """
         return [l.name for l in self.layers if l.id == lyrID][0]
 
-    def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png8', transparent=True, **kwargs):
+    def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png', transparent=True, **kwargs):
         """exports a map image
 
         Required:
@@ -1465,7 +1477,20 @@ class MapService(BaseService):
         # defaults if params not specified
         if bbox and not size:
             if isinstance(bbox, (list, tuple)):
-                size = ','.join([abs(int(bbox[0]) - int(bbox[2])), abs(int(bbox[1]) - int(bbox[3]))])
+                size = ','.join(map(str, [abs(int(bbox[0]) - int(bbox[2])), abs(int(bbox[1]) - int(bbox[3]))]))
+
+        if isinstance(bbox, dict) or (isinstance(bbox, basestring) and bbox.startswith('{')):
+            print('it is a geometry object')
+            bbox = Geometry(bbox)
+
+        if isinstance(bbox, Geometry):
+            geom = bbox
+            bbox = geom.envelope()
+            bboxSR = geom.spatialReference
+            envJson = geom.envelopeAsJSON()
+            size = ','.join(map(str, [abs(envJson.get(XMAX) - envJson.get(XMIN)), abs(envJson.get(YMAX) - envJson.get(YMIN))]))
+            print('set size from geometry object: {}'.format(size))
+
         if not bbox:
             ie = self.initialExtent
             bbox = ','.join(map(str, [ie.xmin, ie.ymin, ie.xmax, ie.ymax]))
@@ -1486,7 +1511,8 @@ class MapService(BaseService):
           BBOX: bbox,
           TRANSPARENT: transparent,
           DPI: dpi,
-          SIZE: size}
+          SIZE: size
+        }
 
         # add additional params from **kwargs
         for k,v in kwargs.iteritems():
@@ -1502,7 +1528,7 @@ class MapService(BaseService):
 
         return r
 
-    def layer(self, name_or_id):
+    def layer(self, name_or_id, **kwargs):
         """Method to return a layer object with advanced properties by name
 
         Required:
@@ -1512,9 +1538,9 @@ class MapService(BaseService):
             # reference by id directly
             return MapServiceLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
 
-        layer_path = self.get_layer_url(name_or_id, self.token)
+        layer_path = self.get_layer_url(name_or_id, self.token, **kwargs)
         if layer_path:
-            return MapServiceLayer(layer_path, token=self.token)
+            return MapServiceLayer(layer_path, token=self.token, **kwargs)
         else:
             print('Layer "{0}" not found!'.format(name_or_id))
 

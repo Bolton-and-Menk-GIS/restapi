@@ -20,9 +20,7 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning, Insecur
 from ._strings import *
 
 # python 3 compat
-try:
-    basestring
-except NameError:
+if sys.version_info[0] > 2:
     basestring = str
 
 # disable ssl warnings (we are not verifying SSL certificates at this time...future ehnancement?)
@@ -165,7 +163,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
         if isinstance(p, dict) or hasattr(p, 'json'):
             params[pName] = json.dumps(p, ensure_ascii=False, cls=RestapiEncoder)
 
-    if not F in params:
+    if F not in params:
         params[F] = JSON
 
     if not token and not proxy:
@@ -193,6 +191,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
             return munch.munchify(_json)
         else:
             return r
+
 
 def do_proxy_request(proxy, url, params={}, referer=None):
     """make request against ArcGIS service through a proxy.  This is designed for a
@@ -499,7 +498,7 @@ class RESTEndpoint(JsonGetter):
     _proxy = None
     _referer = None
 
-    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None):
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
 
         if PROTOCOL:
             self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
@@ -511,7 +510,9 @@ class RESTEndpoint(JsonGetter):
                 self.url = _plus_services
             else:
                 RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
-        params = {F: JSON}
+        params = {F: PJSON}
+        for k,v in kwargs.iteritems():
+            params[k] = v
         self.token = token
         self._cookie = None
         self._proxy = proxy
@@ -847,8 +848,8 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
 
 class BaseService(RESTEndpoint, SpatialReferenceMixin):
     """base class for all services"""
-    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None):
-        super(BaseService, self).__init__(url, usr, pw, token, proxy, referer)
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+        super(BaseService, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
         if NAME not in self.json:
             self.name = self.url.split('/')[-2]
         self.name = self.name.split('/')[-1]
@@ -1068,6 +1069,7 @@ class BaseGeometry(SpatialReferenceMixin):
         if 'ensure_ascii' not in kwargs:
             kwargs['ensure_ascii'] = False
         return json.dumps(self.json, **kwargs)
+
 
 class BaseGeometryCollection(SpatialReferenceMixin):
     """Base Geometry Collection"""
