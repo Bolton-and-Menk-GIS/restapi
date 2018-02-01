@@ -123,7 +123,7 @@ class BaseDirectory(AdminRESTEndpoint):
     @property
     def permissions(self):
         """return permissions for service"""
-        perms = self.request(self._permissionsURL)['permissions']
+        perms = self.request(self._permissionsURL).get(PERMISSIONS, [])
         return [Permission(r) for r in perms]
 
     @passthrough
@@ -175,10 +175,10 @@ class BaseDirectory(AdminRESTEndpoint):
             permission = {"isAllowed": True, "constraint": ""}
         """
         if not permission:
-            permission = {"isAllowed": True, "constraint": ""}
+            permission = {IS_ALLOWED: True, CONSTRAINT: ""}
 
-        query_url = self.url + '/permissions/hasChildPermissionConflict'
-        params = {'principal': principal, 'permission': permission}
+        query_url = self._permissionsURL + '/hasChildPermissionConflict'
+        params = {PRINCIPAL: principal, PERMISSION: permission}
         return self.request(query_url, params)
 
     def report(self):
@@ -189,6 +189,40 @@ class BaseResource(JsonGetter):
     def __init__(self, in_json):
         self.json = munchify(in_json)
         super(BaseResource, self).__init__()
+
+class EditableResource(JsonGetter):
+    def __getitem__(self, name):
+        """dict like access to json definition"""
+        if name in self.json:
+            return self.json[name]
+
+    def __getattr__(self, name):
+        """get normal class attributes and json abstraction at object level"""
+        try:
+            # it is a class attribute
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            # it is in the json definition
+            if name in self.json:
+                return self.json[name]
+            else:
+                raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        """properly set attributes for class as well as json abstraction"""
+        # make sure our value is a Bunch if dict
+        if isinstance(value, (dict, list)) and name != 'response':
+            value = munchify(value)
+        try:
+            # set existing class property, check if it exists first
+            object.__getattribute__(self, name)
+            object.__setattr__(self, name, value)
+        except AttributeError:
+            # set in json definition
+            if name in self.json:
+                self.json[name] = value
+            else:
+               raise AttributeError(name)
 
 class Report(BaseResource):
     pass
@@ -299,8 +333,10 @@ class RoleStore(AdminRESTEndpoint):
             description -- optional description for new role
         """
         query_url = self.url + '/add'
-        params = {'rolename': rolename,
-                  'description': description}
+        params = {
+            'rolename': rolename,
+            'description': description or rolename,
+        }
 
         return self.request(query_url, params)
 
@@ -439,7 +475,7 @@ class RoleStore(AdminRESTEndpoint):
             rolename -- name of role
             privilege -- administrative capability to assign (ADMINISTER | PUBLISH | ACCESS)
         """
-        query_url -- self.url + '/assignPrivilege'
+        query_url = self.url + '/assignPrivilege'
 
         params = {'rolename': rolename,
                   'privilege': privilege.upper()}
@@ -949,7 +985,7 @@ class Folder(BaseDirectory):
         """return True if services are present"""
         return bool(len(self))
 
-class Service(BaseDirectory):
+class Service(BaseDirectory, EditableResource):
     """Class to handle inernal ArcGIS Service instance all service properties
     are accessed through the service's json property.  To get full list print
     Service.json or Service.print_info().
@@ -961,13 +997,11 @@ class Service(BaseDirectory):
     fullName = None
     elapsed = None
     serviceName = None
-    _permissionsURL = None
     json = {}
 
     def __init__(self, url, usr='', pw='', token=''):
         """initialize with json definition plus additional attributes"""
         super(Service, self).__init__(url, usr, pw, token)
-        self.json = self.response
         self.fullName = self.url.split('/')[-1]
         self.serviceName = self.fullName.split('.')[0]
 
@@ -1097,7 +1131,6 @@ class Service(BaseDirectory):
         params = {'service': serviceJSON}
         r = self.request(self.url + '/edit', params)
         self.refresh()
-        return r
 
     @passthrough
     def delete(self):
@@ -1214,38 +1247,7 @@ class Service(BaseDirectory):
         if self.url is not None:
             return '<Service: {}>'.format(self.url.split('/')[-1])
 
-    def __getitem__(self, name):
-        """dict like access to json definition"""
-        if name in self.json:
-            return self.json[name]
 
-    def __getattr__(self, name):
-        """get normal class attributes and json abstraction at object level"""
-        try:
-            # it is a class attribute
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            # it is in the json definition
-            if name in self.json:
-                return self.json[name]
-            else:
-                raise AttributeError(name)
-
-    def __setattr__(self, name, value):
-        """properly set attributes for class as well as json abstraction"""
-        # make sure our value is a Bunch if dict
-        if isinstance(value, (dict, list)) and name != 'response':
-            value = munchify(value)
-        try:
-            # set existing class property, check if it exists first
-            object.__getattribute__(self, name)
-            object.__setattr__(self, name, value)
-        except AttributeError:
-            # set in json definition
-            if name in self.json:
-                self.json[name] = value
-            else:
-               raise AttributeError(name)
 
 class ArcServerAdmin(AdminRESTEndpoint):
     """Class to handle internal ArcGIS Server instance"""
@@ -1870,7 +1872,49 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     # ROLES -----------------------------------------
     @passthrough
-    def addRole(self, rolename, description=''):
+    def copyRoleStore(self, other):
+        if not isinstance(other, (self.__class__, RoleStore)):
+            raise TypeError('type: {} is not supported!'.format(type(other)))
+        if isinstance(other, self.__class__):
+            other = other.roleStore
+
+        # iterate through data store
+        global VERBOSE
+        results = []
+        rs = self.roleStore
+        existing = [r.get(ROLENAME) for r in rs.getRoles().get(ROLES, [])]
+        for role in other.getRoles().get(ROLES, []):
+            rn = role.get(ROLENAME)
+            if rn not in existing:
+                res = {rn: self.addRole(**role)}
+                results.append(res)
+
+                # now assign privileges
+                if res.get(rn, {}).get(STATUS) == SUCCESS:
+                    priv = other.getPrivilegeForRole(rn).get(PRIVILEGE)
+                    if priv:
+                        rs.assignPrivilege(rn, priv)
+
+                    # now add users to role
+                    users = other.getUsersWithinRole(rn).get(USERS, [])
+                    if users:
+                        user_res = rs.addUsersToRole(rn, users)
+                        res.get(rn, {})['add_user_result'] = user_res
+
+                if VERBOSE:
+                    print(json.dumps(res))
+
+            else:
+                res = {rn: {STATUS: 'Role already exists'}}
+                results.append(res)
+                if VERBOSE:
+                    print(json.dumps(res))
+
+
+        return results
+
+    @passthrough
+    def addRole(self, rolename, description='', **kwargs):
         """adds a role to the role store
 
         Required:
@@ -1879,7 +1923,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         Optional:
             description -- optional description for new role
         """
-        return self.roleStore.addRole(rolename, description)
+        return self.roleStore.addRole(rolename, description, **kwargs)
 
     def getRoles(self, startIndex='', pageSize=1000):
         """This operation gives you a pageable view of roles in the role store. It is intended

@@ -388,6 +388,7 @@ def generate_token(url, user, pw, expiration=60):
         params[REFERER]= org_referer
         resp = do_post(AGOL_TOKEN_SERVICE, params)
 
+
     if '/services/' in url:
         resp[DOMAIN] = url.split('/services/')[0] + '/services'
     elif '/admin/' in url:
