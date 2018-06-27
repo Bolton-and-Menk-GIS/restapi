@@ -2823,12 +2823,23 @@ class AGOLAdminInitializer(AdminRESTEndpoint):
 class AGOLAdmin(AGOLAdminInitializer):
     """class to handle AGOL Hosted Services Admin capabilities"""
 
+    @property
+    def portalInfo(self):
+        return self.token.portalInfo
+
+    @property
+    def userContentUrl(self):
+        return '{}://www.arcgis.com/sharing/rest/content/users/{}'.format(PROTOCOL, self.portalInfo.username)
+
     def list_services(self):
         """returns a list of services"""
         try:
             return [s.adminServiceInfo.name for s in self.json.services]
         except AttributeError:
             return []
+
+    def content(self):
+        return self.request(self.userContentUrl)
 
 class AGOLFeatureService(AGOLAdminInitializer):
     """AGOL Feature Service"""

@@ -322,7 +322,7 @@ def exportGeometryCollection(gc, output, **kwargs):
 
 def featureIterator(obj):
     if hasattr(obj, 'features'):
-    	for ft in obj.features:
+    	for ft in iter(obj.features):
     		yield Feature(ft)
 
 FeatureSet.__iter__ = featureIterator
@@ -364,6 +364,57 @@ class Cursor(FeatureSet):
             feature_set = feature_set.json
         super(Cursor, self).__init__(feature_set)
         self.fieldOrder = self.__validateOrderBy(fieldOrder)
+
+        cursor = self
+        class Row(cursor.BaseRow):
+            """Class to handle Row object"""
+
+            @property
+            def geometry(self):
+                """returns a restapi Geometry() object"""
+                if GEOMETRY in self.feature.json:
+                    gd = {k: v for k,v in self.feature.geometry.iteritems()}
+                    if SPATIAL_REFERENCE not in gd:
+                        gd[SPATIAL_REFERENCE] = cursor.spatialReference
+                    return Geometry(gd)
+                return None
+
+            @property
+            def oid(self):
+                """returns the OID for row"""
+                if cursor.OIDFieldName:
+                    return self.get(cursor.OIDFieldName)
+                return None
+
+            @property
+            def values(self):
+                """returns values as tuple"""
+                # fix date format in milliseconds to datetime.datetime()
+                vals = []
+                for field in cursor.field_names:
+                    if field in cursor.date_fields and self.get(field):
+                        vals.append(mil_to_date(self.get(field)))
+                    elif field in cursor.long_fields and self.get(field):
+                        vals.append(long(self.get(field)))
+                    else:
+                        if field == OID_TOKEN:
+                            vals.append(self.oid)
+                        elif field == SHAPE_TOKEN:
+                            if self.geometry:
+                                vals.append(self.geometry.asShape())
+                            else:
+                                vals.append(None) #null Geometry
+                        else:
+                            vals.append(self.get(field))
+
+                return tuple(vals)
+
+            def __getitem__(self, i):
+                """allows for getting a field value by index"""
+                return self.values[i]
+
+        # expose Row object
+        self.__Row = Row
 
     @property
     def date_fields(self):
@@ -436,57 +487,7 @@ class Cursor(FeatureSet):
         return self.rows()
 
     def _createRow(self, feature, spatialReference):
-
-        cursor = self
-
-        class Row(cursor.BaseRow):
-            """Class to handle Row object"""
-
-            @property
-            def geometry(self):
-                """returns a restapi Geometry() object"""
-                if GEOMETRY in self.feature.json:
-                    gd = {k: v for k,v in self.feature.geometry.iteritems()}
-                    if SPATIAL_REFERENCE not in gd:
-                        gd[SPATIAL_REFERENCE] = cursor.spatialReference
-                    return Geometry(gd)
-                return None
-
-            @property
-            def oid(self):
-                """returns the OID for row"""
-                if cursor.OIDFieldName:
-                    return self.get(cursor.OIDFieldName)
-                return None
-
-            @property
-            def values(self):
-                """returns values as tuple"""
-                # fix date format in milliseconds to datetime.datetime()
-                vals = []
-                for field in cursor.field_names:
-                    if field in cursor.date_fields and self.get(field):
-                        vals.append(mil_to_date(self.get(field)))
-                    elif field in cursor.long_fields and self.get(field):
-                        vals.append(long(self.get(field)))
-                    else:
-                        if field == OID_TOKEN:
-                            vals.append(self.oid)
-                        elif field == SHAPE_TOKEN:
-                            if self.geometry:
-                                vals.append(self.geometry.asShape())
-                            else:
-                                vals.append(None) #null Geometry
-                        else:
-                            vals.append(self.get(field))
-
-                return tuple(vals)
-
-            def __getitem__(self, i):
-                """allows for getting a field value by index"""
-                return self.values[i]
-
-        return Row(feature, spatialReference)
+        return self.__Row(feature, spatialReference)
 
     def __validateOrderBy(self, fields):
         """fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@")
@@ -943,7 +944,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if exceed_limit:
 
                 for i, where2 in enumerate(self.iter_queries(where, params, max_recs=records)):
-                    print('where2: {}'.format(where2))
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
                     params[WHERE] = sql
                     resp = self.request(query_url, params)
@@ -3032,9 +3032,12 @@ class ImageService(BaseService):
             rendering_rule = None
 
         # find width and height for image size (round to whole number)
+##        bbox_int = map(int, map(float, bbox.split(',')))
+##        width = abs(bbox_int[0] - bbox_int[2])
+##        height = abs(bbox_int[1] - bbox_int[3])
         bbox_int = map(int, map(float, bbox.split(',')))
-        width = abs(bbox_int[0] - bbox_int[2])
-        height = abs(bbox_int[1] - bbox_int[3])
+        width = abs(bbox_int[0] - bbox_int[2]) / int(self.get(PIXEL_SIZE_X))
+        height = abs(bbox_int[1] - bbox_int[3]) / int(self.get(PIXEL_SIZE_Y))
 
         matchType = NO_DATA_MATCH_ANY
         if ',' in str(nodata):

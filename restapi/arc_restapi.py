@@ -238,9 +238,8 @@ class GeometryCollection(BaseGeometryCollection):
 
             # it is a layer or feature class/shapefile
             elif isinstance(geometries, arcpy.mapping.Layer):
-                if isinstance(arcpy.mapping.Layer):
-                    with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
-                        self.geometries = [Geometry(r[0]) for r in rows]
+                with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
+                    self.geometries = [Geometry(r[0]) for r in rows]
 
             elif isinstance(geometries, basestring):
                 if (not geometries.startswith('{') or not geometries.startswith('[')) and arcpy.Exists(geometries):

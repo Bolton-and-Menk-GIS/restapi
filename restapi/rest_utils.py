@@ -387,6 +387,9 @@ def generate_token(url, user, pw, expiration=60):
         org_referer = org_resp.get(URL_KEY, '') + ORG_MAPS
         params[REFERER]= org_referer
         resp = do_post(AGOL_TOKEN_SERVICE, params)
+        resp['_' + PORTAL_INFO] = org_resp
+    else:
+        resp['_' + PORTAL_INFO] = {}
 
 
     if '/services/' in url:
@@ -397,6 +400,7 @@ def generate_token(url, user, pw, expiration=60):
         resp[DOMAIN] = url
     resp[IS_AGOL] = is_agol
     resp[IS_ADMIN] = isAdmin
+
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
     return token
@@ -635,6 +639,8 @@ class SpatialReferenceMixin(object):
                 return v
             elif k == WKID:
                 return v
+        if hasattr(in_json, 'factoryCode'):
+            return getattr(in_json, 'factoryCode')
 
     @property
     def spatialReference(self):
@@ -675,10 +681,11 @@ class SpatialReferenceMixin(object):
 
     def getWKID(self):
         """returns the well known id for service spatial reference"""
-        resp_d = self._spatialReference
-        for key in [LATEST_WKID, WKID]:
-            if key in resp_d:
-                return resp_d[key]
+        return self._find_wkid(self._spatialReference)
+##        resp_d = self._spatialReference
+##        for key in [LATEST_WKID, WKID]:
+##            if key in resp_d:
+##                return resp_d[key]
 
     def getWKT(self):
         """returns the well known text (if it exists) for a service"""
@@ -758,6 +765,27 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
         """returns total number of records in Cursor (user queried)"""
         return len(self)
 
+    def extend(self, other):
+        """combines features from another FeatureSet with this one.
+
+        Required:
+            other -- other FeatureSet to combine with this one.
+        """
+        if not isinstance(other, FeatureSet):
+            other = FeatureSet(other)
+        otherCopy = copy.deepcopy(other)
+
+        # get max oid
+        oidF = getattr(self, OID_FIELD_NAME) if hasattr(self, OID_FIELD_NAME) else 'OBJECTID'
+        nextOID = max([ft.get(oidF, 0) for ft in iter(self)]) + 1
+
+        if sorted(self.list_fields()) == sorted(other.list_fields()):
+            for ft in otherCopy.features:
+                if ft.get(oidF) < nextOID:
+                    ft.attributes[oidF] = nextOID
+                    nextOID += 1
+            self.features.extend(otherCopy.features)
+
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""
         try:
@@ -802,15 +830,15 @@ class Feature(JsonGetter):
         """
         self.json = munch.munchify(feature)
 
-    def get(self, field):
+    def get(self, field, default=None):
         """gets an attribute from the feature
 
         Required:
             field -- name of field for which to get attribute
         """
         if field in (ATTRIBUTES, GEOMETRY):
-            return self.json.get(field)
-        return self.json.get(ATTRIBUTES, {}).get(field)
+            return self.json.get(field, default)
+        return self.json.get(ATTRIBUTES, {}).get(field, default)
 
     def __repr__(self):
         return self.dumps(indent=2)
@@ -843,6 +871,12 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
             if oid == group.get('objectId'):
                 return [Feature(f) for f in group[RELATED_RECORDS]]
 
+    def toFeatureSet(self):
+        features = []
+        for group in iter(self):
+            features.extend(group[RELATED_RECORDS])
+        return FeatureSet({FIELDS: self.json.fields, FEATURES: features})
+
     def __iter__(self):
         for group in self.json[RELATED_RECORD_GROUPS]:
             yield group
@@ -870,14 +904,53 @@ class OrderedDict2(OrderedDict):
         """we want it to look like a dictionary"""
         return json.dumps(self, indent=2, ensure_ascii=False)
 
+class PortalInfo(JsonGetter):
+    def __init__(self, response):
+        self.json = response
+        #super(PortalInfo, self).__init__(response)
+
+    @property
+    def username(self):
+        return self.json.get(USER, {}).get(USER_NAME)
+
+    @property
+    def fullName(self):
+        return self.json.get(USER, {}).get(FULL_NAME)
+
+    @property
+    def domain(self):
+        return (self.json.get(URL_KEY, '') + ORG_MAPS).lower()
+
+    @property
+    def org(self):
+        return self.json.get(URL_KEY)
+
+    def __repr__(self):
+        return '<PortaInfo: {}>'.format(self.domain)
+
 class Token(JsonGetter):
     """class to handle token authentication"""
+    _portal = None
     def __init__(self, response):
         """response JSON object from generate_token"""
         self.json = munch.munchify(response)
+        super(JsonGetter, self).__init__()
         self._cookie = {AGS_TOKEN: self.token}
-        self.isAGOL = self.json.get(IS_AGOL, False)
-        self.isAdmin = self.json.get(IS_ADMIN, False)
+        self._portal = self.json.get('_{}'.format(PORTAL_INFO))
+        del self.json._portalInfo
+##        self.isAGOL = self.json.get(IS_AGOL, False)
+##        self.isAdmin = self.json.get(IS_ADMIN, False)
+
+
+    @property
+    def portalInfo(self):
+        return PortalInfo(self._portal)
+
+    @property
+    def portalUser(self):
+        if isinstance(self.portalInfo, PortalInfo):
+            return self.portalInfo.username
+        return None
 
     @property
     def time_expires(self):
