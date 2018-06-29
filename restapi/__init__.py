@@ -9,8 +9,8 @@
 # Copyright:   (c) calebma 2014
 # Licence:     BMI
 #-------------------------------------------------------------------------------
-from common_types import *
-import _strings
+from .common_types import *
+from . import _strings
 try:
     from . import admin
 except:

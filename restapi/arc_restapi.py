@@ -1,17 +1,19 @@
 # proprietary version (uses arcpy)
 from __future__ import print_function
-import urllib
 import arcpy
 import os
 import time
 import json
 import sys
-from rest_utils import *
+from .rest_utils import *
+
+from . import six
+from .six.moves import range
+from .six.moves import urllib
+
+
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
-
-if sys.version_info[0] > 2:
-    basestring = str
 
 def find_ws_type(path):
     """determine output workspace (feature class if not FileSystem)
@@ -31,7 +33,7 @@ def find_ws_type(path):
         split[0] = r'\\{0}'.format(split[0])
 
     # find valid workspace
-    for i in xrange(1, len(split)):
+    for i in range(1, len(split)):
         sub_dir = os.sep.join(split[:-i])
         desc = arcpy.Describe(sub_dir)
         if hasattr(desc, 'workspaceType'):
@@ -66,13 +68,13 @@ class Geometry(BaseGeometry):
             spatialReference = geometry.spatialReference.factoryCode
             self.geometryType = 'esriGeometry{}'.format(geometry.type.title())
             esri_json = json.loads(geometry.JSON)
-            for k,v in sorted(esri_json.iteritems()):
+            for k,v in sorted(six.iteritems(esri_json)):
                 if k != SPATIAL_REFERENCE:
                     self.json[k] = v
             if SPATIAL_REFERENCE in esri_json:
                 self.json[SPATIAL_REFERENCE] = spatialReference or self._find_wkid(esri_json)
 
-        elif isinstance(geometry, basestring):
+        elif isinstance(geometry, six.string_types):
             try:
                 geometry = OrderedDict2(**json.loads(geometry))
             except:
@@ -86,7 +88,7 @@ class Geometry(BaseGeometry):
                             esri_json = json.loads(row[0])
                             break
 
-                    for k,v in sorted(esri_json.iteritems()):
+                    for k,v in sorted(six.iteritems(esri_json)):
                         if k != SPATIAL_REFERENCE:
                             self.json[k] = v
                     if SPATIAL_REFERENCE in esri_json:
@@ -99,10 +101,10 @@ class Geometry(BaseGeometry):
                 d = geometry[FEATURES][0]
                 if GEOMETRY in d:
                     d = geometry[FEATURES][0][GEOMETRY]
-                for k,v in d.iteritems():
+                for k,v in six.iteritems(d):
                     self.json[k] = v
             elif GEOMETRY in geometry:
-                for k,v in geometry[GEOMETRY].iteritems():
+                for k,v in six.iteritems(geometry[GEOMETRY]):
                     self.json[k] = v
             if not self.json:
                 if RINGS in geometry or CURVE_RINGS in geometry:
@@ -241,7 +243,7 @@ class GeometryCollection(BaseGeometryCollection):
                 with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
                     self.geometries = [Geometry(r[0]) for r in rows]
 
-            elif isinstance(geometries, basestring):
+            elif isinstance(geometries, six.string_types):
                 if (not geometries.startswith('{') or not geometries.startswith('[')) and arcpy.Exists(geometries):
                     with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
                         self.geometries = [Geometry(r[0]) for r in rows]
@@ -261,7 +263,7 @@ class GeometryCollection(BaseGeometryCollection):
                     self.geometries = geometries
 
                 # it is a JSON structure either as dict or string
-                elif all(map(lambda g: isinstance(g, (dict, basestring)), geometries)):
+                elif all(map(lambda g: isinstance(g, (dict, six.string_types)), geometries)):
 
                     # this *should* be JSON, right???
                     try:
@@ -319,7 +321,6 @@ class GeometryCollection(BaseGeometryCollection):
 
 class GeocodeHandler(object):
     """class to handle geocode results"""
-    __slots__ = [SPATIAL_REFERENCE, 'results', FIELDS, 'formattedResults']
 
     def __init__(self, geocodeResult):
         """geocode response object handler
@@ -335,13 +336,13 @@ class GeocodeHandler(object):
         """returns collections.namedtuple with (name, type)"""
         res_sample = self.results[0]
         __fields = []
-        for f, val in res_sample.attributes.iteritems():
+        for f, val in six.iteritems(res_sample.attributes):
             if isinstance(val, float):
                 if val >= -3.4E38 and val <= 1.2E38:
                     __fields.append(FIELD_SCHEMA(name=f, type='FLOAT'))
                 else:
                     __fields.append(FIELD_SCHEMA(name=f, type='DOUBLE'))
-            elif isinstance(val, (int, long)):
+            elif isinstance(val, six.integer_types):
                 if abs(val) < 32768:
                     __fields.append(FIELD_SCHEMA(name=f, type='SHORT'))
                 else:

@@ -4,6 +4,9 @@ from ..rest_utils import JsonGetter, NameEncoder
 import os
 import json
 
+from six.moves import range
+
+
 __all__  = ['ServerAdministrator']
 
 if has_arcpy:
@@ -61,7 +64,7 @@ if has_arcpy:
                 split[0] = r'\\{0}'.format(split[0])
 
             # find valid workspace
-            for i in xrange(1, len(split)):
+            for i in range(1, len(split)):
                 sub_dir = os.sep.join(split[:-i])
                 desc = arcpy.Describe(sub_dir)
                 if hasattr(desc, 'workspaceType'):

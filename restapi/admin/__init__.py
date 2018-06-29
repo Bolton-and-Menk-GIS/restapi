@@ -6,7 +6,6 @@ import os
 import fnmatch
 import datetime
 import json
-import urlparse
 from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
@@ -15,8 +14,9 @@ from ..decorator import decorator
 from ..munch import *
 from .._strings import *
 
-if sys.version_info[0] > 2:
-    basestring = str
+import six
+from six.moves import reload_module
+from six.moves import urllib
 
 # Globals
 BASE_PATTERN = '*:*/arcgis/*admin*'
@@ -89,7 +89,7 @@ class AdminRESTEndpoint(JsonGetter):
         if self.token:
             if isinstance(self.token, Token):
                 params['token'] = self.token.token
-            elif isinstance(self.token, basestring):
+            elif isinstance(self.token, six.string_types):
                 params['token'] = self.token
             else:
                 raise TypeError('Token <{}> of {} must be Token object or String!'.format(self.token, type(self.token)))
@@ -142,7 +142,7 @@ class BaseDirectory(AdminRESTEndpoint):
             params = {PRINCIPAL: principal, IS_ALLOWED: isAllowed}
             r = self.request(add_url, params)
 
-            for k,v in params.iteritems():
+            for k,v in six.iteritems(params):
                 r[k] = v
             added_permissions.append(r)
 
@@ -155,7 +155,7 @@ class BaseDirectory(AdminRESTEndpoint):
                 params[IS_ALLOWED] = TRUE
                 r = self.request(add_url, params)
 
-            for k,v in params.iteritems():
+            for k,v in six.iteritems(params):
                 r[k] = v
             added_permissions.append(r)
 
@@ -595,7 +595,7 @@ class UserStore(AdminRESTEndpoint):
             'description': description,
             'email': email
         }
-        for k,v in opts.iteritems():
+        for k,v in six.iteritems(opts):
             if v:
                 params[k] = v
 
@@ -987,7 +987,7 @@ class Folder(BaseDirectory):
 
 class Service(BaseDirectory, EditableResource):
     """Class to handle inernal ArcGIS Service instance all service properties
-    are accessed through the service's json property.  To get full list print
+    are accessed through the service's json property.  To get full list print()
     Service.json or Service.print_info().
     """
     url = None
@@ -1029,7 +1029,7 @@ class Service(BaseDirectory, EditableResource):
 
         NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
         """
-        if isinstance(extensions, basestring):
+        if isinstance(extensions, six.string_types):
             extensions = extensions.split(';')
         editJson = self.response
         exts = [e for e in editJson['extensions'] if e['typeName'].lower() in map(lambda x: x.lower(), extensions)]
@@ -1043,7 +1043,7 @@ class Service(BaseDirectory, EditableResource):
 
         if 'Enabled' in status.values():
             retStatus =  self.edit(editJson)
-            for k,v in retStatus.iteritems():
+            for k,v in six.iteritems(retStatus):
                 status[k] = v
 
         return status
@@ -1057,7 +1057,7 @@ class Service(BaseDirectory, EditableResource):
 
         NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
         """
-        if isinstance(extensions, basestring):
+        if isinstance(extensions, six.string_types):
             extensions = extensions.split(';')
         editJson = self.response
         exts = [e for e in editJson['extensions'] if e['typeName'].lower() in map(lambda x: x.lower(), extensions)]
@@ -1071,7 +1071,7 @@ class Service(BaseDirectory, EditableResource):
 
         if 'Disabled' in status.values():
             retStatus =  self.edit(editJson)
-            for k,v in retStatus.iteritems():
+            for k,v in six.iteritems(retStatus):
                 status[k] = v
 
         return status
@@ -1126,7 +1126,7 @@ class Service(BaseDirectory, EditableResource):
             serviceJSON = self.json
 
         # update by kwargs
-        for k,v in kwargs.iteritems():
+        for k,v in six.iteritems(kwargs):
             serviceJSON[k] = v
         params = {'service': serviceJSON}
         r = self.request(self.url + '/edit', params)
@@ -1236,7 +1236,7 @@ class Service(BaseDirectory, EditableResource):
 
         ext = self.getExtension(extension)
         if ext is not None:
-            for k,v in kwargs.iteritems():
+            for k,v in six.iteritems(kwargs):
                 if k in ext:
                     setattr(ext, k, v)
 
@@ -2260,7 +2260,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         service_name_or_wildcard -- name of service or wildcard
         """
-        val_url = urlparse.urlparse(service_name_or_wildcard)
+        val_url = urllib.parse.urlparse(service_name_or_wildcard)
         if all([val_url.scheme, val_url.netloc, val_url.path]):
             service_url = service_name_or_wildcard
         else:
@@ -2310,7 +2310,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if principal:
             params = {PRINCIPAL: principal, IS_ALLOWED: isAllowed}
             r = self.request(add_url, params)
-            for k,v in params.iteritems():
+            for k,v in six.iteritems(params):
                 r[k] = v
             params.append(r)
 
@@ -2323,7 +2323,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 params[IS_ALLOWED] = TRUE
                 r = self.request(add_url, params)
 
-            for k,v in params.iteritems():
+            for k,v in six.iteritems(params):
                 r[k] = v
             added_permissions.append(r)
 
@@ -2994,7 +2994,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         """refreshes server cache for this layer"""
         return self.request(self.url + '/refresh')
 
-    def reload(self):
+    def reload_module(self):
         """reloads the service to catch any changes"""
         self.__init__(self.url, token=self.token)
 
@@ -3076,7 +3076,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
             LENGTH: NULL,
             VISIBLE: TRUE
         })
-        for k,v in kwargs.iteritems():
+        for k,v in six.iteritems(kwargs):
             if k in fd:
                 fd[k] = v
         if field_type == TEXT_FIELD and fd.get(LENGTH) in (NULL, None, ''):

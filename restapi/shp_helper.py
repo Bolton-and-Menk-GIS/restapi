@@ -7,11 +7,13 @@
 # Created:     01/19/2015
 #-------------------------------------------------------------------------------
 from __future__ import print_function
-import shapefile
-import itertools
+from . import shapefile
 import datetime
 import json
 import unicodedata
+
+from . import six
+
 
 # constants (from shapefile)
 shp_dict = {
@@ -31,11 +33,11 @@ shp_dict = {
     'MULTIPATCH' : 31
     }
 
-shp_code = {v:k for k,v in shp_dict.iteritems()}
+shp_code = {v:k for k,v in six.iteritems(shp_dict)}
 
 class ShpWriter(object):
     def __init__(self, shapeType='NULL', path=''):
-        self.w = shapefile.Writer(shp_dict[shapeType.upper()] if isinstance(shapeType, basestring) else shapeType)
+        self.w = shapefile.Writer(shp_dict[shapeType.upper()] if isinstance(shapeType, six.string_types) else shapeType)
         self.shapeType = self.w.shapeType
         self.path = path
 
@@ -208,7 +210,7 @@ class ShpEditor(object):
                 self.shapes[rowIndex] = shape
 
         if attributes:
-            for f_name, f_value in attributes.iteritems():
+            for f_name, f_value in six.iteritems(attributes):
                 f_index = self.field_indices[f_name]
                 if f_index >= len(self.records[rowIndex]):
                     self.records[rowIndex].append(f_value)
@@ -253,5 +255,5 @@ class ShpEditor(object):
 
     def __iter__(self):
         """return generator for (shape, record) for each feature"""
-        for feature in itertools.izip(self.shapes, self.records):
+        for feature in six.moves.zip(self.shapes, self.records):
             yield feature

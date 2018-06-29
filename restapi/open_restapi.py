@@ -3,18 +3,18 @@
 # special thanks to geospatial python for shapefile module
 #-------------------------------------------------------------------------------
 from __future__ import print_function
-import urllib
 import shapefile
 import shp_helper
 import os
 import json
 import sys
 from collections import OrderedDict
-from rest_utils import *
-from shapefile import shapefile
+from .rest_utils import *
+from .shapefile import shapefile
 
-if sys.version_info[0] > 2:
-    basestring = str
+from . import six
+from .six.moves import urllib
+
 
 __opensource__ = True
 
@@ -69,7 +69,7 @@ def exportReplica(replica, out_folder):
         for attInfo in layer.attachments:
             out_file = assign_unique_name(os.path.join(att_loc, attInfo[NAME]))
             with open(out_file, 'wb') as f:
-                f.write(urllib.urlopen(attInfo['url']).read())
+                f.write(urllib.request.urlopen(attInfo['url']).read())
             att_dict[attInfo['parentGlobalId']] = out_file.strip()
 
         if layer.features:
@@ -197,11 +197,11 @@ class Geometry(BaseGeometry):
             geometry = geometry.json
         spatialReference = None
         self.geometryType = None
-        for k, v in kwargs.iteritems():
+        for k, v in six.iteritems(kwargs):
             if k == SPATIAL_REFERENCE:
                 if isinstance(v, int):
                     spatialReference = v
-                elif isinstance(v, basestring):
+                elif isinstance(v, six.string_types):
                     try:
                         # it's a json string?
                         v = json.loads(v)
@@ -233,7 +233,7 @@ class Geometry(BaseGeometry):
             else:
                 self.json = OrderedDict2(zip([X, Y], geometry.points[0]))
 
-        elif isinstance(geometry, basestring):
+        elif isinstance(geometry, six.string_types):
             try:
                 geometry = OrderedDict2(**json.loads(geometry))
             except:
@@ -247,7 +247,7 @@ class Geometry(BaseGeometry):
                             esri_json = json.loads(row[0])
                             break
 
-                    for k,v in sorted(esri_json.iteritems()):
+                    for k,v in sorted(six.iteritems(esri_json)):
                         if k != SPATIAL_REFERENCE:
                             self.json[k] = v
                     if SPATIAL_REFERENCE in esri_json:
@@ -269,10 +269,10 @@ class Geometry(BaseGeometry):
                 d = geometry[FEATURES][0]
                 if GEOMETRY in d:
                     d = geometry[FEATURES][0][GEOMETRY]
-                for k,v in d.iteritems():
+                for k,v in six.iteritems(d):
                     self.json[k] = v
             elif GEOMETRY in geometry:
-                for k,v in geometry[GEOMETRY].iteritems():
+                for k,v in six.iteritems(geometry[GEOMETRY]):
                     self.json[k] = v
             if not self.json:
                 if RINGS in geometry:
@@ -418,7 +418,7 @@ class GeometryCollection(object):
                 self.geometries = geometries
 
             # it is a JSON structure either as dict or string
-            elif all(map(lambda g: isinstance(g, (dict, basestring)), geometries)):
+            elif all(map(lambda g: isinstance(g, (dict, six.string_types)), geometries)):
 
                 # this *should* be JSON, right???
                 try:
@@ -442,7 +442,7 @@ class GeometryCollection(object):
             self.geometries.append(geometries)
 
         # it is a single geometry as JSON
-        elif isinstance(geometries, (dict, basestring)):
+        elif isinstance(geometries, (dict, six.string_types)):
 
             # this *should* be JSON, right???
             try:
@@ -497,13 +497,13 @@ class GeocodeHandler(object):
         """returns collections.namedtuple with (name, type)"""
         res_sample = self.results[0]
         __fields = []
-        for f, val in res_sample.attributes.iteritems():
+        for f, val in six.iteritems(res_sample.attributes):
             if isinstance(val, float):
                 if val >= -3.4E38 and val <= 1.2E38:
                     __fields.append(FIELD_SCHEMA(name=f, type='F'))
                 else:
                     __fields.append(FIELD_SCHEMA(name=f, type='D'))
-            elif isinstance(val, (int, long)):
+            elif isinstance(val, six.integer_types):
                 __fields.append(FIELD_SCHEMA(name=f, type='I'))
             else:
                 __fields.append(FIELD_SCHEMA(name=f, type='C'))

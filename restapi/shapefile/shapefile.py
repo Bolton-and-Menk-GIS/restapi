@@ -20,6 +20,10 @@ import itertools
 import datetime
 ##import codecs
 import re
+from six.moves import range
+
+import six
+
 
 #
 # Constants for shape types
@@ -44,7 +48,7 @@ DATE_EXP = re.compile('\d{4}[-/]\d{2}[-/]\d{2}')
 if PYTHON3:
     xrange = range
     izip = zip
-    basestring = str
+    six.string_types = str
 else:
     from itertools import izip
 
@@ -95,7 +99,7 @@ def is_string(v):
     if PYTHON3:
         return isinstance(v, str)
     else:
-        return isinstance(v, basestring)
+        return isinstance(v, six.string_types)
 
 class _Array(array.array):
     """Converts python tuples to lits of the appropritate type.
@@ -560,7 +564,7 @@ class Reader:
             self.__dbfHeader()
         f = self.__getFileObj(self.dbf)
         f.seek(self.__dbfHeaderLength())
-        for i in xrange(self.numRecords):
+        for i in range(self.numRecords):
             r = self.__record()
             if r:
                 yield r
@@ -922,7 +926,7 @@ class Writer:
                 elif fieldType == 'D':
                     if isinstance(value, datetime.datetime):
                         value = ''.join([str(v).zfill(2) for v in [value.year, value.month, value.day]])[:size].ljust(size)
-                    elif isinstance(value, basestring):
+                    elif isinstance(value, six.string_types):
                         if DATE_EXP.match(value):
                             try:
                                 value = DATE_EXP.findall(value)[0].replace('/','').replace('-','')[:size].ljust(size)

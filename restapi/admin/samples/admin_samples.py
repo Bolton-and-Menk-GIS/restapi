@@ -71,10 +71,10 @@ def main(url, usr, pw, folder_name, service_name):
     # query log files (within last 3 days), need to convert to milliseconds
     threeDaysAgo = restapi.date_to_mil(datetime.datetime.now() - relativedelta(days=3))
     for log in arcserver.queryLogs(startTime=threeDaysAgo, pageSize=25):
-        print log.time
+        print(log.time)
         for message in log:
-            print message
-        print '\n'
+            print(message)
+        print('\n')
 
     #-----------------------------------------------------------------------------------------------#
     # connect to an individual service (by wildcard) - do not need to include full name, just
@@ -99,11 +99,11 @@ def main(url, usr, pw, folder_name, service_name):
         print item.type, item.path
         # if it is an enterprise database connection, you can get the connection string like this
         if item.type == 'egdb':
-            print item.info.connectionString
+            print(item.info.connectionString)
         # else if a folder, print server path
         elif item.type == 'folder':
-            print item.info.path
-        print '\n'
+            print(item.info.path)
+        print('\n')
 
 
 if __name__ == '__main__':

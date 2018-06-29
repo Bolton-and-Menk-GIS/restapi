@@ -5,7 +5,6 @@ import fnmatch
 import datetime
 import collections
 import mimetypes
-import urllib
 import tempfile
 import time
 import codecs
@@ -14,16 +13,14 @@ import copy
 import os
 import sys
 import munch
-from itertools import izip_longest
 from collections import namedtuple, OrderedDict
-from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 from ._strings import *
 
-# python 3 compat
-if sys.version_info[0] > 2:
-    basestring = str
+from . import six
+from .six.moves import urllib
 
-# disable ssl warnings (we are not verifying SSL certificates at this time...future ehnancement?)
+# disable ssl warnings
+from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     requests.packages.urllib3.disable_warnings(warning)
 
@@ -73,7 +70,7 @@ class IdentityManager(object):
 ID_MANAGER = IdentityManager()
 
 # temp dir for json outputs
-TEMP_DIR = os.environ['TEMP']
+TEMP_DIR = tempfile.mkdtemp('', 'restapi__')
 if not os.access(TEMP_DIR, os.W_OK| os.X_OK):
     TEMP_DIR = None
 
@@ -105,7 +102,7 @@ def Round(x, base=5):
 def iter_chunks(iterable, n):
     """iterate an array in chunks"""
     args = [iter(iterable)] * n
-    for group in izip_longest(*args, fillvalue=None):
+    for group in six.moves.zip_longest(*args, fillvalue=None):
         yield filter(None, group)
 
 def tmp_json_file():
@@ -159,7 +156,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
         if not IN_SR in params:
             params[IN_SR] = geometry.getWKID() or geometry.getWKT()
 
-    for pName, p in params.iteritems():
+    for pName, p in six.iteritems(params):
         if isinstance(p, dict) or hasattr(p, 'json'):
             params[pName] = json.dumps(p, ensure_ascii=False, cls=RestapiEncoder)
 
@@ -212,7 +209,7 @@ def do_proxy_request(proxy, url, params={}, referer=None):
     if F in params:
         del params[F]
 
-    #p = '&'.join('{}={}'.format(k,v) for k,v in params.iteritems())
+    #p = '&'.join('{}={}'.format(k,v) for k,v in six.iteritems(params))
 
     # probably a better way to do this...
     headers = {'User-Agent': USER_AGENT}
@@ -259,7 +256,7 @@ def validate_name(file_name):
     name = file_name.split(os.sep)[-1]
     root, ext = os.path.splitext(name)
     d = {s: '_' for s in string.punctuation}
-    for f,r in d.iteritems():
+    for f,r in six.iteritems(d):
         root = root.replace(f,r)
     return os.path.join(path, '_'.join(root.split()) + ext)
 
@@ -304,7 +301,7 @@ def mil_to_date(mil):
     Required:
         mil -- time in milliseconds
     """
-    if isinstance(mil, basestring):
+    if isinstance(mil, six.string_types):
         mil = long(mil)
     if mil == None:
         return None
@@ -440,7 +437,7 @@ class JsonGetter(object):
         """dump as JSON file"""
         if hasattr(out_json_file, 'read'):
             json.dump(self.json, out_json_file, indent=indent, **kwargs)
-        elif isinstance(out_json_file, basestring):
+        elif isinstance(out_json_file, six.string_types):
             head, tail = os.path.splitext(out_json_file)
             if not tail == '.json':
                 out_json_file = head + '.json'
@@ -516,7 +513,7 @@ class RESTEndpoint(JsonGetter):
             else:
                 RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
         params = {F: PJSON}
-        for k,v in kwargs.iteritems():
+        for k,v in six.iteritems(kwargs):
             params[k] = v
         self.token = token
         self._cookie = None
@@ -563,7 +560,7 @@ class RESTEndpoint(JsonGetter):
         def validate_version(ver):
             if isinstance(ver, (float, int)):
                 return ver
-            elif isinstance(ver, basestring):
+            elif isinstance(ver, six.string_types):
                 try:
                     ver = float(ver)
                 except:
@@ -577,11 +574,11 @@ class RESTEndpoint(JsonGetter):
 
     def request(self, *args, **kwargs):
         """wrapper for request to automatically pass in credentials"""
-        for key, value in {'token': 'token',
+        for key, value in six.iteritems({'token': 'token',
             'cookies': '_cookie',
             'proxy': '_proxy',
             'referer': '_referer'
-        }.iteritems():
+        }):
             if key not in kwargs:
                 kwargs[key] = getattr(self, value)
         return do_post(*args, **kwargs)
@@ -601,7 +598,7 @@ class RESTEndpoint(JsonGetter):
             for base in bases:
                 atts.extend(base.__dict__.keys())
                 bases = base.__bases__
-        return sorted(list(set(self.__class__.__dict__.keys() + self.json.keys() + atts)))
+        return sorted(list(set(list(self.__class__.__dict__.keys()) + list(self.json.keys()) + atts)))
 
     def __repr__(self):
         return '<{}>'.format(self.__class__.__name__)
@@ -613,9 +610,9 @@ class SpatialReferenceMixin(object):
     @classmethod
     def _find_wkid(cls, in_json):
         """recursivly search for WKID in a dict/json structure"""
-        if isinstance(in_json, (int, long)):
+        if isinstance(in_json, six.integer_types):
             return in_json
-        if isinstance(in_json, basestring):
+        if isinstance(in_json, six.string_types):
             try:
                 in_json = json.loads(in_json)
                 if not isinstance(json, dict):
@@ -629,7 +626,7 @@ class SpatialReferenceMixin(object):
                 return None
         if not isinstance(in_json, dict):
             return None
-        for k, v in in_json.iteritems():
+        for k, v in six.iteritems(in_json):
             if k == SPATIAL_REFERENCE:
                 if isinstance(v, int):
                     return v
@@ -742,7 +739,7 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
         Required:
             in_json -- input json response from request
         """
-        if isinstance(in_json, basestring):
+        if isinstance(in_json, six.string_types):
             in_json = json.loads(in_json)
         if isinstance(in_json, self.__class__):
             self.json = in_json.json
@@ -816,7 +813,7 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
         return bool(len(self))
 
     def __dir__(self):
-        return sorted(self.__class__.__dict__.keys() + self.json.keys())
+        return sorted(list(self.__class__.__dict__.keys()) + self.json.keys())
 
     def __repr__(self):
         return '<{} (count: {})>'.format(self.__class__.__name__, self.count)
@@ -1116,7 +1113,7 @@ class EditResult(JsonGetter):
             print('Attachment Edits: {}'.format(self.success_count(getattr(self, ATTACHMENTS))))
         if self.json.get(ADD_ATTACHMENT_RESULT):
             try:
-                k,v = getattr(self, ADD_ATTACHMENT_RESULT).items()[0]
+                k,v = list(getattr(self, ADD_ATTACHMENT_RESULT).items())[0]
                 print("Added attachment '{}' for feature {}".format(v, k))
             except IndexError: # should never happen?
                 print('Added 1 attachment')
@@ -1286,7 +1283,7 @@ class GeocodeService(RESTEndpoint):
             else:
                 params[self.addressFields[0].name] = address
         if kwargs:
-            for fld_name, fld_query in kwargs.iteritems():
+            for fld_name, fld_query in six.iteritems(kwargs):
                 params[fld_name] = fld_query
 
         return GeocodeResult(self.request(geo_url, params), geo_url.split('/')[-1])
