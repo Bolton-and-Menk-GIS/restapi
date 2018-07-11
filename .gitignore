@@ -9,6 +9,7 @@ admin_test.py
 rester.py
 lang_test.py
 thumbnail.py
+andre_py_test.py
 
 # C extensions
 *.so

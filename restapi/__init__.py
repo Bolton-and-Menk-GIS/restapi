@@ -9,18 +9,19 @@
 # Copyright:   (c) calebma 2014
 # Licence:     BMI
 #-------------------------------------------------------------------------------
-from .common_types import *
 from . import _strings
+from .common_types import *
 try:
     from . import admin
 except:
     pass
 
+
 __all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', 'has_arcpy',
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
            'GeocodeService', 'GPService', 'GPTask', 'do_post', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
            'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name', 'exportGeometryCollection',
-           'GeometryService', 'GeometryCollection', 'getFeatureExtent', 'JsonReplica', 'SQLiteReplica'] + \
+           'GeometryService', 'GeometryCollection', 'getFeatureExtent', 'JsonReplica', 'SQLiteReplica', 'force_open_source'] + \
            [d for d in dir(_strings) if not d.startswith('__')]
 
 # package info

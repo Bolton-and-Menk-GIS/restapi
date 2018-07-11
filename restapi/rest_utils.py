@@ -253,7 +253,7 @@ def validate_name(file_name):
     """validates an output name by removing special characters"""
     import string
     path = os.sep.join(file_name.split(os.sep)[:-1]) #forward slash in name messes up os.path.split()
-    name = file_name.split(os.sep)[-1]
+    name = fix_encoding(file_name.split(os.sep)[-1])
     root, ext = os.path.splitext(name)
     d = {s: '_' for s in string.punctuation}
     for f,r in six.iteritems(d):
@@ -323,6 +323,12 @@ def date_to_mil(date=None):
     if isinstance(date, datetime.datetime):
         epoch = datetime.datetime.utcfromtimestamp(0)
         return long((date - epoch).total_seconds() * 1000.0)
+
+def fix_encoding(s):
+    """fixes unicode by treating as ascii and ignoring errors"""
+    if isinstance(s, six.string_types):
+        return s.encode('ascii', 'ignore').decode('ascii')
+    return s
 
 def generate_token(url, user, pw, expiration=60):
     """Generates a token to handle ArcGIS Server Security, this is

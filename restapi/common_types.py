@@ -11,13 +11,50 @@ import sys
 import warnings
 
 from . import six
-from .six.moves import urllib
+from .six.moves import urllib, zip_longest
+print(sys.modules[__name__])
 
+def force_open_source(force=True):
+    """this function can be used to explicitly use open source mode, even if arcpy is available
+
+    Optional:
+        force -- when True, this will force restapi to use open source mode.
+    """
+    __opensource__ = force
+    if force:
+        from .open_restapi import Geometry, GeometryCollection, exportReplica, project, \
+        partHandler, find_ws_type, SHP_FTYPES, __opensource__, GeocodeHandler, Geocoder
+
+        for f in ['Geometry', 'GeometryCollection', 'exportReplica', 'partHandler', 'project', 'find_ws_type', 'SHP_FTYPES', '__opensource__', 'GeocodeHandler', 'Geocoder']:
+            setattr(sys.modules[PACKAGE_NAME], f, locals().get(f))
+            setattr(sys.modules[__name__], f, locals().get(f))
+
+        setattr(sys.modules[PACKAGE_NAME], 'exportFeatureSet', exportFeatureSet_os)
+        setattr(sys.modules[__name__], 'exportFeatureSet', exportFeatureSet_os)
+
+    else:
+        from .arc_restapi import  Geometry, GeometryCollection,  find_ws_type, \
+        __opensource__, GeocodeHandler, Geocoder
+
+        for f in ['Geometry', 'GeometryCollection', 'find_ws_type', '__opensource__', 'GeocodeHandler', 'Geocoder']:
+
+            setattr(sys.modules[PACKAGE_NAME], f, locals().get(f))
+            setattr(sys.modules[__name__], f, locals().get(f))
+
+        setattr(sys.modules[PACKAGE_NAME], 'exportFeatureSet', exportFeatureSet_arcpy)
+        setattr(sys.modules[__name__], 'exportFeatureSet', exportFeatureSet_arcpy)
 
 try:
+    # can explicitly choose to use open source
+    print('FORCE OPEN SOURCE IS: ', FORCE_OPEN_SOURCE)
+    if FORCE_OPEN_SOURCE:
+        print('you have chosen to explicitly use the open source version.')
+        raise ImportError
+
     import arcpy
     from .arc_restapi import *
     has_arcpy = True
+
 except ImportError:
     warnings.warn('No Arcpy found, some limitations in functionality may apply.')
     from .open_restapi import *
@@ -104,8 +141,7 @@ def unqualify_fields(fs):
             feature_copy[clean_fields.get(f, f)] = val
         fs.features[i].attributes = munch.munchify(feature_copy)
 
-if has_arcpy:
-    def exportFeatureSet(feature_set, out_fc, include_domains=False, qualified_fieldnames=False):
+def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified_fieldnames=False, **kwargs):
         """export FeatureSet (JSON result)  to shapefile or feature class
 
         Required:
@@ -122,6 +158,10 @@ if has_arcpy:
         at minimum, feature set must contain these keys:
             [u'features', u'fields', u'spatialReference', u'geometryType']
         """
+        if __opensource__:
+            return exportFeatureSet_os(feature_set, out_fc, **kwargs)
+
+        out_fc = validate_name(out_fc)
         # validate features input (should be list or dict, preferably list)
         if not isinstance(feature_set, FeatureSet):
             feature_set = FeatureSet(feature_set)
@@ -246,8 +286,7 @@ if has_arcpy:
         print('Created: "{0}"'.format(original))
         return original
 
-else:
-    def exportFeatureSet(feature_set, out_fc, outSR=None, **kwargs):
+def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         """export features (JSON result) to shapefile or feature class
 
         Required:
@@ -258,6 +297,9 @@ else:
             outSR -- optional output spatial reference.  If none set, will default
                 to SR of result_query feature set.
         """
+        import shp_helper
+        from .shapefile import shapefile
+        out_fc = validate_name(out_fc)
         # validate features input (should be list or dict, preferably list)
         if not isinstance(feature_set, FeatureSet):
             feature_set = FeatureSet(feature_set)
@@ -304,6 +346,12 @@ else:
         # write projection file
         project(out_fc, outSR)
         return out_fc
+
+if has_arcpy:
+    exportFeatureSet = exportFeatureSet_arcpy
+
+else:
+    exportFeatureSet = exportFeatureSet_os
 
 def exportGeometryCollection(gc, output, **kwargs):
     """Exports a goemetry collection to shapefile or feature class
@@ -847,7 +895,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         """generator to form where clauses to query all records.  Will iterate through "chunks"
         of OID's until all records have been returned (grouped by maxRecordCount)
 
-        *Thanks to Wayne Whitley for the brilliant idea to use six.moves.zip_longest()
+        *Thanks to Wayne Whitley for the brilliant idea to use izip_longest()
 
 
 
@@ -876,7 +924,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             max_recs = chunk_size
         else:
             max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
-        for each in izip_longest(*(iter(oids),) * max_recs):
+        for each in zip_longest(*(iter(oids),) * max_recs):
             theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
             if theRange:
                 _min, _max = min(theRange), max(theRange)
@@ -1424,7 +1472,7 @@ class MapService(BaseService):
         """
         all_layers = self.layers
         for layer in all_layers:
-            if fnmatch.fnmatch(layer[NAME], name):
+            if fnmatch.fnmatch(fix_encoding(layer.get(NAME)), fix_encoding(name)):
                 if SUB_LAYER_IDS in layer:
                     if grp_lyr and layer[SUB_LAYER_IDS] != None:
                         return layer[ID]
@@ -1432,7 +1480,7 @@ class MapService(BaseService):
                         return layer[ID]
                 return layer[ID]
         for tab in self.tables:
-            if fnmatch.fnmatch(tab.get(NAME), name):
+            if fnmatch.fnmatch(fix_encoding(tab.get(NAME)), fix_encoding(name)):
                 return tab.get(ID)
         print('No Layer found matching "{0}"'.format(name))
         return None
@@ -1452,7 +1500,7 @@ class MapService(BaseService):
 
     def list_layers(self):
         """Method to return a list of layer names in a MapService"""
-        return [l.name for l in self.layers]
+        return [fix_encoding(l.name) for l in self.layers]
 
     def list_tables(self):
         """Method to return a list of layer names in a MapService"""
@@ -1464,7 +1512,7 @@ class MapService(BaseService):
         Required:
             lyrID -- id of layer for which to get name
         """
-        return [l.name for l in self.layers if l.id == lyrID][0]
+        return [fix_encoding(l.name) for l in self.layers if l.id == lyrID][0]
 
     def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png', transparent=True, **kwargs):
         """exports a map image

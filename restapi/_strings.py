@@ -4,6 +4,7 @@ import json
 
 import six
 
+FORCE_OPEN_SOURCE = False
 
 # CONSTANTS
 # esri fields
@@ -380,7 +381,8 @@ FIELD_KEYS_CREATE = [NAME, ALIAS, TYPE, DOMAIN, LENGTH]
 GEOM_CODE = {v:k for k,v in six.iteritems(GEOM_DICT)}
 BASE_PATTERN = 'http*://*/rest/services*'
 VERSION = '1.0'
-USER_AGENT = 'restapi (Python)'
+PACKAGE_NAME = 'restapi'
+USER_AGENT = '{} (Python)'.format(PACKAGE_NAME)
 PROTOCOL = ''
 
 # WKID json files

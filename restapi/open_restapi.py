@@ -177,10 +177,12 @@ def partHandler(shape):
 
 def find_ws_type(path):
     """gets a workspace for shapefile"""
-    if os.path.isfile(path):
-        find_ws(os.path.dirname(path))
+    if os.path.exists(path) and os.path.isfile(path):
+        return find_ws_type(os.path.dirname(path))
     elif os.path.isdir(path):
         return (path, 'FileSystem')
+    else:
+        return(os.path.dirname(path), 'FileSystem')
 
 class Geometry(BaseGeometry):
     """class to handle restapi.Geometry"""
