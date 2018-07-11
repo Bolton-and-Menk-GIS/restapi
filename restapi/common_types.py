@@ -15,7 +15,7 @@ from .six.moves import urllib
 
 
 try:
-    import arcpy1
+    import arcpy
     from .arc_restapi import *
     has_arcpy = True
 except ImportError:
