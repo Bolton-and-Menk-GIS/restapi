@@ -373,7 +373,7 @@ JSON_DICT = {'rings': 'esriGeometryPolygon',
              'x': 'esriGeometryPoint',
              'y': 'esriGeometryPoint'}
 
-JSON_CODE = {v:k for k,v in JSON_DICT.iteritems()}
+JSON_CODE = {v:k for k,v in six.iteritems(JSON_DICT)}
 
 FIELD_KEYS_CREATE = [NAME, ALIAS, TYPE, DOMAIN, LENGTH]
 
