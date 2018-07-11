@@ -8,16 +8,18 @@ import contextlib
 from .rest_utils import *
 from .decorator import decorator
 import sys
+import warnings
 
 from . import six
 from .six.moves import urllib
 
 
 try:
-    import arcpy
+    import arcpy1
     from .arc_restapi import *
     has_arcpy = True
 except ImportError:
+    warnings.warn('No Arcpy found, some limitations in functionality may apply.')
     from .open_restapi import *
     has_arcpy = False
     class Callable(object):
@@ -154,7 +156,7 @@ if has_arcpy:
             outSR = arcpy.SpatialReference(feature_set.getSR())
             path, fc_name = os.path.split(out_fc)
             g_type = G_DICT.get(feature_set.geometryType, '').upper()
-            arcpy.CreateFeatureclass_management(path, fc_name, g_type,
+            arcpy.management.CreateFeatureclass(path, fc_name, g_type,
                                             spatial_reference=outSR)
 
             # add all fields
@@ -204,16 +206,24 @@ if has_arcpy:
                         else:
                             dType = RANGE_UPPER
 
+
                         arcpy.management.CreateDomain(ws, field.domain[NAME],
-                                                      field.domain[NAME],
-                                                      FTYPES[field.type],
-                                                      dType)
-                        if dType == CODED:
-                            for cv in field.domain[CODED_VALUES]:
-                                arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
-                        elif dType == RANGE_UPPER:
-                            _min, _max = field.domain[RANGE]
-                            arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
+                                                          field.domain[NAME],
+                                                          FTYPES[field.type],
+                                                          dType)
+
+                        try:
+
+                            if dType == CODED:
+                                for cv in field.domain[CODED_VALUES]:
+                                    arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
+
+                            elif dType == RANGE_UPPER:
+                                _min, _max = field.domain[RANGE]
+                                arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
+
+                        except Exception as e:
+                            warnings.warn(e)
 
                         gdb_domains.append(field.domain[NAME])
                         print('Added domain "{}" to database: "{}"'.format(field.domain[NAME], ws))
@@ -1269,15 +1279,19 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     att_dict, att_ids = {}, []
                     for i,row in enumerate(fs):
                         att_id = 'P-{}'.format(i + 1)
+                        print('\nattId: {}, oid: {}'.format(att_id, row.get(fs.OIDFieldName)))
                         att_ids.append(att_id)
                         att_dict[att_id] = []
                         for att in self.attachments(row.get(fs.OIDFieldName)):
+                            print('\tatt: ', att)
                             out_att = att.download(att_folder, verbose=False)
                             att_dict[att_id].append(os.path.join(out_att))
 
                     # photo field (hopefully this is a unique field name...)
+                    print('att_dict is: ', att_dict)
+
                     PHOTO_ID = 'PHOTO_ID_X_Y_Z__'
-                    arcpy.management.AddField(out_fc, PHOTO_ID, 'TEXT')
+                    arcpy.management.AddField(out_fc, PHOTO_ID, 'TEXT', field_length=255)
                     with arcpy.da.UpdateCursor(out_fc, PHOTO_ID) as rows:
                         for i,row in enumerate(rows):
                             rows.updateRow((att_ids[i],))

@@ -366,6 +366,15 @@ FIELD_STRUCT = {ALIAS: NULL,
     DOMAIN: NULL
 }
 
+
+JSON_DICT = {'rings': 'esriGeometryPolygon',
+             'paths': 'esriGeometryPolyline',
+             'points': 'esriGeometryMultipoint',
+             'x': 'esriGeometryPoint',
+             'y': 'esriGeometryPoint'}
+
+JSON_CODE = {v:k for k,v in JSON_DICT.iteritems()}
+
 FIELD_KEYS_CREATE = [NAME, ALIAS, TYPE, DOMAIN, LENGTH]
 
 GEOM_CODE = {v:k for k,v in six.iteritems(GEOM_DICT)}
