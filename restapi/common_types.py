@@ -12,7 +12,6 @@ import warnings
 
 from . import six
 from .six.moves import urllib, zip_longest
-print(sys.modules[__name__])
 
 def force_open_source(force=True):
     """this function can be used to explicitly use open source mode, even if arcpy is available
