@@ -70,7 +70,7 @@ class IdentityManager(object):
 ID_MANAGER = IdentityManager()
 
 # temp dir for json outputs
-TEMP_DIR = tempfile.mkdtemp('', 'restapi__')
+TEMP_DIR = tempfile.gettempdir()
 if not os.access(TEMP_DIR, os.W_OK| os.X_OK):
     TEMP_DIR = None
 
@@ -746,7 +746,11 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
             in_json -- input json response from request
         """
         if isinstance(in_json, six.string_types):
-            in_json = json.loads(in_json)
+            if not in_json.startswith('{') and os.path.isfile(in_json):
+                with open(in_json, 'r') as f:
+                    in_json = json.load(f)
+            else:
+                in_json = json.loads(in_json)
         if isinstance(in_json, self.__class__):
             self.json = in_json.json
         elif isinstance(in_json, dict):
@@ -788,6 +792,16 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
                     ft.attributes[oidF] = nextOID
                     nextOID += 1
             self.features.extend(otherCopy.features)
+
+    def getEmptyCopy(self):
+        fsd = munch.Munch()
+        for k,v in six.iteritems(feature_set.json):
+            if k == FIELDS:
+                fsd[k] = [f for f in feature_set.fields if not f.name.lower().startswith('shape')]
+            elif k != FEATURES:
+                fsd[k] = v
+        fsd[FEATURES] = []
+        return FeatureSet(fsd)
 
     def __getattr__(self, name):
         """get normal class attributes and those from json response"""

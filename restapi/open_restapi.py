@@ -15,9 +15,6 @@ from .shapefile import shapefile
 from . import six
 from .six.moves import urllib
 
-
-__opensource__ = True
-
 # field types for shapefile module
 SHP_FTYPES = munch.munchify({
           DATE_FIELD:'D',

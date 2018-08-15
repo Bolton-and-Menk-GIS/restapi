@@ -396,3 +396,165 @@ class Geocoder(GeocodeService):
         else:
             raise TypeError('{} is not a {} object!'.format(geocodeResultObject, GeocodeResult))
 
+# ARCPY UTILITIES - only available here
+def create_empty_schema(feature_set, out_fc):
+    # make copy of feature set
+    fs = feature_set.getEmptyCopy()
+    try:
+        try:
+            # this tool has been very buggy in the past :(
+            tmp = fs.dump(tmp_json_file(), indent=None)
+            arcpy.conversion.JSONToFeatures(tmp, out_fc)
+        except:
+            # this isn't much better..
+            gp = arcpy.geoprocessing._base.Geoprocessor()
+
+            # create arcpy.FeatureSet from raw JSON string
+            arcpy_fs = gp.fromEsriJson(fs.dumps(indent=None))
+            arcpy_fs.save(out_fc)
+
+    except:
+        # manually add records with insert cursor, this is SLOW!
+        print('arcpy conversion failed, manually writing features...')
+        outSR = arcpy.SpatialReference(fs.getSR())
+        path, fc_name = os.path.split(out_fc)
+        g_type = G_DICT.get(fs.geometryType, '').upper()
+        arcpy.management.CreateFeatureclass(path, fc_name, g_type,
+                                        spatial_reference=outSR)
+
+        # add all fields
+        for field in fs.fields:
+            if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+                if '.' in field.name:
+                    if 'shape.' not in field.name.lower():
+                        field_name = field.name.split('.')[-1] #for weird SDE fields with periods
+                    else:
+                        field_name = '_'.join([f.title() for f in field.name.split('.')]) #keep geometry calcs if shapefile
+                else:
+                    field_name = field.name
+
+
+                # need to filter even more as SDE sometimes yields weird field names...sigh
+                restricted = ('fid', 'shape', 'objectid')
+                if (not any(['shape_' in field.name.lower(),
+                            'shape.' in field.name.lower(),
+                            '(shape)' in field.name.lower()]) \
+                            or isShp) and field.name.lower() not in restricted:
+                    field_length = field.length if hasattr(field, 'length') else None
+                    arcpy.management.AddField(out_fc, field_name, FTYPES[field.type],
+                                                field_length=field_length,
+                                                field_alias=field.alias)
+        return out_fc
+
+def add_domains_from_feature_set(out_fc, fs):
+
+    # find workspace type and path
+    ws, wsType = find_ws_type(out_fc)
+    isShp = wsType == 'FileSystem'
+    if not isShp:
+            gdb_domains = arcpy.Describe(ws).domains
+            dom_map = {}
+            for field in fs.fields:
+                if field.get(DOMAIN):
+                    field_name = field.name.split('.')[-1]
+                    dom_map[field_name] = field.domain[NAME]
+                    if field.domain[NAME] not in gdb_domains:
+                        if CODED_VALUES in field.domain:
+                            dType = CODED
+                        else:
+                            dType = RANGE_UPPER
+                        arcpy.management.CreateDomain(ws, field.domain[NAME],
+                                                          field.domain[NAME],
+                                                          FTYPES[field.type],
+                                                          dType)
+
+                        try:
+
+                            if dType == CODED:
+                                for cv in field.domain[CODED_VALUES]:
+                                    arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
+
+                            elif dType == RANGE_UPPER:
+                                _min, _max = field.domain[RANGE]
+                                arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
+
+                        except Exception as e:
+                            warnings.warn(e)
+
+                        gdb_domains.append(field.domain[NAME])
+                        print('Added domain "{}" to database: "{}"'.format(field.domain[NAME], ws))
+
+            # add domains
+            field_list = [f.name.split('.')[-1] for f in arcpy.ListFields(out_fc)]
+            for fld, dom_name in six.iteritems(dom_map):
+                if fld in field_list:
+                    arcpy.management.AssignDomainToField(out_fc, fld, dom_name)
+                    print('Assigned domain "{}" to field "{}"'.format(dom_name, fld))
+
+def append_feature_set(out_fc, feature_set):
+    """appends features from a feature set to existing feature class manually with an insert cursor
+
+    """
+    fc_fields = arcpy.ListFields(out_fc)
+    cur_fields = [f.name for f in fc_fields if f.type not in ('OID', 'Geometry') and not f.name.lower().startswith('shape')]
+    # insert cursor to write rows manually
+    with arcpy.da.InsertCursor(out_fc, cur_fields + ['SHAPE@']) as irows:
+        for i, row in enumerate(Cursor(feature_set, cur_fields + ['SHAPE@'])):
+            if not i % 100:
+                print(row)
+            irows.insertRow(row)
+
+def export_attachments(out_fc, layer):
+    fc_ws, fc_ws_type = find_ws_type(out_fc)
+
+##    if all([include_attachments, self.hasAttachments, fs.OIDFieldName, fc_ws_type != 'FileSystem']):
+##
+##        # get attachments (OID will start at 1)
+##        att_folder = os.path.join(arcpy.env.scratchFolder, '{}_Attachments'.format(os.path.basename(out_fc)))
+##        if not os.path.exists(att_folder):
+##            os.makedirs(att_folder)
+##
+##        att_dict, att_ids = {}, []
+##        for i,row in enumerate(fs):
+##            att_id = 'P-{}'.format(i + 1)
+##            print('\nattId: {}, oid: {}'.format(att_id, row.get(fs.OIDFieldName)))
+##            att_ids.append(att_id)
+##            att_dict[att_id] = []
+##            for att in self.attachments(row.get(fs.OIDFieldName)):
+##                print('\tatt: ', att)
+##                out_att = att.download(att_folder, verbose=False)
+##                att_dict[att_id].append(os.path.join(out_att))
+##
+##        # photo field (hopefully this is a unique field name...)
+##        print('att_dict is: ', att_dict)
+##
+##        PHOTO_ID = 'PHOTO_ID_X_Y_Z__'
+##        arcpy.management.AddField(out_fc, PHOTO_ID, 'TEXT', field_length=255)
+##        with arcpy.da.UpdateCursor(out_fc, PHOTO_ID) as rows:
+##            for i,row in enumerate(rows):
+##                rows.updateRow((att_ids[i],))
+##
+##        # create temp table
+##        arcpy.management.EnableAttachments(out_fc)
+##        tmp_tab = r'in_memory\temp_photo_points'
+##        arcpy.management.CreateTable(*os.path.split(tmp_tab))
+##        arcpy.management.AddField(tmp_tab, PHOTO_ID, 'TEXT')
+##        arcpy.management.AddField(tmp_tab, 'PATH', 'TEXT', field_length=255)
+##        arcpy.management.AddField(tmp_tab, 'PHOTO_NAME', 'TEXT', field_length=255)
+##
+##        with arcpy.da.InsertCursor(tmp_tab, [PHOTO_ID, 'PATH', 'PHOTO_NAME']) as irows:
+##            for k, att_list in six.iteritems(att_dict):
+##                for v in att_list:
+##                    irows.insertRow((k,) + os.path.split(v))
+##
+##         # add attachments
+##        arcpy.management.AddAttachments(out_fc, PHOTO_ID, tmp_tab, PHOTO_ID,
+##                                        'PHOTO_NAME', in_working_folder=att_folder)
+##        arcpy.management.Delete(tmp_tab)
+##        arcpy.management.DeleteField(out_fc, PHOTO_ID)
+##        try:
+##            shutil.rmtree(att_folder)
+##        except:
+##            pass
+##
+##        print('added attachments to: "{}"'.format(out_fc))

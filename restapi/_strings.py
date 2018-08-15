@@ -380,7 +380,7 @@ FIELD_KEYS_CREATE = [NAME, ALIAS, TYPE, DOMAIN, LENGTH]
 
 GEOM_CODE = {v:k for k,v in six.iteritems(GEOM_DICT)}
 BASE_PATTERN = 'http*://*/rest/services*'
-VERSION = '1.0'
+VERSION = '1.1'
 PACKAGE_NAME = 'restapi'
 USER_AGENT = '{} (Python)'.format(PACKAGE_NAME)
 PROTOCOL = ''

@@ -13,18 +13,21 @@ import warnings
 from . import six
 from .six.moves import urllib, zip_longest
 
+__opensource__ = False
+print('open source: ', __opensource__)
+
 def force_open_source(force=True):
     """this function can be used to explicitly use open source mode, even if arcpy is available
 
     Optional:
         force -- when True, this will force restapi to use open source mode.
     """
-    __opensource__ = force
+    setattr(sys.modules[__name__], '__opensource__', force)
     if force:
         from .open_restapi import Geometry, GeometryCollection, exportReplica, project, \
-        partHandler, find_ws_type, SHP_FTYPES, __opensource__, GeocodeHandler, Geocoder
+        partHandler, find_ws_type, SHP_FTYPES, GeocodeHandler, Geocoder
 
-        for f in ['Geometry', 'GeometryCollection', 'exportReplica', 'partHandler', 'project', 'find_ws_type', 'SHP_FTYPES', '__opensource__', 'GeocodeHandler', 'Geocoder']:
+        for f in ['Geometry', 'GeometryCollection', 'exportReplica', 'partHandler', 'project', 'find_ws_type', 'SHP_FTYPES', 'GeocodeHandler', 'Geocoder']:
             setattr(sys.modules[PACKAGE_NAME], f, locals().get(f))
             setattr(sys.modules[__name__], f, locals().get(f))
 
@@ -32,10 +35,9 @@ def force_open_source(force=True):
         setattr(sys.modules[__name__], 'exportFeatureSet', exportFeatureSet_os)
 
     else:
-        from .arc_restapi import  Geometry, GeometryCollection,  find_ws_type, \
-        __opensource__, GeocodeHandler, Geocoder
+        from .arc_restapi import  Geometry, GeometryCollection,  find_ws_type, GeocodeHandler, Geocoder
 
-        for f in ['Geometry', 'GeometryCollection', 'find_ws_type', '__opensource__', 'GeocodeHandler', 'Geocoder']:
+        for f in ['Geometry', 'GeometryCollection', 'find_ws_type', 'GeocodeHandler', 'Geocoder']:
 
             setattr(sys.modules[PACKAGE_NAME], f, locals().get(f))
             setattr(sys.modules[__name__], f, locals().get(f))
@@ -45,7 +47,6 @@ def force_open_source(force=True):
 
 try:
     # can explicitly choose to use open source
-    print('FORCE OPEN SOURCE IS: ', FORCE_OPEN_SOURCE)
     if FORCE_OPEN_SOURCE:
         print('you have chosen to explicitly use the open source version.')
         raise ImportError
@@ -55,6 +56,8 @@ try:
     has_arcpy = True
 
 except ImportError:
+    # using global is throwing a warning???
+    setattr(sys.modules[__name__], '__opensource__', True)
     warnings.warn('No Arcpy found, some limitations in functionality may apply.')
     from .open_restapi import *
     has_arcpy = False
@@ -140,12 +143,13 @@ def unqualify_fields(fs):
             feature_copy[clean_fields.get(f, f)] = val
         fs.features[i].attributes = munch.munchify(feature_copy)
 
-def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified_fieldnames=False, **kwargs):
+def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified_fieldnames=False, append_features=True, **kwargs):
         """export FeatureSet (JSON result)  to shapefile or feature class
 
         Required:
             feature_set -- JSON response obtained from a query or FeatureSet() object
-            out_fc -- output feature class or shapefile
+            out_fc -- output feature class or shapefile.  If the output exists, features are appended
+                at the end (unless append_features is set to False)
 
         Optional:
             include_domains -- if True, will manually create the feature class and add domains to GDB
@@ -153,6 +157,8 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
             qualified_fieldnames -- default is False, in situations where there are table joins, there
                 are qualified table names such as ["table1.Field_from_tab1", "table2.Field_from_tab2"].
                 By setting this to false, exported fields would be: ["Field_from_tab1", "Field_from_tab2"]
+            append_features -- option to append features if the output features already exist.  Set to False
+                to overwrite features.
 
         at minimum, feature set must contain these keys:
             [u'features', u'fields', u'spatialReference', u'geometryType']
@@ -173,8 +179,7 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
         isShp = wsType == 'FileSystem'
         temp = time.strftime(r'in_memory\restapi_%Y%m%d%H%M%S') #if isShp else None
         original = out_fc
-        if isShp:
-            out_fc = temp
+        gp = arcpy.geoprocessing._base.Geoprocessor()
         try:
             hasGeom = GEOMETRY in feature_set.features[0]
         except:
@@ -182,108 +187,58 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
             hasGeom = False
 
         # try converting JSON features from arcpy, seems very fragile...
-        try:
-            ##tmp = feature_set.dump(tmp_json_file(), indent=None)
-            ##arcpy.conversion.JSONToFeatures(tmp, out_fc) #this tool is very buggy :(
-            gp = arcpy.geoprocessing._base.Geoprocessor()
-            arcpy_fs = gp.fromEsriJson(feature_set.dumps(indent=None)) #arcpy.FeatureSet from JSON string
-            arcpy_fs.save(out_fc)
+        exists = arcpy.Exists(original)
+        if not exists or (exists and not append_features):
+            if exists:
+                arcpy.management.Delete(out_fc)
+            if isShp:
+                out_fc = temp
+            try:
+                try:
+                    arcpy_fs = gp.fromEsriJson(feature_set.dumps(indent=None)) #arcpy.FeatureSet from JSON string
+                    arcpy_fs.save(out_fc)
+                except:
+                    tmp = feature_set.dump(tmp_json_file(), indent=None)
+                    arcpy.conversion.JSONToFeatures(tmp, out_fc) #this tool is very buggy :(
 
-        except:
-            # manually add records with insert cursor
-            print('arcpy conversion failed, manually writing features...')
-            outSR = arcpy.SpatialReference(feature_set.getSR())
-            path, fc_name = os.path.split(out_fc)
-            g_type = G_DICT.get(feature_set.geometryType, '').upper()
-            arcpy.management.CreateFeatureclass(path, fc_name, g_type,
-                                            spatial_reference=outSR)
+            except:
+                # manually add records with insert cursor
+                print('arcpy conversion failed, manually writing features...')
+                create_empty_schema(feature_set, out_fc)
+                append_feature_set(out_fc, feature_set)
 
-            # add all fields
-            cur_fields = []
-            fMap = []
-            if not isShp:
-                gdb_domains = arcpy.Describe(ws).domains
-            for field in feature_set.fields:
-                if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
-                    if '.' in field.name:
-                        if 'shape.' not in field.name.lower():
-                            field_name = field.name.split('.')[-1] #for weird SDE fields with periods
-                        else:
-                            field_name = '_'.join([f.title() for f in field.name.split('.')]) #keep geometry calcs if shapefile
-                    else:
-                        field_name = field.name
+        else:
 
+            # append rows
+            try:
+                try:
+                    tmp = gp.fromEsriJson(feature_set.dumps(indent=None))
+                except:
+                    tmp_fs = feature_set.dump(tmp_json_file(), indent=None)
+                    arcpy.conversion.JSONToFeatures(tmp_fs, tmp)
 
-                    # need to filter even more as SDE sometimes yields weird field names...sigh
-                    restricted = ('fid', 'shape', 'objectid')
-                    if (not any(['shape_' in field.name.lower(),
-                                'shape.' in field.name.lower(),
-                                '(shape)' in field.name.lower()]) \
-                                or isShp) and field.name.lower() not in restricted:
-                        field_length = field.length if hasattr(field, 'length') else None
-                        arcpy.management.AddField(out_fc, field_name, FTYPES[field.type],
-                                                    field_length=field_length,
-                                                    field_alias=field.alias)
-                        cur_fields.append(field_name)
-                        fMap.append(field.name)
+                arcpy.management.Append(tmp, out_fc, 'NO_TEST')
 
-            # insert cursor to write rows manually
-            with arcpy.da.InsertCursor(out_fc, cur_fields + ['SHAPE@']) as irows:
-                for row in Cursor(feature_set, fMap + ['SHAPE@']).get_rows():
-                    irows.insertRow(row.values)
-
-        if not isShp and include_domains in (True, 1, TRUE):
-            gdb_domains = arcpy.Describe(ws).domains
-            dom_map = {}
-            for field in feature_set.fields:
-                if field.get(DOMAIN):
-                    field_name = field.name.split('.')[-1]
-                    dom_map[field_name] = field.domain[NAME]
-                    if field.domain[NAME] not in gdb_domains:
-                        if CODED_VALUES in field.domain:
-                            dType = CODED
-                        else:
-                            dType = RANGE_UPPER
-
-
-                        arcpy.management.CreateDomain(ws, field.domain[NAME],
-                                                          field.domain[NAME],
-                                                          FTYPES[field.type],
-                                                          dType)
-
-                        try:
-
-                            if dType == CODED:
-                                for cv in field.domain[CODED_VALUES]:
-                                    arcpy.management.AddCodedValueToDomain(ws, field.domain[NAME], cv[CODE], cv[NAME])
-
-                            elif dType == RANGE_UPPER:
-                                _min, _max = field.domain[RANGE]
-                                arcpy.management.SetValueForRangeDomain(ws, field.domain[NAME], _min, _max)
-
-                        except Exception as e:
-                            warnings.warn(e)
-
-                        gdb_domains.append(field.domain[NAME])
-                        print('Added domain "{}" to database: "{}"'.format(field.domain[NAME], ws))
-
-            # add domains
-            if not isShp and include_domains:
-                field_list = [f.name.split('.')[-1] for f in arcpy.ListFields(out_fc)]
-                for fld, dom_name in six.iteritems(dom_map):
-                    if fld in field_list:
-                        arcpy.management.AssignDomainToField(out_fc, fld, dom_name)
-                        print('Assigned domain "{}" to field "{}"'.format(dom_name, fld))
-
+            except:
+                print('arcpy conversion failed, manually appending features')
+                append_feature_set(out_fc, feature_set)
 
         # copy in_memory fc to shapefile
-        if isShp:
+        if isShp and original != out_fc:
             arcpy.management.CopyFeatures(out_fc, original)
             if arcpy.Exists(temp):
                 arcpy.management.Delete(temp)
 
-        print('Created: "{0}"'.format(original))
+        # add domains
+        if include_domains and not isShp:
+            add_domains_from_feature_set(out_fc, feature_set)
+
+        if exists:
+            print('Appended {} features to "{}"'.format(feature_set.count, original))
+        else:
+            print('Created: "{0}"'.format(original))
         return original
+
 
 def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         """export features (JSON result) to shapefile or feature class
@@ -890,6 +845,89 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                         field_list.append(f)
         return ','.join(field_list)
 
+    def _format_server_response(self, server_response, records=None):
+        # set fields to full field definition of the layer
+        flds = self.fieldLookup
+        if FIELDS in server_response:
+            for i,fld in enumerate(server_response.fields):
+                server_response.fields[i] = flds.get(fld.name)
+
+        if self.type == FEATURE_LAYER:
+            for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
+                if key not in server_response:
+                    if key == SPATIAL_REFERENCE:
+                        server_response[key] = getattr(self, '_' + SPATIAL_REFERENCE)
+                    else:
+                        server_response[key] = getattr(self, key)
+
+        elif self.type == TABLE:
+            if FIELDS not in server_response:
+                server_response[FIELDS] = getattr(self, FIELDS)
+
+        if all(map(lambda k: k in server_response, [FIELDS, FEATURES])):
+            if records:
+                server_response[FEATURES] = server_response[FEATURES][:records]
+            return FeatureSet(server_response)
+        else:
+            if records:
+                if isinstance(server_response, list):
+                    return server_response[:records]
+            return server_response
+
+    def _validate_params(self, where='1=1', fields='*', add_params={}, f=JSON, **kwargs):
+        """query layer and get response as JSON
+
+        Optional:
+            fields -- fields to return. Default is "*" to return all fields
+            where -- where clause
+            add_params -- extra parameters to add to query string passed as dict
+            records -- number of records to return.  Default is None to return all
+                records within bounds of max record count unless exceed_limit is True
+            exceed_limit -- option to get all records in layer.  This option may be time consuming
+                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
+                must be performed in chunks to get all records.
+            fetch_in_chunks -- option to return a generator with a FeatureSet in chunks of each query group.  Use this
+                to avoid memory errors when fetching many features.
+            f -- return format, default is JSON.  (html|json|kmz)
+            kmz -- full path to output kmz file.  Only used if output format is "kmz".
+            kwargs -- extra parameters to add to query string passed as key word arguments,
+                will override add_params***
+
+        # default params for all queries
+        params = {'returnGeometry' : 'true', 'outFields' : fields,
+                  'where': where, 'f' : 'json'}
+        """
+        # default params
+        params = {RETURN_GEOMETRY : TRUE, WHERE: where, F : f}
+
+        for k,v in six.iteritems(add_params):
+            params[k] = v
+
+        for k,v in six.iteritems(kwargs):
+            params[k] = v
+
+        if RESULT_RECORD_COUNT in params and self.compatible_with_version('10.3'):
+            params[RESULT_RECORD_COUNT] = min([int(params[RESULT_RECORD_COUNT]), self.get(MAX_RECORD_COUNT)])
+
+        # check for tokens (only shape and oid)
+        fields = self._fix_fields(fields)
+        params[OUT_FIELDS] = fields
+
+        # geometry validation
+        if self.type == FEATURE_LAYER and GEOMETRY in params:
+            geom = Geometry(params.get(GEOMETRY))
+            if SPATIAL_REL not in params:
+                params[SPATIAL_REL] = ESRI_INTERSECT
+            if isinstance(geom, Geometry):
+                if IN_SR not in params and geom.getSR():
+                    params[IN_SR] = geom.getSR()
+                if getattr(geom, GEOMETRY_TYPE) and GEOMETRY_TYPE not in params:
+                    params[GEOMETRY_TYPE] = getattr(geom, GEOMETRY_TYPE)
+
+        elif self.type == TABLE:
+            del params[RETURN_GEOMETRY]
+        return params
+
     def iter_queries(self, where='1=1', add_params={}, max_recs=None, chunk_size=None, **kwargs):
         """generator to form where clauses to query all records.  Will iterate through "chunks"
         of OID's until all records have been returned (grouped by maxRecordCount)
@@ -930,7 +968,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 del each
                 yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
 
-    def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, f=JSON, kmz='', **kwargs):
+    def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, fetch_in_chunks=False, f=JSON, kmz='', **kwargs):
         """query layer and get response as JSON
 
         Optional:
@@ -941,7 +979,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 records within bounds of max record count unless exceed_limit is True
             exceed_limit -- option to get all records in layer.  This option may be time consuming
                 because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records.
+                must be performed in chunks to get all records.  This is only supported with JSON output.
+            fetch_in_chunks -- option to return a generator with a FeatureSet in chunks of each query group.  Use this
+                to avoid memory errors when fetching many features.
             f -- return format, default is JSON.  (html|json|kmz)
             kmz -- full path to output kmz file.  Only used if output format is "kmz".
             kwargs -- extra parameters to add to query string passed as key word arguments,
@@ -953,35 +993,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         """
         query_url = self.url + '/query'
 
-        # default params
-        params = {RETURN_GEOMETRY : TRUE, WHERE: where, F : f}
-
-        for k,v in six.iteritems(add_params):
-            params[k] = v
-
-        for k,v in six.iteritems(kwargs):
-            params[k] = v
-
-        if RESULT_RECORD_COUNT in params and self.compatible_with_version('10.3'):
-            params[RESULT_RECORD_COUNT] = min([int(params[RESULT_RECORD_COUNT]), self.get(MAX_RECORD_COUNT)])
-
-        # check for tokens (only shape and oid)
-        fields = self._fix_fields(fields)
-        params[OUT_FIELDS] = fields
-
-        # geometry validation
-        if self.type == FEATURE_LAYER and GEOMETRY in params:
-            geom = Geometry(params.get(GEOMETRY))
-            if SPATIAL_REL not in params:
-                params[SPATIAL_REL] = ESRI_INTERSECT
-            if isinstance(geom, Geometry):
-                if IN_SR not in params and geom.getSR():
-                    params[IN_SR] = geom.getSR()
-                if getattr(geom, GEOMETRY_TYPE) and GEOMETRY_TYPE not in params:
-                    params[GEOMETRY_TYPE] = getattr(geom, GEOMETRY_TYPE)
-
-        elif self.type == TABLE:
-            del params[RETURN_GEOMETRY]
+        params = self._validate_params(where, fields, add_params, f, **kwargs)
 
         # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
@@ -1012,33 +1024,32 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             else:
                 server_response = self.request(query_url, params)
 
-            # set fields to full field definition of the layer
-            flds = self.fieldLookup
-            if FIELDS in server_response:
-                for i,fld in enumerate(server_response.fields):
-                    server_response.fields[i] = flds.get(fld.name)
+            return self._format_server_response(server_response, records)
 
-            if self.type == FEATURE_LAYER:
-                for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
-                    if key not in server_response:
-                        if key == SPATIAL_REFERENCE:
-                            server_response[key] = getattr(self, '_' + SPATIAL_REFERENCE)
-                        else:
-                            server_response[key] = getattr(self, key)
+    def query_in_chunks(self, where='1=1', fields='*', add_params={}, records=None, **kwargs):
+        """queries a layer in chunks and returns a generator
 
-            elif self.type == TABLE:
-                if FIELDS not in server_response:
-                    server_response[FIELDS] = getattr(self, FIELDS)
+        Optional:
+            fields -- fields to return. Default is "*" to return all fields
+            where -- where clause
+            add_params -- extra parameters to add to query string passed as dict
+            records -- number of records to return.  Default is None to return all
+                records within bounds of max record count unless exceed_limit is True
+            kwargs -- extra parameters to add to query string passed as key word arguments,
+                will override add_params***
 
-            if all(map(lambda k: k in server_response, [FIELDS, FEATURES])):
-                if records:
-                    server_response[FEATURES] = server_response[FEATURES][:records]
-                return FeatureSet(server_response)
-            else:
-                if records:
-                    if isinstance(server_response, list):
-                        return server_response[:records]
-                return server_response
+        # default params for all queries
+        params = {'returnGeometry' : 'true', 'outFields' : fields,
+                  'where': where, 'f' : 'json'}
+        """
+        query_url = self.url + '/query'
+
+        params = self._validate_params(where, fields, add_params, **kwargs)
+        for where2 in self.iter_queries(where, params, max_recs=records):
+            sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
+            params[WHERE] = sql
+            yield self._format_server_response(self.request(query_url, params))
+
 
     def query_related_records(self, objectIds, relationshipId, outFields='*', definitionExpression=None, returnGeometry=None, outSR=None, **kwargs):
         """Queries related records
@@ -1052,7 +1063,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             definitionExpression -- def query for output related records
             returnGeometry -- option to return Geometry
             outSR -- output spatial reference
-            kwargs -- optional key word args
+            kwargs -- optional key word args for REST API
         """
         if not self.json.get(RELATIONSHIPS):
             raise NotImplementedError('This Resource does not have any relationships!')
@@ -1304,77 +1315,37 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             else:
                 params[OUT_SR] = sr
 
-            # do query to get feature set
-            fs = self.query(where, fields, params, records, exceed_limit, **kwargs)
+            if exceed_limit:
 
-            # get any domain info
-            f_dict = {f.name: f for f in self.fields}
-            for field in fs.fields:
-                field.domain = f_dict[field.name].get(DOMAIN)
+                # download in chunks
+                for fs in self.query_in_chunks(where, fields, params, **kwargs):
+                    exportFeatureSet(fs, out_fc, include_domains=False)
 
-            if has_arcpy:
-                out_fc = exportFeatureSet(fs, out_fc, include_domains)
-                fc_ws, fc_ws_type = find_ws_type(out_fc)
+                if include_domains:
+                    add_domains_from_feature_set(out_fc, fs)
 
-                if all([include_attachments, self.hasAttachments, fs.OIDFieldName, fc_ws_type != 'FileSystem']):
-
-                    # get attachments (OID will start at 1)
-                    att_folder = os.path.join(arcpy.env.scratchFolder, '{}_Attachments'.format(os.path.basename(out_fc)))
-                    if not os.path.exists(att_folder):
-                        os.makedirs(att_folder)
-
-                    att_dict, att_ids = {}, []
-                    for i,row in enumerate(fs):
-                        att_id = 'P-{}'.format(i + 1)
-                        print('\nattId: {}, oid: {}'.format(att_id, row.get(fs.OIDFieldName)))
-                        att_ids.append(att_id)
-                        att_dict[att_id] = []
-                        for att in self.attachments(row.get(fs.OIDFieldName)):
-                            print('\tatt: ', att)
-                            out_att = att.download(att_folder, verbose=False)
-                            att_dict[att_id].append(os.path.join(out_att))
-
-                    # photo field (hopefully this is a unique field name...)
-                    print('att_dict is: ', att_dict)
-
-                    PHOTO_ID = 'PHOTO_ID_X_Y_Z__'
-                    arcpy.management.AddField(out_fc, PHOTO_ID, 'TEXT', field_length=255)
-                    with arcpy.da.UpdateCursor(out_fc, PHOTO_ID) as rows:
-                        for i,row in enumerate(rows):
-                            rows.updateRow((att_ids[i],))
-
-                    # create temp table
-                    arcpy.management.EnableAttachments(out_fc)
-                    tmp_tab = r'in_memory\temp_photo_points'
-                    arcpy.management.CreateTable(*os.path.split(tmp_tab))
-                    arcpy.management.AddField(tmp_tab, PHOTO_ID, 'TEXT')
-                    arcpy.management.AddField(tmp_tab, 'PATH', 'TEXT', field_length=255)
-                    arcpy.management.AddField(tmp_tab, 'PHOTO_NAME', 'TEXT', field_length=255)
-
-                    with arcpy.da.InsertCursor(tmp_tab, [PHOTO_ID, 'PATH', 'PHOTO_NAME']) as irows:
-                        for k, att_list in six.iteritems(att_dict):
-                            for v in att_list:
-                                irows.insertRow((k,) + os.path.split(v))
-
-                     # add attachments
-                    arcpy.management.AddAttachments(out_fc, PHOTO_ID, tmp_tab, PHOTO_ID,
-                                                    'PHOTO_NAME', in_working_folder=att_folder)
-                    arcpy.management.Delete(tmp_tab)
-                    arcpy.management.DeleteField(out_fc, PHOTO_ID)
-                    try:
-                        shutil.rmtree(att_folder)
-                    except:
-                        pass
-
-                    print('added attachments to: "{}"'.format(out_fc))
+                print('Fetched all records')
+                return out_fc
 
             else:
-                exportFeatureSet(fs, out_fc, outSR=sr)
+
+                # do query to get feature set
+                fs = self.query(where, fields, params, records, exceed_limit, **kwargs)
+
+                # get any domain info
+                f_dict = {f.name: f for f in self.fields}
+                for field in fs.fields:
+                    field.domain = f_dict[field.name].get(DOMAIN)
+
+                return exportFeatureSet(fs, out_fc, include_domains)
+
+##            if has_arcpy and all([include_attachments, self.hasAttachments, fs.OIDFieldName])::
+##                export_attachments()
+##
 
         else:
             print('Layer: "{}" is not a Feature Layer!'.format(self.name))
 
-        return out_fc
 
     def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False, exceed_limit=True, **kwargs):
         """Method for spatial Query, exports geometry that intersect polygon or

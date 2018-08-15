@@ -53,8 +53,6 @@ class ShpWriter(object):
         F 	Float/Double 	Number stored as a string, right justified, and padded with blanks to the width of the field.
 
         source: http://www.dbase.com/KnowledgeBase/int/db7_file_fmt.htm
-
-        source: http://www.dbase.com/KnowledgeBase/int/db7_file_fmt.htm
         """
         if not size:
             size = "50"
