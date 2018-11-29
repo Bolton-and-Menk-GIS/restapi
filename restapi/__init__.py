@@ -17,7 +17,7 @@ except:
     pass
 
 
-__all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', 'has_arcpy',
+__all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'FeatureLayer', 'has_arcpy', '__opensource__',
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
            'GeocodeService', 'GPService', 'GPTask', 'do_post', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
            'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name', 'exportGeometryCollection',
@@ -27,7 +27,7 @@ __all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'Fe
 # package info
 __author__ = 'Caleb Mackey'
 __organization__ = 'Bolton & Menk, Inc.'
-__author_email__ = 'calebma@bolton-menk.com'
+__author_email__ = 'Caleb.Mackey@bolton-menk.com'
 __website__ = 'https://github.com/Bolton-and-Menk-GIS/restapi'
 __version__ = _strings.VERSION
 __documentation__ = 'http://gis.bolton-menk.com/restapi-documentation/restapi-module.html'

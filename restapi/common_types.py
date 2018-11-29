@@ -14,7 +14,6 @@ from . import six
 from .six.moves import urllib, zip_longest
 
 __opensource__ = False
-print('open source: ', __opensource__)
 
 def force_open_source(force=True):
     """this function can be used to explicitly use open source mode, even if arcpy is available
@@ -213,14 +212,14 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
             try:
                 try:
                     tmp = gp.fromEsriJson(feature_set.dumps(indent=None))
-                except:
+                except Exception as e:
+                    print('from esri json exception: ', e)
                     tmp_fs = feature_set.dump(tmp_json_file(), indent=None)
                     arcpy.conversion.JSONToFeatures(tmp_fs, tmp)
-
                 arcpy.management.Append(tmp, out_fc, 'NO_TEST')
 
-            except:
-                print('arcpy conversion failed, manually appending features')
+            except Exception as e:
+                print('arcpy conversion failed, manually appending features', e)
                 append_feature_set(out_fc, feature_set)
 
         # copy in_memory fc to shapefile
@@ -867,7 +866,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         if all(map(lambda k: k in server_response, [FIELDS, FEATURES])):
             if records:
                 server_response[FEATURES] = server_response[FEATURES][:records]
-            return FeatureSet(server_response)
+            return GeoJSONFeatureSet(server_response) if server_response.get(TYPE) == FEATURE_COLLECTION else FeatureSet(server_response)
         else:
             if records:
                 if isinstance(server_response, list):
@@ -1318,11 +1317,23 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if exceed_limit:
 
                 # download in chunks
+                isShp = out_fc.endswith('.shp')
+                orig = out_fc
+                doesExceed = False
+                if isShp:
+                    if self.query(returnCountOnly=True).count > self.maxRecordCount:
+                        doesExceed = True
+                        out_fc = r'in_memory\restapi_chunk_{}'.format(os.path.splitext(os.path.basename(orig))[0])
                 for fs in self.query_in_chunks(where, fields, params, **kwargs):
                     exportFeatureSet(fs, out_fc, include_domains=False)
 
-                if include_domains:
+                if not isShp and include_domains:
                     add_domains_from_feature_set(out_fc, fs)
+
+                if has_arcpy and isShp and doesExceed:
+                    arcpy.management.CopyFeatures(out_fc, orig)
+                    arcpy.management.Delete(out_fc)
+                    out_fc = orig
 
                 print('Fetched all records')
                 return out_fc

@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 
 private_tests/
+kandi.py
 tester.py
 fs_tester.py
 admin_test.py

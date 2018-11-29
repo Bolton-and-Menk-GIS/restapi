@@ -500,13 +500,13 @@ def append_feature_set(out_fc, feature_set):
     # insert cursor to write rows manually
     with arcpy.da.InsertCursor(out_fc, cur_fields + ['SHAPE@']) as irows:
         for i, row in enumerate(Cursor(feature_set, cur_fields + ['SHAPE@'])):
-            if not i % 100:
-                print(row)
             irows.insertRow(row)
 
 def export_attachments(out_fc, layer):
-    fc_ws, fc_ws_type = find_ws_type(out_fc)
-
+    # not sure if I should support this...
+    pass
+##    fc_ws, fc_ws_type = find_ws_type(out_fc)
+##
 ##    if all([include_attachments, self.hasAttachments, fs.OIDFieldName, fc_ws_type != 'FileSystem']):
 ##
 ##        # get attachments (OID will start at 1)

@@ -302,7 +302,7 @@ def mil_to_date(mil):
         mil -- time in milliseconds
     """
     if isinstance(mil, six.string_types):
-        mil = long(mil)
+        mil = int(mil)
     if mil == None:
         return None
     elif mil < 0:
@@ -322,7 +322,7 @@ def date_to_mil(date=None):
     date -- datetime.datetime() object"""
     if isinstance(date, datetime.datetime):
         epoch = datetime.datetime.utcfromtimestamp(0)
-        return long((date - epoch).total_seconds() * 1000.0)
+        return int((date - epoch).total_seconds() * 1000.0)
 
 def fix_encoding(s):
     """fixes unicode by treating as ascii and ignoring errors"""
@@ -642,6 +642,12 @@ class SpatialReferenceMixin(object):
                 return v
             elif k == WKID:
                 return v
+            elif k == CRS and isinstance(v, dict):
+                try:
+                    return v.get(PROPERTIES, {}).get(NAME, '').split(':')[-1]
+                except:
+                    return None
+
         if hasattr(in_json, 'factoryCode'):
             return getattr(in_json, 'factoryCode')
 
@@ -670,6 +676,8 @@ class SpatialReferenceMixin(object):
                 resp_d = first.get(SPATIAL_REFERENCE) or {}
             except IndexError:
                 pass
+        elif CRS in self.json:
+            resp_d = self.json.get(CRS, {})
         return munch.munchify(resp_d)
 
     def getSR(self):
@@ -737,27 +745,7 @@ class FieldsMixin(object):
         """returns a list of field names"""
         return [f.name for f in self.fields]
 
-class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
-
-    def __init__(self, in_json):
-        """class to handle feature set
-
-        Required:
-            in_json -- input json response from request
-        """
-        if isinstance(in_json, six.string_types):
-            if not in_json.startswith('{') and os.path.isfile(in_json):
-                with open(in_json, 'r') as f:
-                    in_json = json.load(f)
-            else:
-                in_json = json.loads(in_json)
-        if isinstance(in_json, self.__class__):
-            self.json = in_json.json
-        elif isinstance(in_json, dict):
-            self.json = munch.munchify(in_json)
-        if not all(map(lambda k: k in self.json.keys(), [FIELDS, FEATURES])):
-            print(self.json.keys())
-            raise ValueError('Not a valid Feature Set!')
+class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     @property
     def hasGeometry(self):
@@ -771,49 +759,6 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
     def count(self):
         """returns total number of records in Cursor (user queried)"""
         return len(self)
-
-    def extend(self, other):
-        """combines features from another FeatureSet with this one.
-
-        Required:
-            other -- other FeatureSet to combine with this one.
-        """
-        if not isinstance(other, FeatureSet):
-            other = FeatureSet(other)
-        otherCopy = copy.deepcopy(other)
-
-        # get max oid
-        oidF = getattr(self, OID_FIELD_NAME) if hasattr(self, OID_FIELD_NAME) else 'OBJECTID'
-        nextOID = max([ft.get(oidF, 0) for ft in iter(self)]) + 1
-
-        if sorted(self.list_fields()) == sorted(other.list_fields()):
-            for ft in otherCopy.features:
-                if ft.get(oidF) < nextOID:
-                    ft.attributes[oidF] = nextOID
-                    nextOID += 1
-            self.features.extend(otherCopy.features)
-
-    def getEmptyCopy(self):
-        fsd = munch.Munch()
-        for k,v in six.iteritems(feature_set.json):
-            if k == FIELDS:
-                fsd[k] = [f for f in feature_set.fields if not f.name.lower().startswith('shape')]
-            elif k != FEATURES:
-                fsd[k] = v
-        fsd[FEATURES] = []
-        return FeatureSet(fsd)
-
-    def __getattr__(self, name):
-        """get normal class attributes and those from json response"""
-        try:
-            # it is a class attribute
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            # it is in the json definition, abstract it to the class level
-            if name in self.json:
-                return self.json[name]
-            else:
-                raise AttributeError(name)
 
     def __getitem__(self, key):
         """supports grabbing feature by index and json keys by name"""
@@ -837,6 +782,113 @@ class FeatureSet(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     def __repr__(self):
         return '<{} (count: {})>'.format(self.__class__.__name__, self.count)
+
+
+class FeatureSet(FeatureSetBase):
+    _format = ESRI_JSON_FORMAT
+
+    def __init__(self, in_json):
+        """class to handle feature set
+
+        Required:
+            in_json -- input json response from request
+        """
+        if isinstance(in_json, six.string_types):
+            if not in_json.startswith('{') and os.path.isfile(in_json):
+                with open(in_json, 'r') as f:
+                    in_json = json.load(f)
+            else:
+                in_json = json.loads(in_json)
+        if isinstance(in_json, self.__class__):
+            self.json = in_json.json
+        elif isinstance(in_json, dict):
+            self.json = munch.munchify(in_json)
+        if not all(map(lambda k: k in self.json.keys(), [FIELDS, FEATURES])):
+            print(self.json.keys())
+            raise ValueError('Not a valid Feature Set!')
+
+    def extend(self, other):
+        """combines features from another FeatureSet with this one.
+
+        Required:
+            other -- other FeatureSet to combine with this one.
+        """
+        if not isinstance(other, FeatureSet):
+            other = FeatureSet(other)
+        otherCopy = copy.deepcopy(other)
+
+        # get max oid
+        oidF = getattr(self, OID_FIELD_NAME) if hasattr(self, OID_FIELD_NAME) else OBJECTID
+        nextOID = max([ft.get(oidF, 0) for ft in iter(self)]) + 1
+
+        if sorted(self.list_fields()) == sorted(other.list_fields()):
+            for ft in otherCopy.features:
+                if ft.get(oidF) < nextOID:
+                    ft.attributes[oidF] = nextOID
+                    nextOID += 1
+            self.features.extend(otherCopy.features)
+
+    def getEmptyCopy(self):
+        fsd = munch.Munch()
+        for k,v in six.iteritems(self.json):
+            if k == FIELDS:
+                fsd[k] = [f for f in self.fields if not f.name.lower().startswith('shape')]
+            elif k != FEATURES:
+                fsd[k] = v
+        fsd[FEATURES] = []
+        return FeatureSet(fsd)
+
+
+class GeoJSONFeatureSet(FeatureSetBase):
+    _format = GEOJSON_FORMAT
+
+    def __init__(self, in_json):
+        """class to handle feature set
+
+        Required:
+            in_json -- input json response from request
+        """
+        if isinstance(in_json, six.string_types):
+            if not in_json.startswith('{') and os.path.isfile(in_json):
+                with open(in_json, 'r') as f:
+                    in_json = json.load(f)
+            else:
+                in_json = json.loads(in_json)
+        if isinstance(in_json, self.__class__):
+            self.json = in_json.json
+        elif isinstance(in_json, dict):
+            self.json = munch.munchify(in_json)
+
+
+    def extend(other):
+        """combines features from another FeatureSet with this one.
+
+        Required:
+            other -- other FeatureSet to combine with this one.
+        """
+        if not isinstance(other, GeoJSONFeatureSet):
+            other = GeoJSONFeatureSet(other)
+        otherCopy = copy.deepcopy(other)
+
+        # get max oid
+        oidF = getattr(self, OID_FIELD_NAME) if hasattr(self, OID_FIELD_NAME) else OBJECTID
+        nextOID = max([ft.get(oidF, 0) for ft in iter(self)]) + 1
+
+        if sorted(self.list_fields()) == sorted(other.list_fields()):
+            for ft in otherCopy.features:
+                if ft.get(oidF) < nextOID:
+                    ft.properties[oidF] = nextOID
+                    nextOID += 1
+            self.features.extend(otherCopy.features)
+
+    def getEmptyCopy(self):
+        fsd = munch.Munch()
+        for k,v in six.iteritems(self.json):
+            if k != FEATURES:
+                fsd[k] = v
+        fsd[FEATURES] = []
+        return GeoJSONFeatureSet(fsd)
+
 
 class Feature(JsonGetter):
     def __init__(self, feature):
