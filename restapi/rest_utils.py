@@ -1,6 +1,6 @@
 """Helper functions and base classes for restapi module"""
 from __future__ import print_function
-import requests
+from . import requests
 import fnmatch
 import datetime
 import collections
@@ -12,7 +12,7 @@ import json
 import copy
 import os
 import sys
-import munch
+from . import munch
 from collections import namedtuple, OrderedDict
 from ._strings import *
 
@@ -20,7 +20,7 @@ from . import six
 from .six.moves import urllib
 
 # disable ssl warnings
-from requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
+from .requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     requests.packages.urllib3.disable_warnings(warning)
 
@@ -182,7 +182,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
     if r.status_code != 200:
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
     else:
-        if ret_json is True:
+        if ret_json is True and params.get(F) == JSON:
             _json = r.json()
             RequestError(_json)
             return munch.munchify(_json)

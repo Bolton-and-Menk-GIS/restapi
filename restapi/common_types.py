@@ -961,11 +961,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         else:
             max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
         for each in zip_longest(*(iter(oids),) * max_recs):
-            theRange = filter(lambda x: x != None, each) # do not want to remove OID "0"
+            theRange = list(filter(lambda x: x != None, each)) # do not want to remove OID "0"
             if theRange:
                 _min, _max = min(theRange), max(theRange)
                 del each
                 yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
+
 
     def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, fetch_in_chunks=False, f=JSON, kmz='', **kwargs):
         """query layer and get response as JSON
@@ -997,13 +998,17 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
             r = self.request(query_url, params)
+            r.raw.decode_content = True
             r.encoding = 'zlib_codec'
 
             # write kmz using codecs
             if not kmz:
                 kmz = validate_name(os.path.join(os.path.expanduser('~'), 'Desktop', '{}.kmz'.format(self.name)))
-            with codecs.open(kmz, 'wb') as f:
-                f.write(r.content)
+##            with codecs.open(kmz, 'wb') as f:
+##                f.write(r.content)
+            print('creating kmz')
+            with open(kmz, 'wb') as f:
+                shutil.copyfileobj(r.raw, f)
             print('Created: "{0}"'.format(kmz))
             return kmz
 
