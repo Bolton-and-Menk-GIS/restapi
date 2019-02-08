@@ -1004,11 +1004,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             # write kmz using codecs
             if not kmz:
                 kmz = validate_name(os.path.join(os.path.expanduser('~'), 'Desktop', '{}.kmz'.format(self.name)))
-##            with codecs.open(kmz, 'wb') as f:
-##                f.write(r.content)
+            with codecs.open(kmz, 'wb') as f:
+                f.write(r.content)
             print('creating kmz')
-            with open(kmz, 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
+##            with open(kmz, 'wb') as f:
+##                shutil.copyfileobj(r.raw, f)
             print('Created: "{0}"'.format(kmz))
             return kmz
 
