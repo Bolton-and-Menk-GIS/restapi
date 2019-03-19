@@ -182,7 +182,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
     if r.status_code != 200:
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
     else:
-        if ret_json is True and params.get(F) == JSON:
+        if ret_json is True and params.get(F) in (JSON, PJSON):
             _json = r.json()
             RequestError(_json)
             return munch.munchify(_json)

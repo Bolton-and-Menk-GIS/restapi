@@ -406,7 +406,7 @@ class Cursor(FeatureSet):
                     if field in cursor.date_fields and self.get(field):
                         vals.append(mil_to_date(self.get(field)))
                     elif field in cursor.long_fields and self.get(field):
-                        vals.append(long(self.get(field)))
+                        vals.append(INTERPOLATION(self.get(field)))
                     else:
                         if field == OID_TOKEN:
                             vals.append(self.oid)
@@ -2417,7 +2417,7 @@ class FeatureLayer(MapServiceLayer):
         params = {FEATURES: features,
                   GDB_VERSION: gdbVersion,
                   ROLLBACK_ON_FAILURE: rollbackOnFailure,
-                  F: PJSON}
+                  F: JSON}
 
         # add features
         return self.__edit_handler(self.request(add_url, params))

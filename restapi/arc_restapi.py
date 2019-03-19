@@ -11,7 +11,10 @@ from . import six
 from .six.moves import range
 from .six.moves import urllib
 
+# support for both ArcGIS Desktop and Pro layers
+ARCPY_LAYER_TYPE = arcpy.mapping.Layer if hasattr(arcpy, 'mapping') else arcpy._mp.Layer
 
+# environments
 arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
@@ -56,7 +59,7 @@ class Geometry(BaseGeometry):
             spatialReference = self._find_wkid(kwargs)
         self.geometryType = kwargs.get(GEOMETRY_TYPE, '') if kwargs.get(GEOMETRY_TYPE, '').startswith('esri') else None
         self.json = munch.Munch()
-        if isinstance(geometry, arcpy.mapping.Layer) and geometry.supports('DATASOURCE'):
+        if isinstance(geometry, ARCPY_LAYER_TYPE) and geometry.supports('DATASOURCE'):
             geometry = geometry.dataSource
 
         if isinstance(geometry, (arcpy.RecordSet, arcpy.FeatureSet)):
@@ -239,7 +242,7 @@ class GeometryCollection(BaseGeometryCollection):
                 self.geometries = [Geometry(g) for g in geometries[GEOMETRIES]]
 
             # it is a layer or feature class/shapefile
-            elif isinstance(geometries, arcpy.mapping.Layer):
+            elif isinstance(geometries, ARCPY_LAYER_TYPE):
                 with arcpy.da.SearchCursor(geometries, ['SHAPE@']) as rows:
                     self.geometries = [Geometry(r[0]) for r in rows]
 
