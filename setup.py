@@ -19,4 +19,5 @@ setup(name=name,
       package_data={name: ['shapefile/*.json',
                                 'test/*.py',
                                 'admin/samples/*.py']},
-      )
+      install_requires=['munch', 'requests']
+)

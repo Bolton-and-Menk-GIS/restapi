@@ -1,6 +1,7 @@
 """Helper functions and base classes for restapi module"""
 from __future__ import print_function
-from . import requests
+# from . import requests
+import requests
 import fnmatch
 import datetime
 import collections
@@ -12,17 +13,18 @@ import json
 import copy
 import os
 import sys
-from . import munch
+import munch
 from collections import namedtuple, OrderedDict
 from ._strings import *
+from urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
+from urllib3 import disable_warnings
 
 from . import six
 from .six.moves import urllib
 
 # disable ssl warnings
-from .requests.packages.urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
-    requests.packages.urllib3.disable_warnings(warning)
+    disable_warnings(warning)
 
 class IdentityManager(object):
     """Identity Manager for secured services.  This will allow the user to only have
@@ -31,6 +33,7 @@ class IdentityManager(object):
     def __init__(self):
         self.tokens = {}
         self.proxies = {}
+        self._portal_tokens = {}
 
     def findToken(self, url):
         """returns a token for a specific domain from token store if one has been
@@ -40,15 +43,18 @@ class IdentityManager(object):
             url -- url for secured resource
         """
         if self.tokens:
-            if '/admin/' in url:
-                url = url.split('/admin/')[0] + '/admin'
-            else:
-                url = url.lower().split('/rest/services')[0] + '/rest/services'
-            if url in self.tokens:
-                if not self.tokens[url].isExpired:
-                    return self.tokens[url]
-                else:
-                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+            # if fnmatch.fnmatch(url, PORTAL_BASE_PATTERN) and not fnmatch.fnmatch(url, PORTAL_SERVICES_PATTERN):
+            #     url = get_portal_base(url)
+            # elif '/admin/' in url:
+            #     url = url.split('/admin/')[0] + '/admin'
+            # else:
+            #     url = url.split('/rest/services')[0] + '/rest/services'
+            for registered_url, token in six.iteritems(self.tokens):
+                if fnmatch.fnmatch(url, registered_url + '*'):
+                    if not token.isExpired:
+                        return token
+                    else:
+                        raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
 
         return None
 
@@ -112,7 +118,7 @@ def tmp_json_file():
         TEMP_DIR = tempfile.mkdtemp()
     return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
-def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None):
+def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, **kwargs):
     """Post Request to REST Endpoint through query string, to post
     request with data in body, use requests.post(url, data={k : v}).
 
@@ -159,7 +165,9 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
     for pName, p in six.iteritems(params):
         if isinstance(p, dict) or hasattr(p, 'json'):
             params[pName] = json.dumps(p, ensure_ascii=False, cls=RestapiEncoder)
-
+            
+    # merge in any kwargs
+    params.update(kwargs)
     if F not in params:
         params[F] = JSON
 
@@ -172,11 +180,13 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
                 params[TOKEN] = str(token)
                 cookies = None
 
+    stream = params.get(F) == 'image'
+
     if proxy:
         r = do_proxy_request(proxy, service, params, referer)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
-        r = requests.post(service, params, headers={'User-Agent': USER_AGENT}, cookies=cookies, verify=False)
+        r = requests.post(service, params, headers={'User-Agent': USER_AGENT}, cookies=cookies, verify=False, stream=stream)
 
     # make sure return
     if r.status_code != 200:
@@ -330,7 +340,7 @@ def fix_encoding(s):
         return s.encode('ascii', 'ignore').decode('ascii')
     return s
 
-def generate_token(url, user, pw, expiration=60):
+def generate_token(url, user, pw, expiration=60, **kwargs):
     """Generates a token to handle ArcGIS Server Security, this is
     different from generating a token from the admin side.  Meant
     for external use.
@@ -352,9 +362,11 @@ def generate_token(url, user, pw, expiration=60):
         else:
             infoUrl = url.split('/admin/')[0] + suffix
     else:
-        infoUrl = url.split('/rest/')[0] + suffix
+        infoUrl =  url.split('/rest')[0] + suffix
+    # print('infoUrl is: "{}"'.format(infoUrl))
     infoResp = do_post(infoUrl)
     is_agol = False
+    is_portal = fnmatch.fnmatch(url, PORTAL_BASE_PATTERN)
     if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
         base = infoResp[AUTH_INFO][TOKEN_SERVICES_URL]
         is_agol = AGOL_BASE in base
@@ -365,7 +377,7 @@ def generate_token(url, user, pw, expiration=60):
         PROTOCOL =  base.split('://')[0]
         print('set PROTOCOL to "{}" from generate token'.format(PROTOCOL))
         try:
-            shortLived = infoResp.get(AUTH_INFO, {}).get(SHORT_LIVED_TOKEN_VALIDITY)
+            shortLived = infoResp.get(AUTH_INFO, {}).get(SHORT_LIVED_TOKEN_VALIDITY) or 60
         except KeyError:
             shortLived = 100
     else:
@@ -379,10 +391,18 @@ def generate_token(url, user, pw, expiration=60):
               EXPIRATION: max([expiration, shortLived])}
 
     if is_agol:
-        params[REFERER] = AGOL_BASE
+        if REFERER not in kwargs:
+            params[REFERER] = AGOL_BASE
+        else:
+            params[REFERER] = kwargs.get(REFERER)
         del params[CLIENT]
+    
+    elif REFERER in kwargs and kwargs.get(CLIENT) == REFERER:
+        params[CLIENT] = REFERER
+        params[REFERER] = kwargs.get(REFERER)
 
     resp = do_post(base, params)
+    org_resp, portal_resp = None, None
     if is_agol:
         # now call portal sharing
         portal_params = {TOKEN: resp.get(TOKEN)}
@@ -391,19 +411,80 @@ def generate_token(url, user, pw, expiration=60):
         params[REFERER]= org_referer
         resp = do_post(AGOL_TOKEN_SERVICE, params)
         resp['_' + PORTAL_INFO] = org_resp
+        # print('PORTAL RESP (AGOL): ', org_resp)
+
+    if is_portal:
+        # print('url before: "{}"'.format(url))
+        portalBase = get_portal_base(url)
+        # print('portal_base is: "{}"'.format(portalBase))
+        portal_url = portalBase + '/rest/portals/self'
+        # print('portal self url: "{}"'.format(portal_url))
+        portal_resp = do_post(portal_url, {TOKEN: resp.get(TOKEN)})
+        # print('PORTAL RESP (ENT): ', portal_resp)
+        resp['_' + PORTAL_INFO] = portal_resp
+        resp[DOMAIN] = portalBase
     else:
         resp['_' + PORTAL_INFO] = {}
-
 
     if '/services/' in url:
         resp[DOMAIN] = url.split('/services/')[0] + '/services'
     elif '/admin/' in url:
         resp[DOMAIN] = url.split('/admin/')[0] + '/admin'
     else:
-        resp[DOMAIN] = url
+        if DOMAIN not in resp:
+            resp[DOMAIN] = url
     resp[IS_AGOL] = is_agol
+    resp[IS_PORTAL] = is_portal
     resp[IS_ADMIN] = isAdmin
 
+    token = Token(resp)
+    if is_portal:
+        ID_MANAGER._portal_tokens[token.domain] = token
+    else:
+        ID_MANAGER.tokens[token.domain] = token
+
+    # also register portal or org services domain
+    for p_resp in [org_resp, portal_resp]:
+        if isinstance(p_resp, dict):
+            org_id = p_resp.get('id')
+            if org_id:
+                # print('setting portal token: https://services2.arcgis.com/{}/arcgis/rest/services'.format(org_id))
+                token_copy = munch.munchify({})
+                token_copy.update(token.json)
+                serv_url = 'https://services2.arcgis.com/{}/arcgis/rest/services'.format(org_id)
+                token_copy.domain = serv_url
+                ID_MANAGER.tokens[serv_url] = Token(token_copy)
+    return token
+
+def get_portal_base(url):
+    return url if url.endswith('/sharing') else url.split('/sharing/')[0] + '/sharing' 
+
+def generate_elevated_portal_token(server_url, user_token, **kwargs):
+    params = {
+        TOKEN: str(user_token) if isinstance(user_token, Token) else user_token,
+        "serverURL": server_url,
+        EXPIRATION: kwargs.get(EXPIRATION) or 1440,
+        F: JSON,
+        "request": 'getToken',
+        REFERER: 'http'
+    }
+
+    # first get portal info
+    portalBase = get_portal_base(server_url)
+    token_url = portalBase + '/rest/generateToken'
+    resp = do_post(token_url, params)
+    resp['_' + PORTAL_INFO] = ID_MANAGER._portal_tokens.get(portalBase, {}).get('_' + PORTAL_INFO)
+
+    # set domain and other token props
+    if '/services/' in server_url:
+        resp[DOMAIN] = server_url.split('/services/')[0] + '/services'
+    elif '/admin/' in server_url:
+        resp[DOMAIN] = server_url.split('/admin/')[0] + '/admin'
+    else:
+        resp[DOMAIN] = server_url
+    resp[IS_PORTAL] = True
+    resp[IS_AGOL] = False
+    resp[IS_ADMIN] = False
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
     return token
@@ -512,15 +593,24 @@ class RESTEndpoint(JsonGetter):
             self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
         else:
             self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
+        # print('checking url: ', url, fnmatch.fnmatch(url, PORTAL_BASE_PATTERN + '/*'))
+        # if not fnmatch.fnmatch(self.url, PORTAL_SERVICES_PATTERN) and fnmatch.fnmatch(self.url, PORTAL_BASE_PATTERN + '/*'):
+        #     self.url = get_portal_base(self.url) + '/rest'
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _plus_services = self.url + '/arcgis/rest/services'
             if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
                 self.url = _plus_services
             else:
                 RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
-        params = {F: PJSON}
+        params = {F: JSON}
         for k,v in six.iteritems(kwargs):
             params[k] = v
+        
+        # first try to find token based on domain
+        if not token:
+            # print('no token passed, but is there one?')
+            token = ID_MANAGER.findToken(url)
+            # print('token is now: {}'.format(token))
         self.token = token
         self._cookie = None
         self._proxy = proxy
@@ -549,6 +639,13 @@ class RESTEndpoint(JsonGetter):
             if self.url in ID_MANAGER.proxies:
                 self._proxy = ID_MANAGER.proxies[self.url]
 
+        # fetch url if this is a portal item
+        # if portalId:
+
+        # make sure token is passed in query string if agol or portal
+        if isinstance(self.token, Token):
+            if self.token.get(IS_AGOL) or self.token.get(IS_PORTAL):
+                params[TOKEN] = str(self.token)
         self.raw_response = do_post(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy, referer=self._referer)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
@@ -832,7 +929,7 @@ class FeatureSet(FeatureSetBase):
         fsd = munch.Munch()
         for k,v in six.iteritems(self.json):
             if k == FIELDS:
-                fsd[k] = [f for f in self.fields if not f.name.lower().startswith('shape')]
+                fsd[k] = [f for f in self.fields if f and not f.name.lower().startswith('shape')]
             elif k != FEATURES:
                 fsd[k] = v
         fsd[FEATURES] = []
@@ -977,6 +1074,7 @@ class PortalInfo(JsonGetter):
     def __init__(self, response):
         self.json = response
         #super(PortalInfo, self).__init__(response)
+        super(JsonGetter, self).__init__()
 
     @property
     def username(self):
@@ -1006,7 +1104,8 @@ class Token(JsonGetter):
         super(JsonGetter, self).__init__()
         self._cookie = {AGS_TOKEN: self.token}
         self._portal = self.json.get('_{}'.format(PORTAL_INFO))
-        del self.json._portalInfo
+        if '_portalInfo' in self.json:
+            del self.json._portalInfo
 ##        self.isAGOL = self.json.get(IS_AGOL, False)
 ##        self.isAdmin = self.json.get(IS_ADMIN, False)
 

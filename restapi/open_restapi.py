@@ -3,8 +3,7 @@
 # special thanks to geospatial python for shapefile module
 #-------------------------------------------------------------------------------
 from __future__ import print_function
-import shapefile
-import shp_helper
+from . import shp_helper
 import os
 import json
 import sys
@@ -480,7 +479,7 @@ class GeometryCollection(object):
 
 class GeocodeHandler(object):
     """class to handle geocode results"""
-    __slots__ = [SPATIAL_REFERENCE, 'results', FIELDS, 'formattedResults']
+    # __slots__ = [SPATIAL_REFERENCE, 'results', 'formattedResults']
 
     def __init__(self, geocodeResult):
         """geocode response object handler

@@ -11,6 +11,7 @@ rester.py
 lang_test.py
 thumbnail.py
 andre_py_test.py
+extract_attachments_parent.py
 mpwd.py
 
 # C extensions

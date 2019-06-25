@@ -9,6 +9,7 @@ from .rest_utils import *
 from .decorator import decorator
 import sys
 import warnings
+from munch import munchify
 
 from . import six
 from .six.moves import urllib, zip_longest
@@ -54,7 +55,7 @@ try:
     from .arc_restapi import *
     has_arcpy = True
 
-except ImportError:
+except:
     # using global is throwing a warning???
     setattr(sys.modules[__name__], '__opensource__', True)
     warnings.warn('No Arcpy found, some limitations in functionality may apply.')
@@ -132,9 +133,10 @@ def unqualify_fields(fs):
 
     clean_fields = {}
     for f in fs.fields:
-        clean = f.name.split('.')[-1]
-        clean_fields[f.name] = clean
-        f.name = clean
+        if f:
+            clean = f.name.split('.')[-1]
+            clean_fields[f.name] = clean
+            f.name = clean
 
     for i,feature in enumerate(fs.features):
         feature_copy = {}
@@ -204,7 +206,7 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
                 # manually add records with insert cursor
                 print('arcpy conversion failed, manually writing features...')
                 create_empty_schema(feature_set, out_fc)
-                append_feature_set(out_fc, feature_set)
+                append_feature_set(out_fc, feature_set, Cursor)
 
         else:
 
@@ -220,7 +222,7 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
 
             except Exception as e:
                 print('arcpy conversion failed, manually appending features', e)
-                append_feature_set(out_fc, feature_set)
+                append_feature_set(out_fc, feature_set, Cursor)
 
         # copy in_memory fc to shapefile
         if isShp and original != out_fc:
@@ -406,7 +408,7 @@ class Cursor(FeatureSet):
                     if field in cursor.date_fields and self.get(field):
                         vals.append(mil_to_date(self.get(field)))
                     elif field in cursor.long_fields and self.get(field):
-                        vals.append(INTERPOLATION(self.get(field)))
+                        vals.append(int(self.get(field)))
                     else:
                         if field == OID_TOKEN:
                             vals.append(self.oid)
@@ -476,7 +478,7 @@ class Cursor(FeatureSet):
                     if f in self.date_fields:
                         ft[ATTRIBUTES][f] = date_to_mil(val) if isinstance(val, datetime.datetime) else val
                     elif f in self.long_fields:
-                        ft[ATTRIBUTES][f] = long(val) if val is not None else val
+                        ft[ATTRIBUTES][f] = int(val) if val is not None else val
                     else:
                         ft[ATTRIBUTES][f] = val
                 else:
@@ -512,9 +514,9 @@ class Cursor(FeatureSet):
         for i,f in enumerate(fields):
             if '@' in f:
                 fields[i] = f.upper()
-            if f == self.ShapeFieldName:
+            if hasattr(self, 'ShapeFieldName') and f == self.ShapeFieldName:
                 fields[i] = SHAPE_TOKEN
-            if f == self.OIDFieldName:
+            if hasattr(self, 'OIDFieldName') and f == self.OIDFieldName:
                 fields[i] = OID_TOKEN
 
         return fields
@@ -813,6 +815,38 @@ class ArcServer(RESTEndpoint):
             instance = '?'
         return '<ArcServer: "{}" ("{}")>'.format(parsed.netloc, instance)
 
+class Portal(RESTEndpoint):
+    _elevated_token = None
+
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+        url = get_portal_base(url) + '/rest/portals/self'
+        print('URL FOR INIT: "{}"'.format(url))
+        super(Portal, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
+
+    @property
+    def portalUrl(self):
+        return get_portal_base(self.url)
+
+    # @property
+    # def services_url(self):
+    #     return self.portalUrl + '/servers'
+
+    def getItem(self, itemId):
+        item_url = self.portalUrl + '/rest/content/items/{}'.format(itemId)
+        item = self.request(item_url, {TOKEN: str(self.token)})
+
+        return item
+
+    def fromItem(self, item):
+        if item.type  == 'Feature Service':
+            services_base = item.url.split('/rest/services/')[0] + '/rest/services'
+            elevated_token = ID_MANAGER.tokens.get(services_base)
+            if not elevated_token or not self._elevated_token:
+                token = generate_elevated_portal_token(item.url, self.token)
+                self._elevated_token = token
+
+            return FeatureService(item.url)
+
 
 class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
     """Class to handle advanced layer properties"""
@@ -846,6 +880,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
     def _format_server_response(self, server_response, records=None):
         # set fields to full field definition of the layer
+        if isinstance(server_response, requests.Response):
+            server_response = munchify(server_response.json())
         flds = self.fieldLookup
         if FIELDS in server_response:
             for i,fld in enumerate(server_response.fields):
@@ -910,6 +946,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # check for tokens (only shape and oid)
         fields = self._fix_fields(fields)
+        print('FIX FIELDS OUTPUT: ', fields)
         params[OUT_FIELDS] = fields
 
         # geometry validation
@@ -1052,6 +1089,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         for where2 in self.iter_queries(where, params, max_recs=records):
             sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
             params[WHERE] = sql
+            print('FIELDS: ', params.get('fields'))
             yield self._format_server_response(self.request(query_url, params))
 
 
@@ -1210,7 +1248,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 if r[ATTACHMENT_INFOS]:
                     keys = r[ATTACHMENT_INFOS][0].keys()
 
-                props = list(set(['id', 'name', 'size', 'contentType', 'url', 'urlWithToken'] + keys))
+                props = list(set(['id', 'name', 'size', 'contentType', 'url', 'urlWithToken'] + list(keys)))
 
                 class Attachment(namedtuple('Attachment', ' '.join(props))):
                     """class to handle Attachment object"""
@@ -1351,7 +1389,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 # get any domain info
                 f_dict = {f.name: f for f in self.fields}
                 for field in fs.fields:
-                    field.domain = f_dict[field.name].get(DOMAIN)
+                    if field:
+                        field.domain = f_dict[field.name].get(DOMAIN)
 
                 return exportFeatureSet(fs, out_fc, include_domains)
 
@@ -1500,7 +1539,7 @@ class MapService(BaseService):
         """
         return [fix_encoding(l.name) for l in self.layers if l.id == lyrID][0]
 
-    def export(self, out_image, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png', transparent=True, **kwargs):
+    def export(self, out_image=None, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png', transparent=True, urlOnly=False, **kwargs):
         """exports a map image
 
         Required:
@@ -1566,6 +1605,11 @@ class MapService(BaseService):
         for k,v in six.iteritems(kwargs):
             if k not in params:
                 params[k] = v
+
+        if urlOnly:
+            if self.token:
+                params[TOKEN] = self.token
+            return query_url + '?' + six.moves.urllib.parse.urlencode(params)
 
         # do post
         r = self.request(query_url, params, ret_json=False)
@@ -1714,6 +1758,13 @@ class FeatureService(MapService):
             return [namedTuple('Replica', r) for r in reps]
         else:
             return []
+
+    def query(self, **kwargs):
+        if LAYER_DEFS not in kwargs:
+            kwargs[LAYER_DEFS] = json.dumps([{ 'layerId': l.id } for l in self.layers])
+        resp = self.request(self.url + '/query', **kwargs)
+        return list(map(lambda fs: FeatureSet(fs), filter(lambda x: len(x.get(FEATURES, [])), resp.get(LAYERS, {}))))
+                
 
     def layer(self, name_or_id):
         """Method to return a layer object with advanced properties by name
@@ -2003,6 +2054,7 @@ class FeatureLayer(MapServiceLayer):
                 self.useGlobalIds = useGlobalIds
                 self._deletes = []
                 self._updates = []
+                self._feature_lookup_by_oid = {self._get_oid(ft): {'index': i, 'feature': ft} for i,ft in enumerate(self.features)}
                 self._attachments = {
                     ADDS: [],
                     UPDATES: [],
@@ -2048,18 +2100,22 @@ class FeatureLayer(MapServiceLayer):
 
             def _find_index_by_oid(self, oid):
                 """gets the index of a Feature by it's OID"""
-                for i, ft in enumerate(self.features):
-                    if self._get_oid(ft) == oid:
-                        return i
+                return self._feature_lookup_by_oid.get(oid, {}).get('index')
+                # for i, ft in enumerate(self.features):
+                #     if self._get_oid(ft) == oid:
+                #         return i
 
             def _replace_feature_with_oid(self, oid, feature):
                 """replaces a feature with OID with another Feature"""
                 feature = self._toJson(feature)
                 if self._get_oid(feature) != oid:
                     feature.json[ATTRIBUTES][layer.OIDFieldName] = oid
-                for i, ft in enumerate(self.features):
-                    if self._get_oid(ft) == oid:
-                        self.features[i] = feature
+                i = self._find_index_by_oid(oid)
+                if i:
+                    self.features[i] = feature
+                # for i, ft in enumerate(self.features):
+                #     if self._get_oid(ft) == oid:
+                #         self.features[i] = feature
 
             def _find_by_globalid(self, globalid):
                 """gets a feature by its GlobalId"""

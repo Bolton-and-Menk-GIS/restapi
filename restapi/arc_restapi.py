@@ -31,7 +31,7 @@ def find_ws_type(path):
         return path, desc.workspaceType
 
     # search until finding a valid workspace
-    split = filter(None, path.split(os.sep))
+    split = list(filter(None, path.split(os.sep)))
     if path.startswith('\\\\'):
         split[0] = r'\\{0}'.format(split[0])
 
@@ -160,19 +160,28 @@ class Geometry(BaseGeometry):
         else:
             return ','.join(map(str, [self.json[XMIN], self.json[YMIN], self.json[XMAX], self.json[YMAX]]))
 
-    def envelopeAsJSON(self, roundCoordinates=False):
+    def envelopeAsJSON(self, featureBuffer=0, roundCoordinates=False):
         """returns an envelope geometry object as JSON"""
         if self.geometryType != ESRI_ENVELOPE:
             flds = [XMIN, YMIN, XMAX, YMAX]
             if roundCoordinates:
                 coords = map(int, [float(i) for i in self.envelope().split(',')])
             else:
-                coords = self.envelope().split(',')
+                coords = map(lambda x: float(x), self.envelope().split(','))
             d = dict(zip(flds, coords))
         else:
             d = self.json
         if self.json.get(SPATIAL_REFERENCE):
             d[SPATIAL_REFERENCE] = self.json[SPATIAL_REFERENCE]
+
+        if featureBuffer:
+            for k,v in six.iteritems(d):
+                if 'min' in k:
+                    print('v before', v)
+                    d[v] = v -  featureBuffer
+                    print('v after', v)
+                elif 'max' in k:
+                    d[v] = v + featureBuffer
         return munch.munchify(d)
 
     def asShape(self):
@@ -494,7 +503,7 @@ def add_domains_from_feature_set(out_fc, fs):
                     arcpy.management.AssignDomainToField(out_fc, fld, dom_name)
                     print('Assigned domain "{}" to field "{}"'.format(dom_name, fld))
 
-def append_feature_set(out_fc, feature_set):
+def append_feature_set(out_fc, feature_set, cursor):
     """appends features from a feature set to existing feature class manually with an insert cursor
 
     """
@@ -502,7 +511,7 @@ def append_feature_set(out_fc, feature_set):
     cur_fields = [f.name for f in fc_fields if f.type not in ('OID', 'Geometry') and not f.name.lower().startswith('shape')]
     # insert cursor to write rows manually
     with arcpy.da.InsertCursor(out_fc, cur_fields + ['SHAPE@']) as irows:
-        for i, row in enumerate(Cursor(feature_set, cur_fields + ['SHAPE@'])):
+        for i, row in enumerate(cursor(feature_set, cur_fields + ['SHAPE@'])):
             irows.insertRow(row)
 
 def export_attachments(out_fc, layer):

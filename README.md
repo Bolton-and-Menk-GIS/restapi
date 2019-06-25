@@ -29,31 +29,31 @@ rest_url = 'http://gis.srh.noaa.gov/arcgis/rest/services'
 ags = restapi.ArcServer(rest_url)
 
 # get folder and service properties
-print 'Number of folders: {}'.format(len(ags.folders))
-print 'Number of services: {}'.format(len(ags.services))
+print('Number of folders: {}'.format(len(ags.folders)))
+print('Number of services: {}'.format(len(ags.services)))
 
 # walk thru directories
 for root, folders, services in ags.walk():
-    print root
-    print folders
-    print services
-    print '\n'
+    print(root)
+    print(folders)
+    print(services)
+    print('\n')
 ````
 
 Connecting to a map service from within the ArcServer object
 ````py
 # access "ahps_gauges" service (stream gauges)
-gauges = ags.get_MapService('ahps_gauges')
-print gauges.url #print MapService url
+gauges = ags.getService('ahps_gauges')
+print(gauges.url) #print(MapService url
 
-# print layer names
-print gauges.list_layers()
+# print(layer names
+print(gauges.list_layers())
 
 # access "observed river stages" layer
 lyr = gauges.layer('observed_river_stages') #not case sensitive, also supports wildcard search (*)
 
 # list fields from col layer
-print lyr.list_fields()
+print(lyr.list_fields())
 ````
 
 You can also query the layer and get back arcpy.da Cursor like access
@@ -66,7 +66,7 @@ You can also query the layer and get back arcpy.da Cursor like access
 # all fields are gathered by the default ("*") and fields can be filtered by providing a list
 query = "state = 'CA'"
 for row in lyr.cursor(where=query, fields=['SHAPE@', u'gaugelid', u'status', u'location']):
-    print row
+    print(row)
 
 # Note: can also do this from the MapService level like this:
 # cursor = gauges.cursor('observed_river_stages', where=query)
@@ -164,8 +164,8 @@ os.remove(tmp)
 attachments = incidents.attachments(oid)
 
 for attachment in attachments:
-    print attachment
-    print attachment.contentType, attachment.size
+    print(attachment)
+    print attachment.contentType, attachment.size)
     attachment.download(folder) # folder is a user specified output directory
 ````
 Update feature and delete features
@@ -213,7 +213,7 @@ im.clip(geometry, tif)
 # test point identify
 x, y = 400994.780878, 157878.398217
 elevation = im.pointIdentify(x=x, y=y, sr=103793)
-print elevation
+print(elevation)
 ````
 
 Geocoding
@@ -227,7 +227,7 @@ geocoder = restapi.Geocoder(henn)
 geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
 
 # export results to shapefile
-print 'found {} candidates'.format(len(geoResult))
+print('found {} candidates'.format(len(geoResult))
 geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
 
 # Esri geocoder
@@ -236,9 +236,9 @@ esri_geocoder = restapi.Geocoder(esri_url)
 
 # find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
 candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
-print 'Number of address candidates: {}'.format(len(candidates))
+print('Number of address candidates: {}'.format(len(candidates)))
 for candidate in candidates:
-    print candidate.location
+    print(candidate.location)
 
 # export results to shapefile
 out_shp = os.path.join(folder, 'Esri_headquarters.shp')
@@ -254,9 +254,9 @@ gp_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Network/ESR
 gp = restapi.GPTask(gp_url)
 
 # get a list of gp parameters (so we know what to pass in as kwargs)
-print '\nGP Task "{}" parameters:\n'.format(gp.name)
+print('\nGP Task "{}" parameters:\n'.format(gp.name)
 for p in gp.parameters:
-    print '\t', p.name, p.dataType
+    print('\t', p.name, p.dataType)
 
 point = {"geometryType":"esriGeometryPoint",
          "features":[
@@ -273,7 +273,7 @@ if gp_res:
     result = gp_res.results[0]
     
     # this returned a GPFeatureRecordSetLayer as an outputParameter, so we can export this to polygons
-    print '\nOutput Result: "{}", data type: {}\n'.format(result.paramName, result.dataType)
+    print('\nOutput Result: "{}", data type: {}\n'.format(result.paramName, result.dataType))
 
     # now export the result value to fc (use the value property of the GPResult object from run())
     drive_times = os.path.join(folder, 'drive_times.shp')
@@ -290,7 +290,7 @@ It also supports arcpy Geometries and shapefile._Shape() objects
 ````py
 >>> shp = r'C:\TEMP\Polygons.shp' # a shapefile on disk somewhere
 >>> geom = restapi.Geometry(shp)
->>> print geom.envelope()
+>>> print(geom.envelope())
 -121.5,38.3000000007,-121.199999999,38.6000000015
 ````
 
@@ -370,7 +370,7 @@ To list services within a folder, you can do this:
 ```py
 folder = arcserver.folder('SomeFolder')  # supply name of folder as argument
 for service in folder.iter_services():
-    print service.serviceName, service.configuredState
+    print(service.serviceName, service.configuredState
 
     # can stop a service like this
     # service.stop()
@@ -378,11 +378,11 @@ for service in folder.iter_services():
     # or start like this
     # service.start()
 
-print '\n' * 3
+print('\n' * 3)
 
 # show all services and configured state (use iter_services to return restapi.admin.Service() object!)
 for service in arcserver.iter_services():
-    print service.serviceName, service.configuredState
+    print(service.serviceName, service.configuredState)
 ```
 Security
 --------
@@ -415,20 +415,20 @@ arcserver.stopServices(folderName='SomeFolder') # this can take a few minutes
 
 # look thru the folder to check the configured states, should be stopped
 for service in arcserver.folder('SomeFolder').iter_services():
-    print service.serviceName, service.configuredState
+    print(service.serviceName, service.configuredState)
 
 # now restart
 arcserver.startServices(folderName='SomeFolder') # this can take a few minutes
 
 # look thru folder, services should be started
 for service in arcserver.folder('SomeFolder').iter_services():
-    print service.serviceName, service.configuredState
+    print(service.serviceName, service.configuredState)
     
 # to do this from a folder, simply get a folder object back
 folder = arcserver.folder('SomeFolder')
 folder.stopServices()
 for service in folder.iter_services():
-    print service.serviceName, service.configuredState
+    print(service.serviceName, service.configuredState)
 ```
 
 Updating Service Properties
@@ -458,7 +458,7 @@ There are also some helper methods that aren't available out of the box from the
 service.disableExtensions(['FeatureServer', 'KmlServer'])
 
 # you can also list enabled/disabled services
-print service.enabledExtensions
+print(service.enabledExtensions)
 # [u'KmlServer', u'WFSServer', u'FeatureServer']
 
 service.disabledExtensions
@@ -468,7 +468,7 @@ service.disabledExtensions
 # get an extension and view its properties
 fs_extension = service.getExtension('FeatureServer')
 
-print fs_extension # will print as pretty json
+print(fs_extension) # will print as pretty json
 ```
 
 For Service objects, all properties are represented as pretty json.  Below is what the FeatureService Extension looks like:
@@ -512,7 +512,7 @@ Setting properties for extensions is also easy:
 service.setExtensionProperties('FeatureServer', capabilities='Query,Update,Delete,Editing')
 
 # verify changes were made
-print fs_extension.capabilities
+print(fs_extension.capabilities
 # 'Query,Update,Delete,Editing'
 
 # alternatively, you can edit the service json directly and call the edit method
@@ -521,7 +521,7 @@ fs_extension.capabilities = 'Query,Create,Update,Delete,Uploads,Editing'
 service.edit()
 
 # verify one more time...
-print fs_extension.capabilities
+print(fs_extension.capabilities)
 # 'Query,Create,Update,Delete,Uploads,Editing'
 ```
 
@@ -536,14 +536,14 @@ ds = arcserver.dataStore
 
 # iterate through all items of data store
 for item in ds:
-    print item.type, item.path
+    print(item.type, item.path
     # if it is an enterprise database connection, you can get the connection string like this
     if item.type == 'egdb':
-        print item.info.connectionString
-    # else if a folder, print server path
+        print(item.info.connectionString)
+    # else if a folder, print(server path
     elif item.type == 'folder':
-        print item.info.path
-    print '\n'
+        print(item.info.path)
+    print('\n')
 ```
 
 User and Role Stores
@@ -557,11 +557,11 @@ rs = arcserver.roleStore
 
 # print roles
 for role in rs:
-    print role
+    print(role)
 
 # find users within roles
 for role in rs:
-    print role, 'Users: ', rs.getUsersWithinRole(role)
+    print(role, 'Users: ', rs.getUsersWithinRole(role))
 
 # add a user to role
 rs.addUsersToRole('Administrators', 'your-domain\\someuser')
@@ -580,11 +580,11 @@ To view and make changes to the User Store:
 us = arcserver.userStore
 
 # get number of users
-print len(us)
+print(len(us)
 
 # iterate through first 10 users
 for user in us.searchUsers(maxCount=10):
-    print user
+    print(user)
     
 # add new user
 us.addUser('your-domain\\someuser', 'password')
@@ -611,10 +611,10 @@ import datetime
 # query log files (within last 3 days), need to convert to milliseconds
 threeDaysAgo = restapi.date_to_mil(datetime.datetime.now() - relativedelta(days=3))
 for log in arcserver.queryLogs(endTime=threeDaysAgo, pageSize=25):
-    print log.time
+    print(log.time
     for message in log:
-        print message
-    print '\n'
+        print(message)
+    print('\n')
 ```
 
 A note about verbosity
