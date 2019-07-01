@@ -17,11 +17,14 @@ from .six.moves import urllib, zip_longest
 __opensource__ = False
 
 def force_open_source(force=True):
-    """this function can be used to explicitly use open source mode, even if arcpy is available
+    """This function can be used to explicitly use open source mode, even if arcpy is 
+            available.
 
-    Optional:
-        force -- when True, this will force restapi to use open source mode.
+    Arg:
+        force: Optional boolean, when True will force restapi to use open 
+            source mode. Defaults to True.
     """
+
     setattr(sys.modules[__name__], '__opensource__', force)
     if force:
         from .open_restapi import Geometry, GeometryCollection, exportReplica, project, \
@@ -66,7 +69,7 @@ except:
             raise NotImplementedError('No Access to arcpy!')
 
         def __getattr__(self, attr):
-            """recursively raise not implemented error for any calls to arcpy:
+            """Recursively raise not implemented error for any calls to arcpy:
 
                 arcpy.management.AddField(...)
 
@@ -95,9 +98,15 @@ USE_GEOMETRY_PASSTHROUGH = True #can be set to false to not use @geometry_passth
 
 @decorator
 def geometry_passthrough(func, *args, **kwargs):
-    """decorator to return a single geometry if a single geometry was returned
-    in a GeometryCollection(), otherwise returns the full GeometryCollection()
+    """Decorator to return a single geometry if a single geometry was returned
+        in a GeometryCollection(), otherwise returns the full GeometryCollection().
+    
+    Args:
+        func: Function to decorate.
+        *args: Args to pass into function.
+        **kwargs: Keyword args to pass into function.
     """
+
     f = func(*args, **kwargs)
     gc = GeometryCollection(f)
     if gc.count == 1 and USE_GEOMETRY_PASSTHROUGH:
@@ -107,12 +116,16 @@ def geometry_passthrough(func, *args, **kwargs):
     return f
 
 def getFeatureExtent(in_features):
-    """gets the extent for a FeatureSet() or GeometryCollection(), must be convertible
-    to a GeometryCollection().  Returns an envelope json structure (extent)
+    """Gets the extent for a FeatureSet() or GeometryCollection(), must be convertible
+    to a GeometryCollection().
 
-    Required:
-        in_features -- input features (Feature|FeatureSet|GeometryCollection|json)
+    Arg:
+        in_features: Input features (Feature|FeatureSet|GeometryCollection|json).
+    
+    Returns:
+        An envelope json structure (extent).
     """
+
     if not isinstance(in_features, GeometryCollection):
         in_features = GeometryCollection(in_features)
 
@@ -123,11 +136,12 @@ def getFeatureExtent(in_features):
     return munch.munchify(full_extent)
 
 def unqualify_fields(fs):
-    """removes fully qualified field names from a feature set
+    """Removes fully qualified field names from a feature set.
 
-    Required:
-        fs -- restapi.FeatureSet() object or JSON
+    Arg:
+        fs: restapi.FeatureSet() object or JSON.
     """
+
     if not isinstance(fs, FeatureSet):
         fs = FeatureSet(fs)
 
@@ -145,25 +159,31 @@ def unqualify_fields(fs):
         fs.features[i].attributes = munch.munchify(feature_copy)
 
 def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified_fieldnames=False, append_features=True, **kwargs):
-        """export FeatureSet (JSON result)  to shapefile or feature class
+        """Exports FeatureSet (JSON result)  to shapefile or feature class.
 
-        Required:
-            feature_set -- JSON response obtained from a query or FeatureSet() object
-            out_fc -- output feature class or shapefile.  If the output exists, features are appended
-                at the end (unless append_features is set to False)
+        Args:
+            feature_set: JSON response obtained from a query or FeatureSet() object.
+            out_fc: Output feature class or shapefile.  If the output exists, 
+                features are appended at the end.
+                (unless append_features is set to False)
+            include_domains: Optional boolean, if True, will manually create the 
+                feature class and add domains to GDB if output is in a geodatabase.
+                Defaults to False.
+            qualified_fieldnames: Optional boolean, default is False, in situations 
+                where there are table joins, there are qualified table names such as 
+                ["table1.Field_from_tab1", "table2.Field_from_tab2"]. By setting 
+                this to False, exported fields would be: 
+                ["Field_from_tab1", "Field_from_tab2"].
+            append_features: Optional boolean to append features if the output 
+                features already exist.  Set to False to overwrite features.
 
-        Optional:
-            include_domains -- if True, will manually create the feature class and add domains to GDB
-                if output is in a geodatabase.
-            qualified_fieldnames -- default is False, in situations where there are table joins, there
-                are qualified table names such as ["table1.Field_from_tab1", "table2.Field_from_tab2"].
-                By setting this to false, exported fields would be: ["Field_from_tab1", "Field_from_tab2"]
-            append_features -- option to append features if the output features already exist.  Set to False
-                to overwrite features.
-
-        at minimum, feature set must contain these keys:
+        At minimum, feature set must contain these keys:
             [u'features', u'fields', u'spatialReference', u'geometryType']
-        """
+        
+        Returns:
+            A feature class.
+        """ 
+
         if __opensource__:
             return exportFeatureSet_os(feature_set, out_fc, **kwargs)
 
@@ -242,16 +262,18 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
 
 
 def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
-        """export features (JSON result) to shapefile or feature class
+        """Exports features (JSON result) to shapefile or feature class.
 
-        Required:
-            out_fc -- output feature class or shapefile
-            feature_set -- JSON response (feature set) obtained from a query
-
-        Optional:
-            outSR -- optional output spatial reference.  If none set, will default
-                to SR of result_query feature set.
+        Args:
+            out_fc: Output feature class or shapefile.
+            feature_set: JSON response (feature set) obtained from a query.
+            outSR: Optional output spatial reference.  If none set, will default
+                to SR of result_query feature set. Defaults to None.
+        
+        Returns:
+            Feature class.
         """
+        
         import shp_helper
         from .shapefile import shapefile
         out_fc = validate_name(out_fc)
@@ -309,12 +331,16 @@ else:
     exportFeatureSet = exportFeatureSet_os
 
 def exportGeometryCollection(gc, output, **kwargs):
-    """Exports a goemetry collection to shapefile or feature class
+    """Returns and exports a geometry collection to shapefile or feature class.
 
-    Required:
-        gc -- GeometryCollection() object
-        output -- output data set (will be geometry only)
-    """
+    Args:
+        gc: GeometryCollection() object.
+        output: Output data set (will be geometry only).
+    
+    Raises:
+        ValueError: "Input is not a GeometryCollection!"
+    """ 
+
     if isinstance(gc, Geometry):
         gc = GeometryCollection(gc)
     if not isinstance(gc, GeometryCollection):
@@ -341,38 +367,49 @@ def featureIterator(obj):
 FeatureSet.__iter__ = featureIterator
 
 class Cursor(FeatureSet):
-    """Class to handle Cursor object"""
+    """Class to handle Cursor object."""
     json = {}
     fieldOrder = []
     field_names = []
 
     class BaseRow(object):
-        """Class to handle Row object"""
+        """Class to handle Row object.
+        
+        Attributes:
+            feature: A feature JSON object.
+            spatialReference: A spatial reference.
+        """
         def __init__(self, feature, spatialReference):
-            """Row object for Cursor
-            Required:
-                feature -- features JSON object
+            """Row object for Cursor.
+            
+            Args:
+                feature: Features JSON object.
+                spatialReference: A spatial reference.
             """
+
             self.feature = Feature(feature) if not isinstance(feature, Feature) else feature
             self.spatialReference = spatialReference
 
         def get(self, field):
-            """gets an attribute by field name
+            """Gets/returns an attribute by field name.
 
-            Required:
-                field -- name of field for which to get the value
+            Arg:
+                field: Name of field for which to get the value.
             """
+
             return self.feature.attributes.get(field)
 
     def __init__(self, feature_set, fieldOrder=[]):
-        """Cursor object for a feature set
-        Required:
-            feature_set -- feature set as json or restapi.FeatureSet() object
-        Optional:
-            fieldOrder -- order of fields for cursor row returns.  To explicitly
-                specify and OBJECTID field or Shape (geometry field), you must use
-                the field tokens 'OID@' and 'SHAPE@' respectively.
+        """Cursor object for a feature set.
+        
+        Args:
+            feature_set: Feature set as json or restapi.FeatureSet() object.
+            fieldOrder: Optional, list of order of fields for cursor row returns. 
+                To explicitly specify and OBJECTID field or Shape (geometry field), 
+                you must use the field tokens 'OID@' and 'SHAPE@' respectively.
+                Defaults to [].
         """
+
         if isinstance(feature_set, FeatureSet):
             feature_set = feature_set.json
         super(Cursor, self).__init__(feature_set)
@@ -380,11 +417,11 @@ class Cursor(FeatureSet):
 
         cursor = self
         class Row(cursor.BaseRow):
-            """Class to handle Row object"""
+            """Class to handle Row object."""
 
             @property
             def geometry(self):
-                """returns a restapi Geometry() object"""
+                """Returns a restapi Geometry() object."""
                 if GEOMETRY in self.feature.json:
                     gd = {k: v for k,v in six.iteritems(self.feature.geometry)}
                     if SPATIAL_REFERENCE not in gd:
@@ -394,14 +431,14 @@ class Cursor(FeatureSet):
 
             @property
             def oid(self):
-                """returns the OID for row"""
+                """Returns the OID for row."""
                 if cursor.OIDFieldName:
                     return self.get(cursor.OIDFieldName)
                 return None
 
             @property
             def values(self):
-                """returns values as tuple"""
+                """Returns values as tuple."""
                 # fix date format in milliseconds to datetime.datetime()
                 vals = []
                 for field in cursor.field_names:
@@ -423,7 +460,12 @@ class Cursor(FeatureSet):
                 return tuple(vals)
 
             def __getitem__(self, i):
-                """allows for getting a field value by index"""
+                """Allows for getting a field value by index.
+                
+                Arg:
+                    i: Index to get value from.
+                """
+
                 return self.values[i]
 
         # expose Row object
@@ -431,19 +473,22 @@ class Cursor(FeatureSet):
 
     @property
     def date_fields(self):
-        """gets the names of any date fields within feature set"""
+        """Gets the names of any date fields within feature set."""
         return [f.name for f in self.fields if f.type == DATE_FIELD]
 
     @property
     def long_fields(self):
-        """field names of type Long Integer, need to know this for use with
-        arcpy.da.InsertCursor() as the values need to be cast to long
+        """Field names of type Long Integer, need to know this for use with
+            arcpy.da.InsertCursor() as the values need to be cast to long.
+        
+        Returns:
+            The names of the Long Integer fields.
         """
         return [f.name for f in self.fields if f.type == LONG_FIELD]
 
     @property
     def field_names(self):
-        """gets the field names for feature set"""
+        """Gets and returns the field names for feature set."""
         names = []
         for f in self.fieldOrder:
             if f == OID_TOKEN and self.OIDFieldName:
@@ -455,21 +500,21 @@ class Cursor(FeatureSet):
         return names
 
     def get_rows(self):
-        """returns row objects"""
+        """Returns row objects."""
         for feature in self.features:
             yield self._createRow(feature, self.spatialReference)
 
     def rows(self):
-        """returns Cursor.rows() as generator"""
+        """Returns Cursor.rows() as generator."""
         for feature in self.features:
             yield self._createRow(feature, self.spatialReference).values
 
     def getRow(self, index):
-        """returns row object at index"""
+        """Returns row object at index."""
         return self._createRow(self.features[index], self.spatialReference)
 
     def _toJson(self, row):
-        """casts row to json"""
+        """Casts row to JSON."""
         if isinstance(row, (list, tuple)):
             ft = {ATTRIBUTES: {}}
             for i,f in enumerate(self.field_names):
@@ -496,17 +541,23 @@ class Cursor(FeatureSet):
             return Feature(row)
 
     def __iter__(self):
-        """returns Cursor.rows()"""
+        """Returns Cursor.rows()."""
         return self.rows()
 
     def _createRow(self, feature, spatialReference):
+        """Creates a row based off of the feature and spatial reference."""
         return self.__Row(feature, spatialReference)
 
     def __validateOrderBy(self, fields):
-        """fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@")
-        Required:
-            fields -- list or comma delimited field list
+        """Fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@").
+
+        Arg:
+            fields: List or comma delimited field list.
+        
+        Returns:
+            The list of the fields.
         """
+
         if not fields or fields == '*':
             fields = [f.name for f in self.fields]
         if isinstance(fields, six.string_types):
@@ -525,24 +576,31 @@ class Cursor(FeatureSet):
         return object.__repr__(self)
 
 class JsonReplica(JsonGetter):
-    """represents a JSON replica"""
+    """Represents a JSON replica.
+    
+    Attributes:
+        json: JSON object.
+    """
+
     def __init__(self, in_json):
+        """Creates a JSON form input JSON."""
         self.json = munch.munchify(in_json)
         super(self.__class__, self).__init__()
 
 class SQLiteReplica(sqlite3.Connection):
-    """represents a replica stored as a SQLite database"""
+    """Represents a replica stored as a SQLite database."""
     def __init__(self, path):
-        """represents a replica stored as a SQLite database, this should ALWAYS
+        """Represents a replica stored as a SQLite database, this should ALWAYS
         be used with a context manager.  For example:
 
             with SQLiteReplica(r'C:\TEMP\replica.geodatabase') as con:
                 print(con.list_tables())
                 # do other stuff
 
-        Required:
-            path -- full path to .geodatabase file (SQLite database)
+        Arg:
+            path: Full path to .geodatabase file (SQLite database).
         """
+
         self.db = path
         super(SQLiteReplica, self).__init__(self.db)
         self.isClosed = False
@@ -552,8 +610,8 @@ class SQLiteReplica(sqlite3.Connection):
         """Executes an SQL query.  This method must be used via a "with" statement
         to ensure the cursor connection is closed.
 
-        Required:
-            sql -- sql statement to use
+        Arg:
+            sql: SQL statement to use.
 
         >>> with restapi.SQLiteReplica(r'C:\Temp\test.geodatabase') as db:
         >>>     # now do a cursor using with statement
@@ -561,6 +619,7 @@ class SQLiteReplica(sqlite3.Connection):
         >>>         for row in cur.fetchall():
         >>>             print(row)
         """
+
         cursor = self.cursor()
         try:
             yield cursor.execute(sql)
@@ -568,12 +627,13 @@ class SQLiteReplica(sqlite3.Connection):
             cursor.close()
 
     def list_tables(self, filter_esri=True):
-        """returns a list of tables found within sqlite table
+        """Returns a list of tables found within sqlite table.
 
-        Optional:
-            filter_esri -- filters out all the esri specific tables (GDB_*, ST_*), default is True.  If
-                False, all tables will be listed.
+        Arg:
+            filter_esri -- Optional boolean, filters out all the esri specific 
+                tables (GDB_*, ST_*), default is True. If False, all tables will be listed.
         """
+
         with self.execute("select name from sqlite_master where type = 'table'") as cursor:
             tables = cursor.fetchall()
         if filter_esri:
@@ -584,27 +644,32 @@ class SQLiteReplica(sqlite3.Connection):
             return [t[0] for t in tables]
 
     def list_fields(self, table_name):
-        """lists fields within a table, returns a list of tuples with the following attributes:
+        """Lists fields within a table, returns a list of tuples with the following 
+            attributes:
 
         cid         name        type        notnull     dflt_value  pk
         ----------  ----------  ----------  ----------  ----------  ----------
         0           id          integer     99                      1
         1           name                    0                       0
 
-        Required:
-            table_name -- name of table to get field list from
+        Arg:
+            table_name: Name of table to get field list from.
         """
+
         with self.execute('PRAGMA table_info({})'.format(table_name)) as cur:
             return cur.fetchall()
 
     def exportToGDB(self, out_gdb_path):
-        """exports the sqlite database (.geodatabase file) to a File Geodatabase, requires access to arcpy.
-        Warning:  All cursor connections must be closed before running this operation!  If there are open
-        cursors, this can lock down the database.
+        """Exports the sqlite database (.geodatabase file) to a File Geodatabase, 
+            requires access to arcpy. Warning:  All cursor connections must be 
+            closed before running this operation!  If there are open cursors, 
+            this can lock down the database.
 
-        Required:
-            out_gdb_path -- full path to new file geodatabase (ex: r"C:\Temp\replica.gdb")
+        Arg:
+            out_gdb_path: Full path to new file geodatabase. 
+                (ex: r"C:\Temp\replica.gdb").
         """
+
         if not has_arcpy:
             raise NotImplementedError('no access to arcpy!')
         if not hasattr(arcpy.conversion, COPY_RUNTIME_GDB_TO_FILE_GDB):
@@ -617,7 +682,7 @@ class SQLiteReplica(sqlite3.Connection):
         return arcpy.conversion.CopyRuntimeGdbToFileGdb(self.db, out_gdb_path).getOutput(0)
 
     def __safe_cleanup(self):
-        """close connection and remove temporary .geodatabase file"""
+        """Closes connection and removes temporary .geodatabase file"""
         try:
             self.close()
             self.isClosed = True
@@ -638,18 +703,26 @@ class SQLiteReplica(sqlite3.Connection):
         self.__safe_cleanup()
 
 class ArcServer(RESTEndpoint):
-    """Class to handle ArcGIS Server Connection"""
+    """Class to handle ArcGIS Server Connection.
+    
+    Attributes:
+        service_cache: List of service cache.
+    """
+
     def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None):
         super(ArcServer, self).__init__(url, usr, pw, token, proxy, referer)
         self.service_cache = []
 
     def getService(self, name_or_wildcard):
-        """method to return Service Object (MapService, FeatureService, GPService, etc).
-        This method supports wildcards
+        """Method to return Service Object (MapService, FeatureService, GPService, etc).
+        This method supports wildcards.
 
-        Required:
-            name_or_wildcard -- service name or wildcard used to grab service name
+        Arg:
+            name_or_wildcard: Service name or wildcard used to grab service name.
                 (ex: "moun_webmap_rest/mapserver" or "*moun*mapserver")
+        
+        Raises:
+            NotImplementedError: 'restapi does not support "{}" services!'
         """
         full_path = self.get_service_url(name_or_wildcard)
         if full_path:
@@ -669,52 +742,49 @@ class ArcServer(RESTEndpoint):
 
     @property
     def mapServices(self):
-        """list of all MapServer objects"""
+        """List of all MapServer objects."""
         if not self.service_cache:
             self.service_cache = self.list_services()
         return [s for s in self.service_cache if s.endswith('MapServer')]
 
     @property
     def featureServices(self):
-        """list of all MapServer objects"""
+        """List of all FeatureServer objects."""
         if not self.service_cache:
             self.service_cache = self.list_services()
         return [s for s in self.service_cache if s.endswith('FeatureServer')]
 
     @property
     def imageServices(self):
-        """list of all MapServer objects"""
+        """List of all ImageServer objects."""
         if not self.service_cache:
             self.service_cache = self.list_services()
         return [s for s in self.service_cache if s.endswith('ImageServer')]
 
     @property
     def gpServices(self):
-        """list of all MapServer objects"""
+        """List of all GPServer objects."""
         if not self.service_cache:
             self.service_cache = self.list_services()
         return [s for s in self.service_cache if s.endswith('GPServer')]
 
     def folder(self, name):
-        """returns a restapi.Folder() object
+        """Returns a restapi.Folder() object.
 
-        Required:
-            name -- name of folder
+        Arg:
+            name: Name of folder.
         """
         return Folder('/'.join([self.ur, name]), token=self.token)
 
     def list_services(self, filterer=True):
-        """returns a list of all services"""
+        """Returns a list of all services."""
         return list(self.iter_services(filterer))
 
     def iter_services(self, token='', filterer=True):
-        """returns a generator for all services
+        """Returns a generator for all services
 
-        Required:
-            service -- full path to a rest services directory
-
-        Optional:
-            token -- token to handle security (only required if security is enabled)
+        Arg:
+            token: Optional token to handle security (only required if security is enabled).
         """
         self.service_cache = []
         for s in self.services:
@@ -731,13 +801,14 @@ class ArcServer(RESTEndpoint):
                 yield full_service_url
 
     def get_service_url(self, wildcard='*', _list=False):
-        """method to return a service url
+        """Method to return a service url.
 
-        Optional:
-            wildcard -- wildcard used to grab service name (ex "moun*featureserver")
-            _list -- default is false.  If true, will return a list of all services
+        Args:
+            wildcard: Wildcard used to grab service name (ex "moun*featureserver").
+            _list: Default is false.  If true, will return a list of all services
                 matching the wildcard.  If false, first match is returned.
         """
+
         if not self.service_cache:
             self.list_services()
         if '*' in wildcard:
@@ -759,7 +830,7 @@ class ArcServer(RESTEndpoint):
         return ''
 
     def get_folders(self):
-        """method to get folder objects"""
+        """Method to get and return folder objects."""
         folder_objects = []
         for folder in self.folders:
             folder_url = '/'.join([self.url, folder])
@@ -767,10 +838,11 @@ class ArcServer(RESTEndpoint):
         return folder_objects
 
     def walk(self):
-        """method to walk through ArcGIS REST Services. ArcGIS Server only supports single
-        folder heiarchy, meaning that there cannot be subdirectories within folders.
+        """Method to walk through ArcGIS REST Services. ArcGIS Server only 
+            supports single folder heiarchy, meaning that there cannot be 
+            subdirectories within folders.
 
-        will return tuple of the root folder and services from the topdown.
+        Will return tuple of the root folder and services from the topdown.
         (root, services) example:
 
         ags = restapi.ArcServer(url, username, password)
@@ -800,11 +872,11 @@ class ArcServer(RESTEndpoint):
             yield (f, services)
 
     def __iter__(self):
-        """returns an generator for services"""
+        """Returns an generator for services."""
         return self.list_services()
 
     def __len__(self):
-        """returns number of services"""
+        """Returns number of services."""
         return len(self.service_cache)
 
     def __repr__(self):
@@ -816,9 +888,25 @@ class ArcServer(RESTEndpoint):
         return '<ArcServer: "{}" ("{}")>'.format(parsed.netloc, instance)
 
 class Portal(RESTEndpoint):
+    """Class that handles the Portal
+    
+    Attributes:
+        self.url: URL for site.
+    """
     _elevated_token = None
 
     def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+        """Gets login credentials for portal.
+        
+        Args:
+            url: The URL.
+            usr: Username to login with. Defaults to ''.
+            pw: Password to login with. Defaults to ''.
+            token: Token for the URL. Defaults to ''.
+            proxy: Optional arg for proxy. Defaults to None.
+            referer: Optional, defaults to None.
+        """
+
         url = get_portal_base(url) + '/rest/portals/self'
         print('URL FOR INIT: "{}"'.format(url))
         super(Portal, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
