@@ -19,9 +19,13 @@ arcpy.env.overwriteOutput = True
 arcpy.env.addOutputsToMap = False
 
 def find_ws_type(path):
-    """determine output workspace (feature class if not FileSystem)
-    returns a tuple of workspace path and type
+    """Determines output workspace (feature class if not FileSystem).
+        returns a tuple of workspace path and type.
+    
+    Arg:
+        path: Path for workspace.
     """
+ 
     # try original path first
     if not arcpy.Exists(path):
         path = os.path.dirname(path)
@@ -43,14 +47,25 @@ def find_ws_type(path):
             return sub_dir, desc.workspaceType
 
 class Geometry(BaseGeometry):
-    """class to handle restapi.Geometry"""
-    def __init__(self, geometry, **kwargs):
-        """converts geometry input to restapi.Geometry object
+    """Class to handle restapi.Geometry.
+    
+    Attributes:
+        geometryType: The type of geometry.
+        json: JSON object.
+    """
 
-        Required:
-            geometry -- input geometry.  Can be arcpy.Geometry(), shapefile/feature
-                class, or JSON
+    def __init__(self, geometry, **kwargs):
+        """Converts geometry input to restapi.Geometry object.
+
+        Arg:
+            geometry: Input geometry.  Can be arcpy.Geometry(), shapefile/feature
+                class, or JSON.
+        
+        Raises:
+            ValueError: "Not a valid geometry input!"
+            ValueError: "Not a vaild JSON object!"
         """
+
         self._inputGeometry = geometry
         if isinstance(geometry, self.__class__):
             geometry = geometry.json
@@ -153,7 +168,7 @@ class Geometry(BaseGeometry):
         self.hasCurves = CURVE_PATHS in self.json or CURVE_RINGS in self.json
 
     def envelope(self):
-        """return an envelope from shape"""
+        """Return an envelope from shape."""
         if self.geometryType != ESRI_ENVELOPE:
             e = arcpy.AsShape(self.json, True).extent
             return ','.join(map(str, [e.XMin, e.YMin, e.XMax, e.YMax]))
@@ -161,7 +176,14 @@ class Geometry(BaseGeometry):
             return ','.join(map(str, [self.json[XMIN], self.json[YMIN], self.json[XMAX], self.json[YMAX]]))
 
     def envelopeAsJSON(self, featureBuffer=0, roundCoordinates=False):
-        """returns an envelope geometry object as JSON"""
+        """Returns an envelope geometry object as JSON.
+        
+        Args:
+            featureBuffer: Optional buffer for the feature, defaults to 0.
+            roundCoordinates: Optional boolean arg, determines if coordinates are 
+                rounded. Defaults to False.
+        """
+
         if self.geometryType != ESRI_ENVELOPE:
             flds = [XMIN, YMIN, XMAX, YMAX]
             if roundCoordinates:
@@ -185,7 +207,7 @@ class Geometry(BaseGeometry):
         return munch.munchify(d)
 
     def asShape(self):
-        """returns JSON as arcpy.Geometry() object"""
+        """Returns JSON as arcpy.Geometry() object."""
         if self.geometryType != ESRI_ENVELOPE:
             return arcpy.AsShape(self.json, True)
         else:
@@ -198,6 +220,7 @@ class Geometry(BaseGeometry):
             return arcpy.Polygon(ar, arcpy.SpatialReference(self.spatialReference))
 
     def toPolygon(self):
+        """Returns a polygon that is converted from geometry."""
         if hasattr(self, GEOMETRY_TYPE):
             if getattr(self, GEOMETRY_TYPE) == ESRI_ENVELOPE:
                 ext = getattr(self, 'json')
@@ -217,26 +240,38 @@ class Geometry(BaseGeometry):
 
 
     def __str__(self):
-        """dumps JSON to string"""
+        """Dumps JSON to string."""
         return self.dumps()
 
     def __repr__(self):
-        """represntation"""
+        """Representation."""
         return '<{}.{}: {}>'.format(self.__module__, self.__class__.__name__, self.geometryType)
 
 class GeometryCollection(BaseGeometryCollection):
-    """represents an array of restapi.Geometry objects"""
+    """Represents an array of restapi.Geometry objects.
+    
+    Attributes:
+        geometries: A single geomtry or list of geometries.
+        json = A JSON object.
+        geometryType: The type of geometry.
+    """
+
     def __init__(self, geometries, use_envelopes=False, spatialReference=None):
-        """represents an array of restapi.Geometry objects
+        """Represents an array of restapi.Geometry objects.
 
-        Required:
-            geometries -- a single geometry or a list of geometries.  Valid inputs
-                are a shapefile|feature class|Layer, geometry as JSON, or a restapi.Geometry or restapi.FeatureSet
+        Args:
+            geometries: A single geometry or a list of geometries.  Valid inputs
+                are a shapefile|feature class|Layer, geometry as JSON, a 
+                restapi.Geometry, or restapi.FeatureSet.
+            use_envelopes: Optional boolean, if set to true, will use the bounding 
+                box of each geometry passed in for the JSON attribute.
+            spatialReference: Optional spatial reference. Defaults to None.
+        
+        Raises:
+            ValueError: 'Inputs are not valid ESRI JSON Geometries!!!'
 
-        Optional:
-            use_envelopes -- if set to true, will use the bounding box of each geometry passed in
-                for the JSON attribute.
         """
+
         self.geometries = []
         if isinstance(geometries, self.__class__):
             self.geometries = geometries.geometries
@@ -332,20 +367,26 @@ class GeometryCollection(BaseGeometryCollection):
             g.spatialReference = wkid
 
 class GeocodeHandler(object):
-    """class to handle geocode results"""
+    """Class to handle geocode results.
+    
+    Attributes:
+        results: Results from the geocode.
+        spatailReference: Spatial reference.
+    """
 
     def __init__(self, geocodeResult):
-        """geocode response object handler
+        """Geocode response object handler
 
-        Required:
-            geocodeResult -- GeocodeResult object
+        Arg:
+            geocodeResult: GeocodeResult object.
         """
+
         self.results = geocodeResult.results
         self.spatialReference = geocodeResult.spatialReference
 
     @property
     def fields(self):
-        """returns collections.namedtuple with (name, type)"""
+        """Returns collections.namedtuple with (name, type)."""
         res_sample = self.results[0]
         __fields = []
         for f, val in six.iteritems(res_sample.attributes):
@@ -366,7 +407,7 @@ class GeocodeHandler(object):
 
     @property
     def formattedResults(self):
-        """returns a generator with formated results as tuple"""
+        """Returns a generator with formated results as tuple."""
         for res in self.results:
             pt = arcpy.PointGeometry(arcpy.Point(res.location[X],
                                                  res.location[Y]),
@@ -375,16 +416,23 @@ class GeocodeHandler(object):
             yield (pt,) + tuple(res.attributes[f.name] for f in self.fields)
 
 class Geocoder(GeocodeService):
-
+    """Class that handles geocoding. Inherits GeocodeService."""
     @staticmethod
     def exportResults(geocodeResultObject, out_fc):
-        """exports the geocode results (GeocodeResult object) to feature class
+        """Exports the geocode results (GeocodeResult object) to feature class.
 
-        Required:
-            geocodeResultObject -- results from geocode operation, must be of type
+        Args:
+            geocodeResultObject: Results from geocode operation, must be of type
                 GeocodeResult.
-            out_fc -- full path to output feature class
+            out_fc: Full path to output feature class.
+        
+        Raises:
+            TypeError: "{} is not a {} object!"
+        
+        Returns:
+            The path to the output feature class.
         """
+
         if isinstance(geocodeResultObject, GeocodeResult):
             handler = GeocodeHandler(geocodeResultObject)
             if not handler.results:
@@ -410,6 +458,16 @@ class Geocoder(GeocodeService):
 
 # ARCPY UTILITIES - only available here
 def create_empty_schema(feature_set, out_fc):
+    """Creates empty schema in a feature class.
+    
+    Args:
+        feature_set: Input feature set.
+        out_fc: Output feature class path.
+    
+    Returns:
+        A feature class.
+    """
+
     # make copy of feature set
     fs = feature_set.getEmptyCopy()
     try:
@@ -459,6 +517,12 @@ def create_empty_schema(feature_set, out_fc):
         return out_fc
 
 def add_domains_from_feature_set(out_fc, fs):
+    """Adds domains from a feature set to a feature class.
+    
+    Args:
+        out_fc: The output feature class path.
+        fs: Input feature set.
+    """ 
 
     # find workspace type and path
     ws, wsType = find_ws_type(out_fc)
@@ -504,9 +568,14 @@ def add_domains_from_feature_set(out_fc, fs):
                     print('Assigned domain "{}" to field "{}"'.format(dom_name, fld))
 
 def append_feature_set(out_fc, feature_set, cursor):
-    """appends features from a feature set to existing feature class manually with an insert cursor
+    """Appends features from a feature set to existing feature class manually with an insert cursor.
+    
+    Args:
+        out_fc: Output feature class path.
+        feature_set: Input feature set.
+        cursor: Insert cursor.
+    """ 
 
-    """
     fc_fields = arcpy.ListFields(out_fc)
     cur_fields = [f.name for f in fc_fields if f.type not in ('OID', 'Geometry') and not f.name.lower().startswith('shape')]
     # insert cursor to write rows manually
