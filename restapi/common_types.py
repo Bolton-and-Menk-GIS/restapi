@@ -937,14 +937,18 @@ class Portal(RESTEndpoint):
 
 
 class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
-    """Class to handle advanced layer properties"""
+    """Class to handle advanced layer properties."""
 
     def _fix_fields(self, fields):
-        """fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
-        method used for cursors.
+        """Fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
+                method used for cursors.
 
-        Required:
-            fields -- list or comma delimited field list
+        Arg:
+            fields: List or comma delimited field list.
+        
+        Returns:
+            Concatenated string of the elements in the list of fields, 
+                unless fields == '*'.
         """
         field_list = []
         if fields == '*':
@@ -967,6 +971,17 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return ','.join(field_list)
 
     def _format_server_response(self, server_response, records=None):
+        """Returns a reformatted server response.
+        
+        Args:
+            server_response: Server response to a request.
+            records: Optional arg for records. Defaults to None.
+        
+        Returns:
+            Either a GeoJSONFeatureSet or FeatureSet of the server response. 
+                Can also return JSON of server response.
+        """
+
         # set fields to full field definition of the layer
         if isinstance(server_response, requests.Response):
             server_response = munchify(server_response.json())
@@ -998,28 +1013,23 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             return server_response
 
     def _validate_params(self, where='1=1', fields='*', add_params={}, f=JSON, **kwargs):
-        """query layer and get response as JSON
+        """Queries layer and gets response as JSON.
 
-        Optional:
-            fields -- fields to return. Default is "*" to return all fields
-            where -- where clause
-            add_params -- extra parameters to add to query string passed as dict
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless exceed_limit is True
-            exceed_limit -- option to get all records in layer.  This option may be time consuming
-                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records.
-            fetch_in_chunks -- option to return a generator with a FeatureSet in chunks of each query group.  Use this
-                to avoid memory errors when fetching many features.
-            f -- return format, default is JSON.  (html|json|kmz)
-            kmz -- full path to output kmz file.  Only used if output format is "kmz".
-            kwargs -- extra parameters to add to query string passed as key word arguments,
-                will override add_params***
+        Args:
+            fields: Optional arg for fields to return. Default is "*" to 
+                return all fields.
+            where: Optional where clause. Defaults to '1=1'.
+            add_params: Optional extra parameters to add to query string passed 
+                as dict. Defaults to {}.
+            f: Optional return format, default is JSON.  (html|json|kmz)
+            kwargs: Optional extra parameters to add to query string passed as 
+                key word arguments, will override add_params***.
 
         # default params for all queries
         params = {'returnGeometry' : 'true', 'outFields' : fields,
                   'where': where, 'f' : 'json'}
         """
+
         # default params
         params = {RETURN_GEOMETRY : TRUE, WHERE: where, F : f}
 
@@ -1053,20 +1063,24 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return params
 
     def iter_queries(self, where='1=1', add_params={}, max_recs=None, chunk_size=None, **kwargs):
-        """generator to form where clauses to query all records.  Will iterate through "chunks"
-        of OID's until all records have been returned (grouped by maxRecordCount)
+        """Generator to form where clauses to query all records.  Will iterate 
+                through "chunks" of OID's until all records have been returned 
+                (grouped by maxRecordCount).
 
         *Thanks to Wayne Whitley for the brilliant idea to use izip_longest()
 
 
 
-        Optional:
-            where -- where clause for OID selection
-            max_recs -- maximum amount of records returned for all queries for OID fetch
-            chunk_size -- size of chunks for each iteration of query iterator
-            add_params -- dictionary with any additional params you want to add (can also use **kwargs)
-            token -- token to handle security (only required if security is enabled)
+        Args:
+            where: Optional where clause for OID selection.
+            max_recs: Optional maximum amount of records returned for all 
+                queries for OID fetch. Defaults to None.
+            chunk_size: Optional size of chunks for each iteration of query 
+                iterator. Defaults to None.
+            add_params: Optional dictionary with any additional params you want 
+                to add (can also use **kwargs). Defaults to {}.
         """
+
         if isinstance(add_params, dict):
             add_params[RETURN_IDS_ONLY] = TRUE
 
@@ -1094,27 +1108,33 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
 
     def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, fetch_in_chunks=False, f=JSON, kmz='', **kwargs):
-        """query layer and get response as JSON
-
-        Optional:
-            fields -- fields to return. Default is "*" to return all fields
-            where -- where clause
-            add_params -- extra parameters to add to query string passed as dict
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless exceed_limit is True
-            exceed_limit -- option to get all records in layer.  This option may be time consuming
+        """Queries layer and gets response as JSON.
+        
+        Args:
+            fields: Optional fields to return. Default is "*" to return all fields.
+            where: Optional where clause. Defaults to '1:1'.
+            add_params: Extra parameters to add to query string passed as dict.
+            records: Number of records to return.  Default is None to return all
+                records within bounds of max record count unless exceed_limit is True.
+            exceed_limit: Option to get all records in layer.  This option may be time consuming
                 because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records.  This is only supported with JSON output.
-            fetch_in_chunks -- option to return a generator with a FeatureSet in chunks of each query group.  Use this
-                to avoid memory errors when fetching many features.
-            f -- return format, default is JSON.  (html|json|kmz)
-            kmz -- full path to output kmz file.  Only used if output format is "kmz".
-            kwargs -- extra parameters to add to query string passed as key word arguments,
-                will override add_params***
+                must be performed in chunks to get all records.  This is only 
+                supported with JSON output. Default is False
+            fetch_in_chunks: Option to return a generator with a FeatureSet in 
+                chunks of each query group.  Use this to avoid memory errors when 
+                fetching many features. Defaults to False
+            f: Return format, default is JSON.  (html|json|kmz)
+            kmz: Optional full path to output kmz file.  Only used if output 
+                format is "kmz". Defaults to ''.
+            kwargs: Optional extra parameters to add to query string passed as key word arguments,
+                will override add_params***.
 
         # default params for all queries
-        params = {'returnGeometry' : 'true', 'outFields' : fields,
-                  'where': where, 'f' : 'json'}
+        params: {'returnGeometry' : 'true', 'outFields' : fields,
+        'where': where, 'f' : 'json'}
+        
+        Returns:
+            Response as JSON.
         """
         query_url = self.url + '/query'
 
@@ -1156,21 +1176,23 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             return self._format_server_response(server_response, records)
 
     def query_in_chunks(self, where='1=1', fields='*', add_params={}, records=None, **kwargs):
-        """queries a layer in chunks and returns a generator
-
-        Optional:
-            fields -- fields to return. Default is "*" to return all fields
-            where -- where clause
-            add_params -- extra parameters to add to query string passed as dict
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless exceed_limit is True
-            kwargs -- extra parameters to add to query string passed as key word arguments,
-                will override add_params***
+        """Queries a layer in chunks and returns a generator.
+        
+        Args:
+            fields: Optional fields to return. Default is "*" to return all fields.
+            where: Optional where clause. Defaults to '1=1'.
+            add_params: Optional extra parameters to add to query string passed as dict.
+            records: Optional number of records to return.  Default is None to 
+                return all. Records within bounds of max record count unless 
+                exceed_limit is True.
+            kwargs: Optional extra parameters to add to query string passed as key word arguments,
+                will override add_params***.
 
         # default params for all queries
-        params = {'returnGeometry' : 'true', 'outFields' : fields,
-                  'where': where, 'f' : 'json'}
+        params : {'returnGeometry' : 'true', 'outFields' : fields,
+        'where': where, 'f' : 'json'}
         """
+
         query_url = self.url + '/query'
 
         params = self._validate_params(where, fields, add_params, **kwargs)
@@ -1182,19 +1204,25 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
 
     def query_related_records(self, objectIds, relationshipId, outFields='*', definitionExpression=None, returnGeometry=None, outSR=None, **kwargs):
-        """Queries related records
-
-        Required:
-            objectIds -- list of object ids for related records
-            relationshipId -- id of relationship
-
-        Optional:
-            outFields -- output fields for related features
-            definitionExpression -- def query for output related records
-            returnGeometry -- option to return Geometry
-            outSR -- output spatial reference
-            kwargs -- optional key word args for REST API
+        """Queries related records.
+        
+        Args:
+            objectIds: List of object ids for related records.
+            relationshipId: ID of relationship.
+            outFields: Optional output fields for related features. Defaults to '*'.
+            definitionExpression: Optional def query for output related records. 
+                Defaults to None.
+            returnGeometry: Option to return Geometry. Defaults to None.
+            outSR: Optional output spatial reference, defaults to None.
+            kwargs: Optional key word args for REST API.
+        
+        Raises:
+            NotImplementedError: 'This Resource does not have any relationships!'
+        
+        Returns:
+            The related records.
         """
+        
         if not self.json.get(RELATIONSHIPS):
             raise NotImplementedError('This Resource does not have any relationships!')
 
@@ -1216,25 +1244,25 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return RelatedRecords(self.request(query_url, params))
 
     def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, add_params={}, **kwargs):
-        """Selects features by location of a geometry, returns a feature set
-
-        Required:
-            geometry -- geometry as JSON
-
-        Optional:
-            geometryType -- type of geometry object, this can be gleaned automatically from the geometry input
-            inSR -- input spatial reference
-            spatialRel -- spatial relationship applied on the input geometry when performing the query operation
-            distance -- distance for search
-            units -- units for distance, only used if distance > 0 and if supportsQueryWithDistance is True
-            add_params -- dict containing any other options that will be added to the query
-            kwargs -- keyword args to add to the query
-
-
+        """Selects features by location of a geometry, returns a feature set.
+    
+        Args:
+            geometry: Geometry as JSON.
+            geometryType: Optional type of geometry object, this can be gleaned
+                 automatically from the geometry input. Defaults to ''.
+            inSR: Optional input spatial reference. Defaults to ''.
+            spatialRel: Optional spatial relationship applied on the input geometry 
+                when performing the query operation. Defaults to ESRI_INTERSECT.
+            distance: Optional distance for search. Defaults to 0.
+            units: Optional units for distance, only used if distance > 0.
+            add_params: Optional dict containing any other options that will be 
+                added to the query. Defaults to {}.
+            kwargs: Optional keyword args to add to the query.
+        
         Spatial Relationships:
             esriSpatialRelIntersects | esriSpatialRelContains | esriSpatialRelCrosses | esriSpatialRelEnvelopeIntersects | esriSpatialRelIndexIntersects
             | esriSpatialRelOverlaps | esriSpatialRelTouches | esriSpatialRelWithin | esriSpatialRelRelation
-
+        
         Unit Options:
             esriSRUnit_Meter | esriSRUnit_StatuteMile | esriSRUnit_Foot | esriSRUnit_Kilometer | esriSRUnit_NauticalMile | esriSRUnit_USNauticalMile
         """
@@ -1267,25 +1295,28 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return FeatureSet(self.query(add_params=params))
 
     def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
-
-        Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
+        """Method to create kmz from query.
+        
+        Args:
+            out_kmz: Optional output kmz file path, if none specified will be saved on Desktop. Defaults to ''.
+            flds: Optional list of fields for fc. If none specified, all fields 
+                are returned. Defaults to '*'. Supports fields in list [] or comma 
+                separated string "field1,field2,.."
+            where: Optional where clause, defaults to '1=1'.
+            params: Optional dictionary of parameters for query, Defaults to {}.
         """
         return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
 
     def getOIDs(self, where='1=1', max_recs=None, **kwargs):
-        """return a list of OIDs from feature layer
-
-        Optional:
-            where -- where clause for OID selection
-            max_recs -- maximimum number of records to return (maxRecordCount does not apply)
-            **kwargs -- optional key word arguments to further limit query (i.e. add geometry interesect)
+        """Returns a list of OIDs from feature layer.
+        
+        Args:
+            where: Optional where clause for OID selection. Defaults to '1=1'.
+            max_recs: Optional maximimum number of records to return 
+                (maxRecordCount does not apply). Defaults to None.
+            **kwargs: Optional key word arguments to further limit query (i.e. add geometry interesect).
         """
+
         p = {RETURN_IDS_ONLY:TRUE,
              RETURN_GEOMETRY: FALSE,
              OUT_FIELDS: ''}
@@ -1298,23 +1329,29 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return sorted(self.query(where=where, add_params=p)[OBJECT_IDS])[:max_recs]
 
     def getCount(self, where='1=1', **kwargs):
-        """get count of features, can use optional query and **kwargs to filter
-
-        Optional:
-            where -- where clause
-            kwargs -- keyword arguments for query operation
+        """Returns count of features, can use optional query and **kwargs to filter.
+        
+        Args:
+            where: Optional where clause, defaults to '*'.
+            kwargs: Optional keyword arguments for query operation. 
         """
+
         return len(self.getOIDs(where,  **kwargs))
 
     def attachments(self, oid, gdbVersion=''):
-        """query attachments for an OBJECTDID
-
-        Required:
-            oid -- object ID
-
-        Optional:
-            gdbVersion -- Geodatabase version to query, only supported if self.isDataVersioned is true
+        """Queries attachments for an OBJECTDID.
+        
+        Args:
+            oid: Object ID.
+            gdbVersion: Optional Geodatabase version to query, defaults to ''.
+        
+        Raises:
+            NotImplementedError: 'Layer "{}" does not support attachments!'
+        
+        Returns:
+            Attachments for OID.
         """
+
         if self.hasAttachments:
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
             r = self.request(query_url)
@@ -1339,7 +1376,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 props = list(set(['id', 'name', 'size', 'contentType', 'url', 'urlWithToken'] + list(keys)))
 
                 class Attachment(namedtuple('Attachment', ' '.join(props))):
-                    """class to handle Attachment object"""
+                    """Class to handle Attachment object."""
                     __slots__ = ()
                     def __new__(cls,  **kwargs):
                         return super(Attachment, cls).__new__(cls, **kwargs)
@@ -1351,14 +1388,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                             return '<Attachment> ?'
 
                     def blob(self):
-                        """download the attachment to specified path
-
-                        out_path -- output path for attachment
-
-                        optional:
-                            name -- name for output file.  If left blank, will be same as attachment.
-                            verbose -- if true will print sucessful download message
-                        """
+                        """Returns a string of the chunks in the response."""
                         b = ''
                         resp = requests.get(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
                         for chunk in resp.iter_content(1024 * 16):
@@ -1366,14 +1396,19 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                         return b
 
                     def download(self, out_path, name='', verbose=True):
-                        """download the attachment to specified path
-
-                        out_path -- output path for attachment
-
-                        optional:
-                            name -- name for output file.  If left blank, will be same as attachment.
-                            verbose -- if true will print sucessful download message
+                        """Downloads the attachment to specified path.
+                        
+                        Args:
+                            out_path: Output path for attachment.
+                            name: Optional name for output file.  If left blank, 
+                                will be same as attachment.
+                            verbose: Optional boolean, if true will print sucessful 
+                                download message. Defaults to True.
+                        
+                        Returns:
+                            The path to the downloaded attachment.
                         """
+
                         if not name:
                             out_file = assign_unique_name(os.path.join(out_path, self.name))
                         else:
@@ -1397,18 +1432,22 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             raise NotImplementedError('Layer "{}" does not support attachments!'.format(self.name))
 
     def cursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False):
-        """Run Cursor on layer, helper method that calls Cursor Object
-
-        Optional:
-            fields -- fields to return. Default is "*" to return all fields
-            where -- where clause
-            add_params -- extra parameters to add to query string passed as dict
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless exceed_limit is True
-            exceed_limit -- option to get all records in layer.  This option may be time consuming
-                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records.
+        """Runs Cursor on layer, helper method that calls Cursor Object.
+        
+        Args:
+            fields: Optional fields to return. Default is "*" to return all fields.
+            where: Optional where clause. Defaults to '1=1'.
+            add_params: Optional extra parameters to add to query string passed
+                as dict. Defaults to {}.
+            records: Optional number of records to return.  Default is None to 
+                return all. records within bounds of max record count unless 
+                exceed_limit is True.
+            exceed_limit: Optional boolean to get all records in layer.  This 
+                option may be time consuming because the ArcGIS REST API uses 
+                default maxRecordCount of 1000, so queries must be performed in 
+                chunks to get all records.
         """
+
         cur_fields = self._fix_fields(fields)
 
         fs = self.query(where, cur_fields, add_params, records, exceed_limit)
@@ -1416,27 +1455,35 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
     def export_layer(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None,
                      include_domains=True, include_attachments=False, qualified_fieldnames=False, **kwargs):
-        """Method to export a feature class or shapefile from a service layer
-
-        Required:
-            out_fc -- full path to output feature class
-
-        Optional:
-            where -- optional where clause
-            params -- dictionary of parameters for query
-            fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            records -- number of records to return. Default is none, will return maxRecordCount
-            exceed_limit -- option to get all records.  If true, will recursively query REST endpoint
-                until all records have been gathered. Default is False.
-            sr -- output spatial refrence (WKID)
-            include_domains -- if True, will manually create the feature class and add domains to GDB
-                if output is in a geodatabase.
-            include_attachments -- if True, will export features with attachments.  This argument is ignored
-                when the "out_fc" param is not a feature class, or the ObjectID field is not included in "fields"
-                param or if there is no access to arcpy.
-            qualified_fieldnames -- option to keep qualified field names, default is False.
+        """Method to export a feature class or shapefile from a service layer.
+        
+        Args:
+            out_fc: Full path to output feature class.
+            where: Optional where clause. Defaults to '1=1'.
+            params: Optional dictionary of parameters for query. Defaults to {}.
+            fields: Optional list of fields for fc. If none specified, all fields 
+                are returned. Defaults to '*'. Supports fields in list [] or comma 
+                separated string "field1,field2,..".
+            records: Optional number of records to return. Default is None, will 
+                return maxRecordCount.
+            exceed_limit: Optional boolean to get all records.  If True, will 
+                recursively query REST endpoint until all records have been 
+                gathered. Default is False.
+            sr: Optional output spatial refrence (WKID). Defaults to None.
+            include_domains: Optional boolean, if True, will manually create 
+                the feature class and add domains to GDB if output is in a 
+                geodatabase. Default is False.
+            include_attachments: Optional boolean, if True, will export features 
+                with attachments.  This argument is ignored when the "out_fc" param 
+                is not a feature class, or the ObjectID field is not included in 
+                "fields" param or if there is no access to arcpy. Defaults to False.
+            qualified_fieldnames: Optional boolean to keep qualified field names, 
+                default is False.
+            
+        Returns:
+            A feature class or shapefile.
         """
+        
         if self.type in (FEATURE_LAYER, TABLE):
 
             # make new feature class
@@ -1492,20 +1539,20 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
     def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False, exceed_limit=True, **kwargs):
         """Method for spatial Query, exports geometry that intersect polygon or
-        envelope features.
-
-        Required:
-            poly -- polygon (or other) features used for spatial query
-            output -- full path to output feature class
-
-        Optional:
-             fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            out_sr -- output spatial refrence (WKID)
-            where -- optional where clause
-            envelope -- if true, the polygon features bounding box will be used.  This option
-                can be used if the feature has many vertices or to check against the full extent
-                of the feature class
+                envelope features.
+        
+        Args:
+            poly: Polygon (or other) features used for spatial query.
+            output: Full path to output feature class.
+            fields: Optional list of fields for fc. If none specified, all fields are returned.
+                Supports fields in list [] or comma separated string 
+                "field1,field2,..". Defaults to '*'.
+            out_sr: Optional output spatial refrence (WKID). Defaults to ''.
+            where: Optional where clause. Defaults to ''.
+            envelope: Optional boolean, if True, the polygon features bounding 
+                box will be used.  This option can be used if the feature has 
+                many vertices or to check against the full extent of the feature 
+                class. Defaults to False.
         """
 
         in_geom = Geometry(poly)
@@ -1530,33 +1577,36 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return self.export_layer(output, fields, where, params=d, exceed_limit=True, sr=out_sr)
 
     def __repr__(self):
-        """string representation with service name"""
+        """String representation with service name."""
         return '<{}: "{}" (id: {})>'.format(self.__class__.__name__, self.name, self.id)
 
 class MapServiceTable(MapServiceLayer):
     pass
 
     def export_table(self, *args, **kwargs):
-        """Method to export a feature class or shapefile from a service layer
-
-        Required:
-            out_fc -- full path to output feature class
-
-        Optional:
-            where -- optional where clause
-            params -- dictionary of parameters for query
-            fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            records -- number of records to return. Default is none, will return maxRecordCount
-            exceed_limit -- option to get all records.  If true, will recursively query REST endpoint
-                until all records have been gathered. Default is False.
-            sr -- output spatial refrence (WKID)
-            include_domains -- if True, will manually create the feature class and add domains to GDB
-                if output is in a geodatabase.
-            include_attachments -- if True, will export features with attachments.  This argument is ignored
-                when the "out_fc" param is not a feature class, or the ObjectID field is not included in "fields"
-                param or if there is no access to arcpy.
+        """Method to export a feature class or shapefile from a service layer.
+        
+        Args:
+            out_fc: Full path to output feature class.
+            where: Optional where clause.
+            params: Optional dictionary of parameters for query.
+            fields: List of fields for fc. If none specified, all fields are 
+                returned. Supports fields in list [] or comma separated string 
+                "field1,field2,..".
+            records: Optional number of records to return. Default is none, will 
+                return maxRecordCount
+            exceed_limit: Optional boolean to get all records.  If true, will 
+                recursively query REST endpoint until all records have been 
+                gathered. Default is False.
+            sr: Optional output spatial refrence (WKID)
+            include_domains: Optional boolean, if True, will manually create the 
+                feature class and add domains to GDB if output is in a geodatabase.
+            include_attachments: Optional boolean, if True, will export features 
+                with attachments.  This argument is ignored when the "out_fc" param 
+                is not a feature class, or the ObjectID field is not included in 
+                "fields" param or if there is no access to arcpy.
         """
+        
         return self.export_layer(*args, **kwargs)
 
     def clip(self):
@@ -1572,17 +1622,17 @@ class MapServiceTable(MapServiceLayer):
 MapServiceLayer.layer_to_fc = MapServiceLayer.export_layer
 
 class MapService(BaseService):
-
+    """Class that handles map services."""
     def getLayerIdByName(self, name, grp_lyr=False):
-        """gets a mapservice layer ID by layer name from a service (returns an integer)
-
-        Required:
-            name -- name of layer from which to grab ID
-
-        Optional:
-            grp_lyr -- default is false, does not return layer ID for group layers.  Set
-                to true to search for group layers too.
+        """Gets a mapservice layer ID by layer name from a service (returns an integer).
+        
+        Args:
+            name: Name of layer from which to grab ID.
+            Args:*
+            grp_lyr: Optional boolean, default is False, does not return layer ID 
+                for group layers. Set to true to search for group layers too.
         """
+
         all_layers = self.layers
         for layer in all_layers:
             if fnmatch.fnmatch(fix_encoding(layer.get(NAME)), fix_encoding(name)):
@@ -1599,56 +1649,57 @@ class MapService(BaseService):
         return None
 
     def get_layer_url(self, name, grp_lyr=False):
-        """returns the fully qualified path to a layer url by pattern match on name,
-        will return the first match.
-
-        Required:
-            name -- name of layer from which to grab ID
-
-        Optional:
-            grp_lyr -- default is false, does not return layer ID for group layers.  Set
-                to true to search for group layers too.
+        """Returns the fully qualified path to a layer url by pattern match on name,
+                will return the first match.
+        Args:
+            name: Name of layer from which to grab ID.
+            grp_lyr: Optional boolean, default is false, does not return layer 
+                ID for group layers. Set to true to search for group layers too.
         """
+
         return '/'.join([self.url, str(self.getLayerIdByName(name,grp_lyr))])
 
     def list_layers(self):
-        """Method to return a list of layer names in a MapService"""
+        """Method to return a list of layer names in a MapService."""
         return [fix_encoding(l.name) for l in self.layers]
 
     def list_tables(self):
-        """Method to return a list of layer names in a MapService"""
+        """Method to return a list of layer names in a MapService."""
         return [t.name for t in self.tables]
 
     def getNameFromId(self, lyrID):
-        """method to get layer name from ID
+        """Method to get layer name from ID.
 
-        Required:
-            lyrID -- id of layer for which to get name
+        Arg:
+            lyrID: ID of layer for which to get name.
+        
+        Returns:
+            Layer name.
         """
+
         return [fix_encoding(l.name) for l in self.layers if l.id == lyrID][0]
 
     def export(self, out_image=None, imageSR=None, bbox=None, bboxSR=None, size=None, dpi=96, format='png', transparent=True, urlOnly=False, **kwargs):
-        """exports a map image
-
-        Required:
-            out_image -- full path to output image
-
-        Optional:
-            imageSR -- spatial reference for exported image
-            bbox -- bounding box as comma separated string
-            bboxSR -- spatial reference for bounding box
-            size -- comma separated string for the size of image in pixels. It is advised not to use
-                this parameter and let this method generate it automatically
-            dpi -- output resolution, default is 96
-            format -- image format, default is png8
-            transparent -- option to support transparency in exported image, default is True
-            kwargs -- any additional keyword arguments for export operation (must be supported by REST API)
-
+        """Exports a map image.
+        
+        Args:
+            out_image: Full path to output image.
+            Args:*
+            imageSR: spatial reference for exported image
+            bbox: bounding box as comma separated string
+            bboxSR: spatial reference for bounding box
+            size: comma separated string for the size of image in pixels. It is advised not to use
+            this parameter and let this method generate it automatically
+            dpi: output resolution, default is 96
+            format: image format, default is png8
+            transparent: option to support transparency in exported image, default is True
+            kwargs: any additional keyword arguments for export operation (must be supported by REST API)
+            
         Keyword Arguments can be found here:
-            http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Export_Map/02r3000000v7000000/
+            http://resources.arcgis.com/en/help/arcgisrest:api/index.html#/Export_Map/02r3000000v7000000/
         """
-        query_url = self.url + '/export'
 
+        query_url = self.url + '/export'
         # defaults if params not specified
         if bbox and not size:
             if isinstance(bbox, (list, tuple)):
@@ -1709,11 +1760,13 @@ class MapService(BaseService):
         return r
 
     def layer(self, name_or_id, **kwargs):
-        """Method to return a layer object with advanced properties by name
+        """Method to return a layer object with advanced properties by name.
 
-        Required:
-            name -- layer name (supports wildcard syntax*) or id (must be of type <int>)
+        Arg:
+            name_or_id: Layer name (supports wildcard syntax*) or id 
+                (must be of type <int>).
         """
+
         if isinstance(name_or_id, int):
             # reference by id directly
             return MapServiceLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
@@ -1725,10 +1778,10 @@ class MapService(BaseService):
             print('Layer "{0}" not found!'.format(name_or_id))
 
     def table(self, name_or_id):
-        """Method to return a layer object with advanced properties by name
+        """Method to return a layer object with advanced properties by name.
 
-        Required:
-            name -- table name (supports wildcard syntax*) or id (must be of type <int>)
+        Arg:
+            name_or_id: Table name (supports wildcard syntax*) or id (must be of type <int>).
         """
         if isinstance(name_or_id, int):
             # reference by id directly
@@ -1741,79 +1794,87 @@ class MapService(BaseService):
             print('Table "{0}" not found!'.format(name_or_id))
 
     def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, exceed_limit=False):
-        """Cusor object to handle queries to rest endpoints
-
-        Required:
-           layer_name -- name of layer in map service
-
-        Optional:
-            fields -- option to limit fields returned.  All are returned by default
-            where -- where clause for cursor
-            records -- number of records to return (within bounds of max record count)
-            token --
-            add_params -- option to add additional search parameters
-            exceed_limit -- option to get all records in layer.  This option may be time consuming
-                because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
-                must be performed in chunks to get all records
+        """Cursor object to handle queries to rest endpoints.
+        
+        Args:
+            layer_name: Name of layer in map service.
+            fields: Option to limit fields returned.  All are returned by 
+                default, '*'.
+            where: Optional where clause for cursor, '1=1'.
+            records: Optional number of records to return 
+                (within bounds of max record count). Defaults to None.
+            add_params: Optional boolean to add additional search parameters. 
+                Defaults to {}.
+            exceed_limit: Optional boolean to get all records in layer. 
+                Defaults to False. This option may be time consuming because the 
+                ArcGIS REST API uses default maxRecordCount of 1000, so queries
+                must be performed in chunks to get all records.
         """
+
         lyr = self.layer(layer_name)
         return lyr.cursor(fields, where, add_params, records, exceed_limit)
 
     def export_layer(self, layer_name,  out_fc, fields='*', where='1=1',
                     records=None, params={}, exceed_limit=False, sr=None):
-        """Method to export a feature class from a service layer
-
-        Required:
-            layer_name -- name of map service layer to export to fc
-            out_fc -- full path to output feature class
-
-        Optional:
-            where -- optional where clause
-            params -- dictionary of parameters for query
-            fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            records -- number of records to return. Default is none, will return maxRecordCount
-            exceed_limit -- option to get all records.  If true, will recursively query REST endpoint
-                until all records have been gathered. Default is False.
-            sr -- output spatial refrence (WKID)
+        """Method to export a feature class from a service layer.
+        
+        Args:
+            layer_name: Name of map service layer to export to fc.
+            out_fc: Full path to output feature class.
+            where: Optional where clause. Defaults to '1=1'.
+            params: Optional dictionary of parameters for query. Defaults to {}.
+            fields: Optional list of fields for fc. If none specified, all fields 
+                are returned. Supports fields in list [] or comma separated string 
+                "field1,field2,..". Defaults to '*'.
+            records: Optional number of records to return. Default is none, 
+                will return maxRecordCount.
+            exceed_limit: Optional boolean to get all records.  If true, will 
+                recursively query REST endpoint until all records have been gathered. 
+                Default is False.
+            sr: Optional output spatial refrence (WKID). Defaults to None.
         """
+        
         lyr = self.layer(layer_name)
         lyr.layer_to_fc(out_fc, fields, where,records, params, exceed_limit, sr)
 
     def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
-
-        Required:
-            layer_name -- name of map service layer to export to fc
-
-        Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
+        """Method to create kmz from query.
+        
+        Args:
+            layer_name: Name of map service layer to export to fc.
+            out_kmz: Optional output kmz file path, if none specified will be saved
+                on Desktop. Defaults to ''.
+            flds: Optional list of fields for fc. If none specified, all fields are returned.
+                Supports fields in list [] or comma separated string 
+                "field1,field2,..". Defaults to '*'.
+            where: Optional where clause. Defaults to '1=1'.
+            params: Optional dictionary of parameters for query, defaults to {}.
         """
+
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
     def clip(self, layer_name, poly, output, fields='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
-        envelope features.
-
-        Required:
-            layer_name -- name of map service layer to export to fc
-            poly -- polygon (or other) features used for spatial query
-            output -- full path to output feature class
-
-        Optional:
-             fields -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            sr -- output spatial refrence (WKID)
-            where -- optional where clause
-            envelope -- if true, the polygon features bounding box will be used.  This option
-                can be used if the feature has many vertices or to check against the full extent
-                of the feature class
+                envelope features.
+        
+        Args:
+            layer_name: Name of map service layer to export to fc.
+            poly: Polygon (or other) features used for spatial query.
+            output: Full path to output feature class.
+            Args:*
+            fields: Optional list of fields for fc. If none specified, all fields are returned.
+            Supports fields in list [] or comma separated string "field1,field2,.."
+            sr : Optional output spatial refrence (WKID)
+            where : Optional where clause.
+            envelope : Optional boolean, if true, the polygon features bounding 
+                box will be used.  This option can be used if the feature has 
+                many vertices or to check against the full extent of the feature class.
+        
+        Returns:
+            A clip of the layer.
         """
+
         lyr = self.layer(layer_name)
         return lyr.clip(poly, output, fields, out_sr, where, envelope)
 
@@ -1825,22 +1886,21 @@ class MapService(BaseService):
 MapService.layer_to_fc = MapService.export_layer
 
 class FeatureService(MapService):
-    """class to handle Feature Service
+    """Class to handle Feature Service.
 
-    Required:
-        url -- image service url
-
-    Optional (below params only required if security is enabled):
-        usr -- username credentials for ArcGIS Server
-        pw -- password credentials for ArcGIS Server
-        token -- token to handle security (alternative to usr and pw)
-        proxy -- option to use proxy page to handle security, need to provide
+    Args:
+        url: Image service url.
+    (below args only required if security is enabled):
+        usr: Username credentials for ArcGIS Server.
+        pw: Password credentials for ArcGIS Server.
+        token: Token to handle security (alternative to usr and pw).
+        proxy: Option to use proxy page to handle security, need to provide
             full path to proxy url.
     """
 
     @property
     def replicas(self):
-        """returns a list of replica objects"""
+        """Returns a list of replica objects."""
         if self.syncEnabled:
             reps = self.request(self.url + '/replicas')
             return [namedTuple('Replica', r) for r in reps]
@@ -1855,11 +1915,12 @@ class FeatureService(MapService):
                 
 
     def layer(self, name_or_id):
-        """Method to return a layer object with advanced properties by name
+        """Method to return a layer object with advanced properties by name.
 
-        Required:
-            name -- layer name (supports wildcard syntax*) or layer id (int)
+        Arg:
+            name: Layer name (supports wildcard syntax*) or layer id (int).
         """
+
         if isinstance(name_or_id, int):
             # reference by id directly
             return FeatureLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
@@ -1871,46 +1932,49 @@ class FeatureService(MapService):
             print('Layer "{0}" not found!'.format(name_or_id))
 
     def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
-        """Method to create kmz from query
-
-        Required:
-            layer_name -- name of map service layer to export to fc
-
-        Optional:
-            out_kmz -- output kmz file path, if none specified will be saved on Desktop
-            flds -- list of fields for fc. If none specified, all fields are returned.
-                Supports fields in list [] or comma separated string "field1,field2,.."
-            where -- optional where clause
-            params -- dictionary of parameters for query
+        """Method to create kmz from query.
+        
+        Args:
+            layer_name: Name of map service layer to export to fc.
+            out_kmz: Optional output kmz file path, if none specified will be saved on Desktop
+            flds: Optional list of fields for fc. If none specified, all fields 
+                are returned. Supports fields in list [] or comma separated 
+                string "field1,field2,..". Default is '*'.
+            where: Optional where clause.
+            params: Optional dictionary of parameters for query.
         """
+
         lyr = self.layer(layer_name)
         lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
 
     def createReplica(self, layers, replicaName, geometry='', geometryType='', inSR='', replicaSR='', dataFormat='json', returnReplicaObject=True, **kwargs):
-        """query attachments, returns a JSON object
-
-        Required:
-            layers -- list of layers to create replicas for (valid inputs below)
-            replicaName -- name of replica
-
-        Optional:
-            geometry -- optional geometry to query features, if none supplied, will grab all features
-            geometryType -- type of geometry
-            inSR -- input spatial reference for geometry
-            replicaSR -- output spatial reference for replica data
-            dataFormat -- output format for replica (sqlite|json)
-            **kwargs -- optional keyword arguments for createReplica request
-
-        Special Optional Args:
-            returnReplicaObject -- option to return replica as an object (restapi.SQLiteReplica|restapi.JsonReplica)
-                based on the dataFormat of the replica.  If the data format is sqlite and this parameter
-                is False, the data will need to be fetched quickly because the server will automatically clean
-                out the directory. The default cleanup for a sqlite file is 10 minutes. This option is set to True
-                by default.  It is recommended to set this option to True if the output dataFormat is "sqlite".
-
+        """Queries attachments, returns a JSON object.
+        
+        Args:
+            layers: List of layers to create replicas for (valid inputs below).
+            replicaName: Name of replica.
+            geometry: Optional geometry to query features, if none supplied, 
+                will grab all features. Defaults to ''.
+            geometryType: Optional type of geometry. Defaults to ''.
+            inSR: Optional innput spatial reference for geometry. Defaults to ''.
+            replicaSR: Optional output spatial reference for replica data.
+                Defaults to ''.
+            dataFormat: Optional output format for replica (sqlite|json).
+                Defaults to 'json'.
+            **kwargs: Optional keyword arguments for createReplica request.
+            returnReplicaObject : Special optional arg to return replica as an 
+                object (restapi.SQLiteReplica|restapi.JsonReplica) based on the 
+                dataFormat of the replica.  If the data format is sqlite and this 
+                parameter is False, the data will need to be fetched quickly because 
+                the server will automatically clean out the directory. The default cleanup 
+                for a sqlite file is 10 minutes. This option is set to True
+                by default.  It is recommended to set this option to True if 
+                the output dataFormat is "sqlite".
+        
         Documentation on Server Directory Cleaning:
-            http://server.arcgis.com/en/server/latest/administer/linux/about-server-directories.htm
+        http://server.arcgis.com/en/server/latest/administer/linux/aboutserver:directories.htm
         """
+
         if hasattr(self, SYNC_ENABLED) and not self.syncEnabled:
             raise NotImplementedError('FeatureService "{}" does not support Sync!'.format(self.url))
 
@@ -1995,15 +2059,16 @@ class FeatureService(MapService):
 
     @staticmethod
     def fetchReplica(rep_url):
-        """fetches a replica from a server resource.  This can be a url or a
-        dictionary/JSON object with a "URL" key.  Based on the file name of the
-        replica, this will return either a restapi.SQLiteReplica() or
-        restapi.JsonReplica() object.  The two valid file name extensions are ".json"
-        (restapi.JsonReplica) or ".geodatabase" (restapi.SQLiteReplica).
-
-        Required:
-            rep_url -- url or JSON object that contains url to replica file on server
-
+        """Fetches and returns a replica from a server resource.  This can be a 
+                url or a dictionary/JSON object with a "URL" key.  Based on the 
+                file name of the replica, this will return either a 
+                restapi.SQLiteReplica() or restapi.JsonReplica() object.  The 
+                two valid file name extensions are ".json" (restapi.JsonReplica) 
+                or ".geodatabase" (restapi.SQLiteReplica).
+        
+        Arg:
+            rep_url : url or JSON object that contains url to replica file on server.
+            
         If the file is sqlite, it is highly recommended to use a with statement to
         work with the restapi.SQLiteReplica object so the connection is automatically
         closed and the file is cleaned from disk.  Example:
@@ -2013,9 +2078,10 @@ class FeatureService(MapService):
             >>>     # this is a restapi.SQLiteReplica() object
             >>>     # list tables in database
             >>>     print(replica.list_tables())
-            >>>     # export to file geodatabase <- requires arcpy access
+            >>>     # export to file geodatabase < requires arcpy access
             >>>     replica.exportToGDB(r'C\Temp\replica.gdb')
         """
+
         if isinstance(rep_url, dict):
             rep_url = st.get(URL_UPPER)
 
@@ -2036,20 +2102,25 @@ class FeatureService(MapService):
 
 
     def replicaInfo(self, replicaID):
-        """get replica information
+        """Gets replica information.
 
-        Required:
-            replicaID -- ID of replica
+        Arg:
+            replicaID: ID of replica.
+        
+        Returns:
+            A named tuple.
         """
+
         query_url = self.url + '/replicas/{}'.format(replicaID)
         return namedTuple('ReplicaInfo', self.request(query_url))
 
     def syncReplica(self, replicaID, **kwargs):
-        """synchronize a replica.  Must be called to sync edits before a fresh replica
-        can be obtained next time createReplica is called.  Replicas are snapshots in
-        time of the first time the user creates a replica, and will not be reloaded
-        until synchronization has occured.  A new version is created for each subsequent
-        replica, but it is cached data.
+        """Synchronize a replica.  Must be called to sync edits before a fresh 
+                replica can be obtained next time createReplica is called.  
+                Replicas are snapshots in time of the first time the user creates 
+                a replica, and will not be reloaded until synchronization has 
+                occured. A new version is created for each subsequent replica, 
+                but it is cached data.
 
         It is also recommended to unregister a replica
         AFTER sync has occured.  Alternatively, setting the "closeReplica" keyword
@@ -2061,9 +2132,10 @@ class FeatureService(MapService):
         and here for key word argument parameters:
             http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Synchronize_Replica/02r3000000vv000000/
 
-        Required:
-            replicaID -- ID of replica
+        Arg:
+            replicaID: ID of replica.
         """
+
         query_url = self.url + '/synchronizeReplica'
         params = {REPLICA_ID: replicaID}
 
@@ -2074,67 +2146,75 @@ class FeatureService(MapService):
 
 
     def unRegisterReplica(self, replicaID):
-        """unregisters a replica on the feature service
+        """Unregisters a replica on the feature service.
 
-        Required:
-            replicaID -- the ID of the replica registered with the service
+        Arg:
+            replicaID: The ID of the replica registered with the service.
         """
+
         query_url = self.url + '/unRegisterReplica'
         params = {REPLICA_ID: replicaID}
         return self.request(query_url, params)
 
 class FeatureLayer(MapServiceLayer):
-
+"""Class to handle Feature Service Layer."""
     def __init__(self, url='', usr='', pw='', token='', proxy=None, referer=None):
-        """class to handle Feature Service Layer
-
-        Required:
-            url -- feature service layer url
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
-            referer -- option to add Referer Header if required by proxy, this parameter
-                is ignored if no proxy is specified.
+        """Inits class with url and login credentials.
+        
+        Args:
+            url: Feature service layer url.
+        (below args only required if security is enabled):
+            usr: Username credentials for ArcGIS Server. Defaults to ''.
+            pw: Password credentials for ArcGIS Server. Defaults to ''.
+            token: Token to handle security (alternative to usr and pw) Default is ''.
+            proxy: Option to use proxy page to handle security, need to provide
+                full path to proxy url. Defaults to None.
+            referer: Option to add Referer Header if required by proxy, this parameter
+                is ignored if no proxy is specified. Defaults to None.
         """
+
         super(FeatureLayer, self).__init__(url, usr, pw, token, proxy, referer)
 
         # store list of EditResult() objects to track changes
         self.editResults = []
 
     def updateCursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, auto_save=True, useGlobalIds=False, **kwargs):
-        """updates features in layer using a cursor, the applyEdits() method is automatically
-        called when used in a "with" statement and auto_save is True.
-
-        Optional:
-            fields -- fields to return. Default is "*" to return all fields
-            where -- where clause
-            add_params -- extra parameters to add to query string passed as dict
-            records -- number of records to return.  Default is None to return all
-                records within bounds of max record count unless exceed_limit is True
-            exceed_limit -- option to get all records in layer.  This option may be time consuming
+        """Updates features in layer using a cursor, the applyEdits() method is 
+                automatically called when used in a "with" statement and auto_save is True.
+        
+        Args:*
+            fields: Optional fields to return. Default is "*" to return all 
+                fields.
+            where: Optional where clause, defaults to '1=1'.
+            add_params: Optional extra parameters to add to query string passed 
+                as dict. Defaults to {}.
+            records: Optional number of records to return.  Default is None to return all
+                records within bounds of max record count unless exceed_limit is True.
+            exceed_limit: option to get all records in layer. This option may be time consuming
                 because the ArcGIS REST API uses default maxRecordCount of 1000, so queries
                 must be performed in chunks to get all records.
-            auto_save -- automatically apply edits when using with statement,
-                if True, will apply edits on the __exit__ method.
-            useGlobalIds -- (added at 10.4) Optional parameter which is false by default. Requires
-                the layer's supportsApplyEditsWithGlobalIds property to be true.  When set to true, the
-                features and attachments in the adds, updates, deletes, and attachments parameters are
-                identified by their globalIds. When true, the service adds the new features and attachments
-                while preserving the globalIds submitted in the payload. If the globalId of a feature
-                (or an attachment) collides with a pre-existing feature (or an attachment), that feature
-                and/or attachment add fails. Other adds, updates, or deletes are attempted if rollbackOnFailure
-                is false. If rollbackOnFailure is true, the whole operation fails and rolls back on any failure
-                including a globalId collision.
-
-                When useGlobalIds is true, updates and deletes are identified by each feature or attachment
-                globalId rather than their objectId or attachmentId.
-            kwargs -- any additional keyword arguments supported by the applyEdits method of the REST API, see
-                http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Apply_Edits_Feature_Service_Layer/02r3000000r6000000/
+            auto_save: Optional boolean arg to automatically apply edits when 
+                using with statement, if True, will apply edits on the __exit__ 
+                method. Defaults to True.
+            useGlobalIds: (added at 10.4) Optional parameter which is false by 
+                default. Requires the layer's supportsApplyEditsWithGlobalIds 
+                property to be true.  When set to true, the features and attachments 
+                in the adds, updates, deletes, and attachments parameters are 
+                identified by their globalIds. When true, the service adds the 
+                new features and attachments while preserving the globalIds 
+                submitted in the payload. If the globalId of a feature 
+                (or an attachment) collides with a preexisting feature 
+                (or an attachment), that feature and/or attachment add fails. 
+                Other adds, updates, or deletes are attempted if rollbackOnFailure
+                is false. If rollbackOnFailure is true, the whole operation 
+                fails and rolls back on any failure including a globalId collision.
+                When useGlobalIds is true, updates and deletes are identified by 
+                each feature or attachment globalId rather than their objectId 
+                or attachmentId.
+            kwargs: Any additional keyword arguments supported by the applyEdits method of the REST API, see
+            http://resources.arcgis.com/en/help/arcgis:restapi/index.html#/Apply_Edits_Feature_Service_Layer/02r3000000r6000000/
         """
+        
         layer = self
         class UpdateCursor(Cursor):
             def __init__(self,  feature_set, fieldOrder=[], auto_save=auto_save, useGlobalIds=useGlobalIds, **kwargs):
