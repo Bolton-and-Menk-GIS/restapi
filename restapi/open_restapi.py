@@ -29,12 +29,16 @@ SHP_FTYPES = munch.munchify({
           })
 
 def project(SHAPEFILE, wkid):
-    """creates .prj for shapefile
+    """Creates .prj for shapefile.
 
-    Required:
-        SHAPEFILE -- full path to shapefile
-        wkid -- well known ID for spatial reference
+    Args:
+        SHAPEFILE: Full path to shapefile.
+        wkid: Well known ID for spatial reference
+    
+    Returns:
+        The project file.
     """
+
     # write .prj file
     prj_file = os.path.splitext(SHAPEFILE)[0] + '.prj'
     with open(prj_file, 'w') as f:
@@ -43,11 +47,16 @@ def project(SHAPEFILE, wkid):
 
 
 def exportReplica(replica, out_folder):
-    """converts a restapi.Replica() to a Shapefiles
+    """Converts a restapi.Replica() to a shapefile.
 
-    replica -- input restapi.Replica() object, must be generated from restapi.FeatureService.createReplica()
-    out_folder -- full path to folder location where new files will be stored.
+    Args:   
+        replica: Input restapi.Replica() object, must be generated from restapi.FeatureService.createReplica()
+        out_folder: Full path to folder location where new files will be stored.
+    
+    Returns:
+        The output folder for the shapefile.
     """
+
     if not hasattr(replica, 'replicaName'):
         print('Not a valid input!  Must be generated from restapi.FeatureService.createReplica() method!')
         return
@@ -128,12 +137,13 @@ def exportReplica(replica, out_folder):
     return out_folder
 
 def partHandler(shape):
-    """builds multipart features if necessary, returns parts
-    as a list.
+    """Builds multipart features if necessary, returns parts
+            as a list.
 
-    Required:
-        shape -- shapefile._Shape() object
+    Arg:
+        shape: shapefile._Shape() object.
     """
+
     parts = []
     if isinstance(shape, shapefile._Shape):
         if hasattr(shape, 'parts'):
@@ -172,7 +182,12 @@ def partHandler(shape):
     return parts
 
 def find_ws_type(path):
-    """gets a workspace for shapefile"""
+    """Returns a workspace for shapefile.
+    
+    Arg:
+        path: The path for the workspace.
+    """
+
     if os.path.exists(path) and os.path.isfile(path):
         return find_ws_type(os.path.dirname(path))
     elif os.path.isdir(path):
@@ -181,15 +196,16 @@ def find_ws_type(path):
         return(os.path.dirname(path), 'FileSystem')
 
 class Geometry(BaseGeometry):
-    """class to handle restapi.Geometry"""
+    """Class to handle restapi.Geometry."""
 
     def __init__(self, geometry, **kwargs):
-        """converts geometry input to restapi.Geometry object
+        """Converts geometry input to restapi.Geometry object.
 
-        Required:
-            geometry -- input geometry.  Can be arcpy.Geometry(), shapefile/feature
-                class, or JSON
+        Arg:
+            geometry: Input geometry.  Can be arcpy.Geometry(), shapefile/feature
+                class, or JSON.
         """
+
         self._inputGeometry = geometry
         if isinstance(geometry, self.__class__):
             geometry = geometry.json
@@ -321,7 +337,7 @@ class Geometry(BaseGeometry):
             self.json[SPATIAL_REFERENCE] = wkid
 
     def envelope(self):
-        """return an envelope from shape"""
+        """Returns an envelope from shape."""
         if self.geometryType != ESRI_POINT:
             coords = []
             for i in self.json[JSON_CODE[self.geometryType]]:
@@ -335,7 +351,13 @@ class Geometry(BaseGeometry):
             return '{0},{1},{0},{1}'.format(self.json[X], self.json[Y])
 
     def envelopeAsJSON(self, roundCoordinates=False):
-        """returns an envelope geometry object as JSON"""
+        """Returns an envelope geometry object as JSON.
+        
+        Arg:
+            roundCoordinates: Optional boolean that determines if the coordinates 
+                are rounded, defaults to False.
+        """
+
         if self.geometryType != ESRI_ENVELOPE:
             flds = [XMIN, YMIN, XMAX, YMAX]
             if roundCoordinates:
@@ -350,7 +372,7 @@ class Geometry(BaseGeometry):
         return d
 
     def asShape(self):
-        """returns geometry as shapefile._Shape() object"""
+        """Returns geometry as shapefile._Shape() object."""
         shp = shapefile._Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
         if self.geometryType != ESRI_POINT:
             shp.points = self.json[JSON_CODE[self.geometryType]]
@@ -378,31 +400,35 @@ class Geometry(BaseGeometry):
         return shp
 
     def __str__(self):
-        """dumps JSON to string"""
+        """Dumps JSON to string."""
         return self.dumps()
 
     def __repr__(self):
-        """represntation"""
+        """Representation."""
         return '<restapi.Geometry: {}>'.format(self.geometryType)
 
 
 class GeometryCollection(object):
-    """represents an array of restapi.Geometry objects"""
+    """Represents an array of restapi.Geometry objects."""
     geometries = []
     JSON = {GEOMETRIES: []}
     geometryType = None
 
     def __init__(self, geometries, use_envelopes=False):
-        """represents an array of restapi.Geometry objects
-
-        Required:
-            geometries -- a single geometry or a list of geometries.  Valid inputs
-                are a shapefile|feature class|Layer, geometry as JSON, or a restapi.Geometry or restapi.FeatureSet
-
-        Optional:
-            use_envelopes -- if set to true, will use the bounding box of each geometry passed in
-                for the JSON attribute.
+        """Represents an array of restapi.Geometry objects.
+        
+        Args:
+            geometries: A single geometry or a list of geometries.  Valid inputs
+                are a shapefile|feature class|Layer, geometry as JSON, or a 
+                restapi.Geometry or restapi.FeatureSet.
+            use_envelopes: Optional boolean, if set to true, will use the bounding 
+                box of each geometry passed in for the JSON attribute. 
+                Default is False.
+        
+        Raises:
+            ValueError: 'Inputs are not valid ESRI JSON Geometries!!!'
         """
+
         # it is a shapefile
         if os.path.exists(geometries) and geometries.endswith('.shp'):
             r = shapefile.Reader(geometries)
@@ -474,25 +500,26 @@ class GeometryCollection(object):
         return bool(len(self.geometries))
 
     def __repr__(self):
-        """represntation"""
+        """Representation."""
         return '<restapi.GeometryCollection [{}]>'.format(self.geometryType)
 
 class GeocodeHandler(object):
-    """class to handle geocode results"""
+    """Class to handle geocode results."""
     # __slots__ = [SPATIAL_REFERENCE, 'results', 'formattedResults']
 
     def __init__(self, geocodeResult):
-        """geocode response object handler
+        """Geocode response object handler.
 
-        Required:
-            geocodeResult -- GeocodeResult object
+        Arg:
+            geocodeResult: GeocodeResult object.
         """
+
         self.results = geocodeResult.results
         self.spatialReference = geocodeResult.spatialReference[WKID]
 
     @property
     def fields(self):
-        """returns collections.namedtuple with (name, type)"""
+        """Returns collections.namedtuple with (name, type)."""
         res_sample = self.results[0]
         __fields = []
         for f, val in six.iteritems(res_sample.attributes):
@@ -509,37 +536,45 @@ class GeocodeHandler(object):
 
     @property
     def formattedResults(self):
-        """returns a generator with formated results as Row objects"""
+        """Returns a generator with formated results as Row objects."""
         for res in self.results:
             pt = (res.location[X], res.location[Y])
             yield (pt,) + tuple(res.attributes[f.name] for f in self.fields)
 
 class Geocoder(GeocodeService):
-    """class to handle Geocoding operations"""
+    """Class to handle Geocoding operations."""
     def __init__(self, url, usr='', pw='', token='', proxy=None):
         """Geocoder object, created from GeocodeService
-
-        Required:
-            url -- Geocode service url
-
-        Optional (below params only required if security is enabled):
-            usr -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-            token -- token to handle security (alternative to usr and pw)
-            proxy -- option to use proxy page to handle security, need to provide
-                full path to proxy url.
+        
+        Args:
+            url: Geocode service url.
+        Below args only required if security is enabled:
+            usr: Username credentials for ArcGIS Server. Defaults to ''.
+            pw: Password credentials for ArcGIS Server. Defaults to ''.
+            token: Token to handle security (alternative to usr and pw). 
+                Defaults to ''.
+            proxy: Optional boolean to use proxy page to handle security, need 
+                to provide full path to proxy url. Defaults to None.
         """
+
         super(Geocoder, self).__init__(url, usr, pw, token, proxy)
 
     @staticmethod
     def exportResults(geocodeResultObject, out_fc):
-        """exports the geocode results to feature class
+        """Exports the geocode results to feature class.
 
-        Required:
-            geocodeResultObject -- results from geocode operation, must be of type
+        Args:
+            geocodeResultObject: Results from geocode operation, must be of type
                 GeocodeResult.
-            out_fc -- full path to output shapefile
+            out_fc: Full path to output shapefile.
+        
+        Raises:
+            TypeError: '{} is not a {} object!'
+        
+        Returns:
+            The path for the output shapefile.
         """
+
         if isinstance(geocodeResultObject, GeocodeResult):
             handler = GeocodeHandler(geocodeResultObject)
             if not handler.results:
