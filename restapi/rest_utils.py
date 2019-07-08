@@ -28,20 +28,30 @@ for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarni
 
 class IdentityManager(object):
     """Identity Manager for secured services.  This will allow the user to only have
-    to sign in once (until the token expires) when accessing a services directory or
-    individual service on an ArcGIS Server Site"""
+            to sign in once (until the token expires) when accessing a services 
+            directory or individual service on an ArcGIS Server Site.
+            
+    Attributes:
+        tokens: Dictionary of the tokens.
+        proxies: Dictionary of the proxies.
+        portal_tokens: Dictionary of the portal tokens.       
+    """
     def __init__(self):
         self.tokens = {}
         self.proxies = {}
         self._portal_tokens = {}
 
     def findToken(self, url):
-        """returns a token for a specific domain from token store if one has been
-        generated for the ArcGIS Server resource
+        """Returns a token for a specific domain from token store if one has been
+                generated for the ArcGIS Server resource.
 
-        Required:
-            url -- url for secured resource
+        Arg:
+            url: URL for secured resource.
+        
+        Raises:
+            RuntimeError: 'Token expired at {}! Please sign in again.'
         """
+
         if self.tokens:
             # if fnmatch.fnmatch(url, PORTAL_BASE_PATTERN) and not fnmatch.fnmatch(url, PORTAL_SERVICES_PATTERN):
             #     url = get_portal_base(url)
@@ -59,12 +69,13 @@ class IdentityManager(object):
         return None
 
     def findProxy(self, url):
-        """returns a proxy url for a specific domain from token store if one has been
-        used to access the ArcGIS Server resource
+        """Returns a proxy url for a specific domain from token store if one has been
+                used to access the ArcGIS Server resource
 
-        Required:
-            url -- url for secured resource
+        Arg:
+            url: URL for secured resource.
         """
+
         if self.proxies:
             url = url.lower().split('/rest/services')[0] + '/rest/services'
             if url in self.proxies:
@@ -81,20 +92,20 @@ if not os.access(TEMP_DIR, os.W_OK| os.X_OK):
     TEMP_DIR = None
 
 def namedTuple(name, pdict):
-    """creates a named tuple from a dictionary
+    """Creates a named tuple from a dictionary.
 
-    Required:
-        name -- name of namedtuple object
-        pdict -- parameter dictionary that defines the properties
+    Args:
+        name: Name of namedtuple object.
+        pdict: Parameter dictionary that defines the properties.
     """
     class obj(namedtuple(name, sorted(pdict.keys()))):
-        """class to handle {}""".format(name)
+        """Class to handle {}""".format(name)
         __slots__ = ()
         def __new__(cls,  **kwargs):
             return super(obj, cls).__new__(cls, **kwargs)
 
         def asJSON(self):
-            """return object as JSON"""
+            """Returns object as JSON."""
             return {f: getattr(self, f) for f in self._fields}
 
     o = obj(**pdict)
@@ -102,17 +113,28 @@ def namedTuple(name, pdict):
     return o
 
 def Round(x, base=5):
-    """round to nearest n"""
+    """Returns integer rounded to nearest n.
+    
+    Args:
+        x: Number to be rounded.
+        base: Number to divide and multiply x by.
+    """
     return int(base * round(float(x)/base))
 
 def iter_chunks(iterable, n):
-    """iterate an array in chunks"""
+    """Iterates an array in chunks.
+    
+    Args:
+        iterable: A valid iterable.
+        n = Number of chunks.
+    """
+
     args = [iter(iterable)] * n
     for group in six.moves.zip_longest(*args, fillvalue=None):
         yield filter(None, group)
 
 def tmp_json_file():
-    """returns a valid path for a temporary json file"""
+    """Returns a valid path for a temporary json file"""
     global TEMP_DIR
     if TEMP_DIR is None:
         TEMP_DIR = tempfile.mkdtemp()
@@ -120,19 +142,27 @@ def tmp_json_file():
 
 def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, **kwargs):
     """Post Request to REST Endpoint through query string, to post
-    request with data in body, use requests.post(url, data={k : v}).
-
-    Required:
-        service -- full path to REST endpoint of service
-
-    Optional:
-        params -- parameters for posting a request
-        ret_json -- return the response as JSON.  Default is True.
-        token -- token to handle security (only required if security is enabled)
-        cookies -- cookie object {'agstoken': 'your_token'}
-        proxy -- option to use proxy page to handle security, need to provide
-            full path to proxy url.
+            request with data in body, use requests.post(url, data:{k : v}).
+    
+    Args:
+        service: Full path to REST endpoint of service.
+        params: Optional parameters for posting a request. Defaults to {F: JSON}.
+        ret_json: Optional boolean that returns the response as JSON if True.  
+            Default is True.
+        token: Optional token to handle security (only required if security is enabled).
+            Defaults to ''.
+        cookies: Optional arg for cookie object {'agstoken': 'your_token'}.
+            Defaults to None.
+        proxy: Option to use proxy page to handle security, need to provide
+            full path to proxy url. Defaults to None.
+    
+    Raises:
+        NameError: '"{0}" service not found!\n{1}'
+    
+    Returns:
+        The post request.
     """
+
     global PROTOCOL
     if PROTOCOL != '':
         service = '{}://{}'.format(PROTOCOL, service.split('://')[-1])
@@ -201,20 +231,23 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
 
 
 def do_proxy_request(proxy, url, params={}, referer=None):
-    """make request against ArcGIS service through a proxy.  This is designed for a
-    proxy page that stores access credentials in the configuration to handle authentication.
-    It is also assumed that the proxy is a standard Esri proxy, i.e. retrieved from their
-    repo on GitHub @:
-
-        https://github.com/Esri/resource-proxy
-
-    Required:
-        proxy -- full url to proxy
-        url -- service url to make request against
-    Optional:
-        params -- query parameters, user is responsible for passing in the
-            proper parameters
+    """Makes request against ArcGIS service through a proxy.  This is designed for a
+            proxy page that stores access credentials in the configuration to 
+            handle authentication. It is also assumed that the proxy is a standard 
+            Esri proxy, i.e. retrieved from their repo on GitHub @:
+            https://github.com/Esri/resourceproxy
+    
+    Args:
+        proxy: Full url to proxy.
+        url: Service url to make request against.
+        params: Optional query parameters, user is responsible for passing in the
+            proper parameters. Defaults to {}.
+        referer: Optional referer, defaults to None.
+    
+    Returns:
+        The HTTP request.
     """
+
     frmat = params.get(F, JSON)
     if F in params:
         del params[F]
@@ -229,11 +262,16 @@ def do_proxy_request(proxy, url, params={}, referer=None):
     return requests.post('{}?{}?f={}'.format(proxy, url, frmat).rstrip('&'), params, verify=False, headers=headers)
 
 def guess_proxy_url(domain):
-    """grade school level hack to see if there is a standard esri proxy available for a domain
+    """Grade school level hack to see if there is a standard esri proxy available 
+            for a domain.
 
-    Required:
-        domain -- url to domain to check for proxy
+    Arg:
+        domain: URL to domain to check for proxy.
+    
+    Returns:
+        The proxy URL, if one is found.
     """
+
     domain = domain.lower().split('/arcgis')[0]
     if not domain.startswith('http'):
         domain = 'http://' + domain
@@ -260,7 +298,15 @@ def guess_proxy_url(domain):
     return None
 
 def validate_name(file_name):
-    """validates an output name by removing special characters"""
+    """Validates an output name by removing special characters.
+    
+    Arg:
+        file_name: The name of the file to be validated.
+    
+    Returns:
+        The path for the file.
+    """
+
     import string
     path = os.sep.join(file_name.split(os.sep)[:-1]) #forward slash in name messes up os.path.split()
     name = fix_encoding(file_name.split(os.sep)[-1])
@@ -271,11 +317,15 @@ def validate_name(file_name):
     return os.path.join(path, '_'.join(root.split()) + ext)
 
 def guess_wkid(wkt):
-    """attempts to guess a well-known ID from a well-known text imput (WKT)
+    """Attempts to guess a well-known ID from a well-known text imput (WKT).
 
-    Required:
-        wkt -- well known text spatial reference
+    Arg:
+        wkt: Well known text spatial reference
+    
+    Returns:
+        The well-known ID, if one is found.
     """
+
     if wkt in PRJ_STRINGS:
         return PRJ_STRINGS[wkt]
     if 'PROJCS' in wkt:
@@ -288,11 +338,15 @@ def guess_wkid(wkt):
 
 
 def assign_unique_name(fl):
-    """assigns a unique file name
+    """Assigns a unique file name.
 
-    Required:
-        fl -- file name
+    Arg:
+        fl: Path of file.
+    
+    Returns:
+        The new, unique file name.
     """
+
     if not os.path.exists(fl):
         return fl
 
@@ -305,12 +359,16 @@ def assign_unique_name(fl):
     return new_name
 
 def mil_to_date(mil):
-    """date items from REST services are reported in milliseconds,
-    this function will convert milliseconds to datetime objects
+    """Date items from REST services are reported in milliseconds,
+            this function will convert milliseconds to datetime objects.
 
-    Required:
-        mil -- time in milliseconds
+    Arg:
+        mil: Time in milliseconds.
+
+    Returns:
+        Datetime object.
     """
+
     if isinstance(mil, six.string_types):
         mil = int(mil)
     if mil == None:
@@ -327,32 +385,46 @@ def mil_to_date(mil):
             raise e
 
 def date_to_mil(date=None):
-    """converts datetime.datetime() object to milliseconds
+    """Converts datetime.datetime() object to milliseconds.
+    
+    Arg:
+        date: datetime.datetime() object
+    
+    Returns:
+        Time in milliseconds.
+    """
 
-    date -- datetime.datetime() object"""
     if isinstance(date, datetime.datetime):
         epoch = datetime.datetime.utcfromtimestamp(0)
         return int((date - epoch).total_seconds() * 1000.0)
 
 def fix_encoding(s):
-    """fixes unicode by treating as ascii and ignoring errors"""
+    """Fixes unicode by treating as ascii and ignoring errors.
+    
+    Arg:
+        s: Unicode string.
+    """
+
     if isinstance(s, six.string_types):
         return s.encode('ascii', 'ignore').decode('ascii')
     return s
 
 def generate_token(url, user, pw, expiration=60, **kwargs):
     """Generates a token to handle ArcGIS Server Security, this is
-    different from generating a token from the admin side.  Meant
-    for external use.
+            different from generating a token from the admin side. Meant
+            for external use.
 
-    Required:
-        url -- url to services directory or individual map service
-        user -- username credentials for ArcGIS Server
-        pw -- password credentials for ArcGIS Server
-
-    Optional:
-        expiration -- time (in minutes) for token lifetime.  Max is 100.
+    Args:
+        url: URL to services directory or individual map service.
+        user: Username credentials for ArcGIS Server.
+        pw: Password credentials for ArcGIS Server.
+        expiration: Optional arg for time (in minutes) for token lifetime. 
+            Max is 100. Defaults to 60.
+    
+    Returns:
+        The token for security.
     """
+
     suffix = '/rest/info'
     isAdmin = False
     if '/admin/' in url:
@@ -457,9 +529,20 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
     return token
 
 def get_portal_base(url):
+    """Gets the portal base URL."""
     return url if url.endswith('/sharing') else url.split('/sharing/')[0] + '/sharing' 
 
 def generate_elevated_portal_token(server_url, user_token, **kwargs):
+    """Generates an elevated portal token.
+
+    Args:
+        server_url: URL for the server.
+        user_token: User token.
+    
+    Returns:
+        The elevated portal token.
+    """
+
     params = {
         TOKEN: str(user_token) if isinstance(user_token, Token) else user_token,
         "serverURL": server_url,
@@ -490,8 +573,13 @@ def generate_elevated_portal_token(server_url, user_token, **kwargs):
     return token
 
 class RestapiEncoder(json.JSONEncoder):
-    """encoder for restapi objects to make serializeable for JSON"""
+    """Encoder for restapi objects to make serializeable for JSON."""
     def default(self, o):
+        """Encodes object for JSON.
+        
+        Arg:
+            o: Object.
+        """
         if o == True:
             return TRUE
         if o == False:
@@ -510,18 +598,36 @@ class RestapiEncoder(json.JSONEncoder):
 class NameEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
     def default(self, o):
+        """Encodes object for JSON.
+        
+        Arg:
+            o: Object.
+        """
         return o.__repr__()
 
 class JsonGetter(object):
-    """override getters to also check its json property"""
+    """Overrides getters to also check its json property."""
     json = {}
 
     def get(self, name, default=None):
-        """gets an attribute from json"""
+        """Gets an attribute from json.
+
+        Arg:
+            name: Name of attribute.
+        """
         return self.json.get(name, default)
 
     def dump(self, out_json_file, indent=2, **kwargs):
-        """dump as JSON file"""
+        """Dump as JSON file.
+        
+        Args:
+            out_json_file: The path for the output json file.
+            indent: Optional arg for amount to indent by in JSON. Default is 2.
+        
+        Returns:
+            The outpath for the JSON.
+        """
+
         if hasattr(out_json_file, 'read'):
             json.dump(self.json, out_json_file, indent=indent, **kwargs)
         elif isinstance(out_json_file, six.string_types):
@@ -535,19 +641,19 @@ class JsonGetter(object):
         return out_json_file
 
     def dumps(self, **kwargs):
-        """dump as string"""
+        """Dump as string."""
         if not 'cls' in kwargs:
             kwargs['cls'] = RestapiEncoder
         kwargs['ensure_ascii'] = False
         return json.dumps(self.json, **kwargs)
 
     def __getitem__(self, name):
-        """dict like access to json definition"""
+        """Dict like access to json definition."""
         if name in self.json:
             return self.json[name]
 
     def __getattr__(self, name):
-        """get normal class attributes and those from json response"""
+        """Gets normal class attributes and those from json response."""
         try:
             # it is a class attribute
             return object.__getattribute__(self, name)
@@ -565,18 +671,7 @@ class JsonGetter(object):
         return json.dumps(self.json, sort_keys=True, indent=2, cls=NameEncoder, ensure_ascii=False)
 
 class RESTEndpoint(JsonGetter):
-    """Base REST Endpoint Object to handle credentials and get JSON response
-
-    Required:
-        url -- service url
-
-    Optional (below params only required if security is enabled):
-        usr -- username credentials for ArcGIS Server
-        pw -- password credentials for ArcGIS Server
-        token -- token to handle security (alternative to usr and pw)
-        proxy -- option to use proxy page to handle security, need to provide
-            full path to proxy url.
-    """
+    """Base REST Endpoint Object to handle credentials and get JSON response."""
     url = None
     raw_response = None
     response = None
@@ -588,7 +683,18 @@ class RESTEndpoint(JsonGetter):
     _referer = None
 
     def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+        """Inits class with login info for service URL.
 
+        Args:
+            url: Service url.
+        Below args only required if security is enabled:
+            usr: Username credentials for ArcGIS Server.
+            pw: Password credentials for ArcGIS Server.
+            token: Token to handle security (alternative to usr and pw).
+            proxy: Option to use proxy page to handle security, need to provide
+                full path to proxy url.
+        """
+        
         if PROTOCOL:
             self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
         else:
@@ -653,13 +759,17 @@ class RESTEndpoint(JsonGetter):
         RequestError(self.json)
 
     def compatible_with_version(self, version):
-        """checks if ArcGIS Server version is compatible with input version.  A
-        service is compatible with the version if it is greater than or equal to
-        the input version
+        """Checks if ArcGIS Server version is compatible with input version. A
+                service is compatible with the version if it is greater than or 
+                equal to the input version.
 
-        Required:
-            version -- minimum version compatibility as float (ex: 10.3 or 10.31)
+        Arg:
+            version: Minimum version compatibility as float (ex: 10.3 or 10.31).
+        
+        Returns:
+            True if the version is compatible, False if not.
         """
+
         def validate_version(ver):
             if isinstance(ver, (float, int)):
                 return ver
@@ -676,7 +786,7 @@ class RESTEndpoint(JsonGetter):
             return False
 
     def request(self, *args, **kwargs):
-        """wrapper for request to automatically pass in credentials"""
+        """Wrapper for request to automatically pass in credentials."""
         for key, value in six.iteritems({'token': 'token',
             'cookies': '_cookie',
             'proxy': '_proxy',
@@ -687,7 +797,7 @@ class RESTEndpoint(JsonGetter):
         return do_post(*args, **kwargs)
 
     def refresh(self):
-        """refreshes the service"""
+        """Refreshes the service."""
         self.__init__(self.url, token=self.token)
 
     @classmethod
@@ -707,12 +817,13 @@ class RESTEndpoint(JsonGetter):
         return '<{}>'.format(self.__class__.__name__)
 
 class SpatialReferenceMixin(object):
-    """mixin to allow convenience methods for grabbing the spatial reference from a service"""
+    """Mixin to allow convenience methods for grabbing the spatial reference from a service."""
     json = {}
 
     @classmethod
     def _find_wkid(cls, in_json):
-        """recursivly search for WKID in a dict/json structure"""
+        """Recursivly search for WKID in a dict/json structure.
+        """
         if isinstance(in_json, six.integer_types):
             return in_json
         if isinstance(in_json, six.string_types):
@@ -761,7 +872,7 @@ class SpatialReferenceMixin(object):
 
     @property
     def _spatialReference(self):
-        """gets the spatial reference dict"""
+        """Gets the spatial reference dict."""
         resp_d = {}
         if SPATIAL_REFERENCE in self.json:
             resp_d = self.json[SPATIAL_REFERENCE]
@@ -778,7 +889,7 @@ class SpatialReferenceMixin(object):
         return munch.munchify(resp_d)
 
     def getSR(self):
-        """return the spatial reference"""
+        """Returns the spatial reference."""
         sr_dict = self._spatialReference
         sr = self._find_wkid(sr_dict)
         if sr is None:
@@ -788,7 +899,7 @@ class SpatialReferenceMixin(object):
 
 
     def getWKID(self):
-        """returns the well known id for service spatial reference"""
+        """Returns the well known id for service spatial reference."""
         return self._find_wkid(self._spatialReference)
 ##        resp_d = self._spatialReference
 ##        for key in [LATEST_WKID, WKID]:
@@ -796,7 +907,7 @@ class SpatialReferenceMixin(object):
 ##                return resp_d[key]
 
     def getWKT(self):
-        """returns the well known text (if it exists) for a service"""
+        """Returns the well known text (if it exists) for a service."""
         return self._spatialReference.get(WKT, '')
 
 
@@ -805,7 +916,7 @@ class FieldsMixin(object):
 
     @property
     def OIDFieldName(self):
-        """gets the OID field name if it exists in feature set"""
+        """Gets the OID field name if it exists in feature set."""
         if hasattr(self, OBJECTID_FIELD) and getattr(self, OBJECTID_FIELD):
             return getattr(self, OBJECTID_FIELD)
 
@@ -816,7 +927,7 @@ class FieldsMixin(object):
 
     @property
     def ShapeFieldName(self):
-        """gets the Shape field name if it exists in feature set"""
+        """Gets the Shape field name if it exists in feature set."""
         try:
             return [f.name for f in self.fields if f.type == SHAPE][0]
         except IndexError:
@@ -824,7 +935,7 @@ class FieldsMixin(object):
 
     @property
     def GlobalIdFieldName(self):
-        """gets the Shape field name if it exists in feature set"""
+        """Gets the Global ID field name if it exists in feature set."""
         if hasattr(self, GLOBALID_FIELD) and getattr(self, GLOBALID_FIELD):
             return getattr(self, GLOBALID_FIELD)
 
@@ -835,18 +946,18 @@ class FieldsMixin(object):
 
     @property
     def fieldLookup(self):
-        """convenience property for field lookups"""
+        """Convenience property for field lookups."""
         return {f.name: f for f in self.fields}
 
     def list_fields(self):
-        """returns a list of field names"""
+        """Returns a list of field names."""
         return [f.name for f in self.fields]
 
 class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
-
+    """Base Class for feature set."""
     @property
     def hasGeometry(self):
-        """boolean for if it has geometry"""
+        """Returns for if it has geometry."""
         if self.count:
             if self.features[0].get(GEOMETRY):
                 return True
@@ -854,11 +965,11 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     @property
     def count(self):
-        """returns total number of records in Cursor (user queried)"""
+        """Returns total number of records in Cursor (user queried)."""
         return len(self)
 
     def __getitem__(self, key):
-        """supports grabbing feature by index and json keys by name"""
+        """Supports grabbing feature by index and json keys by name."""
         if isinstance(key, int):
             return Feature(self.json.features[key])
         else:
@@ -882,14 +993,19 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
 
 class FeatureSet(FeatureSetBase):
+    """Class that handles feature sets."""
     _format = ESRI_JSON_FORMAT
 
     def __init__(self, in_json):
-        """class to handle feature set
+        """Inits Class with input JSON for feature set.
 
-        Required:
-            in_json -- input json response from request
+        Arg:
+            in_json: Input json response from request.
+        
+        Raises:
+            ValueError: 'Not a valid Feature Set!'
         """
+
         if isinstance(in_json, six.string_types):
             if not in_json.startswith('{') and os.path.isfile(in_json):
                 with open(in_json, 'r') as f:
@@ -905,10 +1021,10 @@ class FeatureSet(FeatureSetBase):
             raise ValueError('Not a valid Feature Set!')
 
     def extend(self, other):
-        """combines features from another FeatureSet with this one.
+        """Combines features from another FeatureSet with this one.
 
-        Required:
-            other -- other FeatureSet to combine with this one.
+        Arg:
+            other: Other FeatureSet to combine with this one.
         """
         if not isinstance(other, FeatureSet):
             other = FeatureSet(other)
@@ -926,6 +1042,7 @@ class FeatureSet(FeatureSetBase):
             self.features.extend(otherCopy.features)
 
     def getEmptyCopy(self):
+        """Gets an empty copy of a feature set."""
         fsd = munch.Munch()
         for k,v in six.iteritems(self.json):
             if k == FIELDS:
@@ -937,14 +1054,16 @@ class FeatureSet(FeatureSetBase):
 
 
 class GeoJSONFeatureSet(FeatureSetBase):
+    """Class that handles Geo JSON feature set."""
     _format = GEOJSON_FORMAT
 
     def __init__(self, in_json):
-        """class to handle feature set
+        """Inits class with JSON as geo feature set.
 
-        Required:
-            in_json -- input json response from request
+        Arg:
+            in_json: Input json response from request.
         """
+
         if isinstance(in_json, six.string_types):
             if not in_json.startswith('{') and os.path.isfile(in_json):
                 with open(in_json, 'r') as f:
@@ -958,11 +1077,12 @@ class GeoJSONFeatureSet(FeatureSetBase):
 
 
     def extend(other):
-        """combines features from another FeatureSet with this one.
+        """Combines features from another FeatureSet with this one.
 
-        Required:
-            other -- other FeatureSet to combine with this one.
+        Arg:
+            other: Other FeatureSet to combine with this one.
         """
+
         if not isinstance(other, GeoJSONFeatureSet):
             other = GeoJSONFeatureSet(other)
         otherCopy = copy.deepcopy(other)
@@ -979,6 +1099,7 @@ class GeoJSONFeatureSet(FeatureSetBase):
             self.features.extend(otherCopy.features)
 
     def getEmptyCopy(self):
+        """Gets an empty copy of a feature set."""
         fsd = munch.Munch()
         for k,v in six.iteritems(self.json):
             if k != FEATURES:
@@ -988,20 +1109,23 @@ class GeoJSONFeatureSet(FeatureSetBase):
 
 
 class Feature(JsonGetter):
+    """Class that represents a single feature."""
     def __init__(self, feature):
-        """represents a single feature
+        """Inits the class with a feature.
 
-        Required:
-            feature -- input json for feature
+        Arg:
+            feature: Input json for feature.
         """
+        
         self.json = munch.munchify(feature)
 
     def get(self, field, default=None):
-        """gets an attribute from the feature
+        """Returns/gets an attribute from the feature.
 
-        Required:
-            field -- name of field for which to get attribute
+        Arg:
+            field: Name of field for which to get attribute.
         """
+
         if field in (ATTRIBUTES, GEOMETRY):
             return self.json.get(field, default)
         return self.json.get(ATTRIBUTES, {}).get(field, default)
@@ -1013,31 +1137,43 @@ class Feature(JsonGetter):
         return self.__repr__()
 
 class RelatedRecords(JsonGetter, SpatialReferenceMixin):
+    """Class that handles related records response.
+    
+    Attributes:
+        json: JSON object
+        geometryType: Type of geometry form JSON.
+        spatialReference: Spatial reference from JSON.
+    """
     def __init__(self, in_json):
-        """related records response
+        """Inits class with json for query related records.
 
-        Required:
-            in_json -- json response for query related records operation
+        Arg:
+            in_json: json response for query related records operation.
         """
+        
         self.json = munch.munchify(in_json)
         self.geometryType = self.json.get(GEOMETRY_TYPE)
         self.spatialReference = self.json.get(SPATIAL_REFERENCE)
 
     def list_related_OIDs(self):
-        """returns a list of all related object IDs"""
+        """Returns a list of all related object IDs."""
         return [f.get('objectId') for f in iter(self)]
 
     def get_related_records(self, oid):
-        """gets the related records for an object id
+        """Gets the related records for an object id.
 
-        Required:
-            oid -- object ID for related records
+        Arg:
+            oid: Object ID for related records.
+        
+        Returns:
+            The related records.
         """
         for group in iter(self):
             if oid == group.get('objectId'):
                 return [Feature(f) for f in group[RELATED_RECORDS]]
 
     def toFeatureSet(self):
+        """Converts to feature set."""
         features = []
         for group in iter(self):
             features.extend(group[RELATED_RECORDS])
@@ -1048,15 +1184,26 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
             yield group
 
 class BaseService(RESTEndpoint, SpatialReferenceMixin):
-    """base class for all services"""
+    """Base class for all services."""
     def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+        """Inits class with login info for service.
+
+        Args:
+            url: URL of service.
+            usr: Username for service. Defaults to ''.
+            pw: Password for service. Defaults to ''.
+            token: Token for service. Defaults to ''.
+            proxy: Optional proxy for service. Defaults to None.
+            referer: Optional referer from request, defaults to None.
+        """
+        
         super(BaseService, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
         if NAME not in self.json:
             self.name = self.url.split('/')[-2]
         self.name = self.name.split('/')[-1]
 
     def __repr__(self):
-        """string representation with service name"""
+        """String representation with service name."""
         try:
             qualified_name = '/'.join(filter(None, [self.url.split('/services/')[-1].split('/' + self.name)[0], self.name]))
         except:
@@ -1064,14 +1211,21 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
         return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
 
 class OrderedDict2(OrderedDict):
-    """wrapper for OrderedDict"""
+    """Wrapper for OrderedDict."""
 
     def __repr__(self):
-        """we want it to look like a dictionary"""
+        """We want it to look like a dictionary."""
         return json.dumps(self, indent=2, ensure_ascii=False)
 
 class PortalInfo(JsonGetter):
+    """Class that handles portal info."""
     def __init__(self, response):
+        """Inits class with response from server.
+        
+        Arg:
+            response: The response from server.
+        """
+        
         self.json = response
         #super(PortalInfo, self).__init__(response)
         super(JsonGetter, self).__init__()
@@ -1096,10 +1250,10 @@ class PortalInfo(JsonGetter):
         return '<PortaInfo: {}>'.format(self.domain)
 
 class Token(JsonGetter):
-    """class to handle token authentication"""
+    """Class to handle token authentication."""
     _portal = None
     def __init__(self, response):
-        """response JSON object from generate_token"""
+        """Response JSON object from generate_token."""
         self.json = munch.munchify(response)
         super(JsonGetter, self).__init__()
         self._cookie = {AGS_TOKEN: self.token}
@@ -1126,24 +1280,24 @@ class Token(JsonGetter):
 
     @property
     def isExpired(self):
-        """boolean value for expired or not"""
+        """Boolean value for expired or not."""
         if datetime.datetime.now() > self.time_expires:
             return True
         else:
             return False
 
     def __str__(self):
-        """return token as string representation"""
+        """Returns token as string representation."""
         return self.token
 
 class RequestError(object):
-    """class to handle restapi request errors"""
+    """Class to handle restapi request errors."""
     def __init__(self, err):
         if 'error' in err:
             raise RuntimeError(json.dumps(err, indent=2, ensure_ascii=False))
 
 class Folder(RESTEndpoint):
-    """class to handle ArcGIS REST Folder"""
+    """Class to handle ArcGIS REST Folder."""
 
     @property
     def name(self):
