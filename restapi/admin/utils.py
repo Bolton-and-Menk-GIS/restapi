@@ -13,21 +13,25 @@ if has_arcpy:
     import arcpy
 
     class AdiminstratorBase(object):
-
+        """Admin base class."""
         @staticmethod
         def find_ws(path, ws_type='', return_type=False):
-            """finds a valid workspace path for an arcpy.da.Editor() Session
-
-            Required:
-                path -- path to features or workspace
-
-            Optional:
-                ws_type -- option to find specific workspace type (FileSystem|LocalDatabase|RemoteDatabase)
-                return_type -- option to return workspace type as well.  If this option is selected, a tuple
-                    of the full workspace path and type are returned
-
+            """Finds a valid workspace path for an arcpy.da.Editor() Session.
+            
+            Args:
+                path: Path to features or workspace.
+                ws_type: Option to find specific workspace type 
+                    (FileSystem|LocalDatabase|RemoteDatabase). Defaults to ''.
+                return_type: Optional boolean to return workspace type as well. 
+                    If this option is selected, a tuple of the full workspace 
+                    path and type are returned.
+            
+            Returns:
+                A valid workspace path.
             """
+
             def find_existing(path):
+                """Returns an existing path, if one is found."""
                 if arcpy.Exists(path):
                     return path
                 else:
@@ -82,7 +86,7 @@ if has_arcpy:
 
         @staticmethod
         def form_connection_string(ws):
-            """esri's describe workspace connection string does not work at 10.4, bug???"""
+            """Esri's describe workspace connection string does not work at 10.4, bug???"""
             desc = arcpy.Describe(ws)
             if 'SdeWorkspaceFactory' in desc.workspaceFactoryProgID:
                 cp = desc.connectionProperties
@@ -99,12 +103,17 @@ if has_arcpy:
                 return 'DATABASE=' + ws
 
         def stopServiceAndCompressDatabase(self, sde_loc, service_url_or_name):
-            """will stop a service and compress all SDE databases within the map service
+            """Stops a service and compresses all SDE databases within the map 
+                    service.
 
-            Required:
-                sde_loc -- location containing .sde connections
-                service_url_or_name -- full path to REST endpoint or service name
+            Args:
+                sde_loc: Location containing .sde connections.
+                service_url_or_name: Full path to REST endpoint or service name.
+
+            Returns:
+                A list of the workspaces, if found.
             """
+
             service = self.ags.service(service_url_or_name)
             workspaces = []
             manifest = service.manifest()
@@ -140,20 +149,24 @@ if has_arcpy:
 else:
 
     class AdiminstratorBase(object):
-
+    
         @staticmethod
         def find_ws(path, ws_type='', return_type=False):
-            """finds a valid workspace path for an arcpy.da.Editor() Session
-
-            Required:
-                path -- path to features or workspace
-
-            Optional:
-                ws_type -- option to find specific workspace type (FileSystem|LocalDatabase|RemoteDatabase)
-                return_type -- option to return workspace type as well.  If this option is selected, a tuple
-                    of the full workspace path and type are returned
-
+            """Finds a valid workspace path for an arcpy.da.Editor() Session.
+            
+            Args:
+                path: Path to features or workspace.
+                Args:*
+                ws_type: Option to find specific workspace type 
+                    (FileSystem|LocalDatabase|RemoteDatabase). Defaults to ''.
+                return_type: Optional boolean to return workspace type as well. 
+                    If this option is True, a tuple of the full workspace 
+                    path and type are returned. Defaults to False.
+            
+            Returns:
+                A valid workspace. 
             """
+
             if os.path.splitext(path)[1] in ('.gdb', '.mdb', '.sde') and ws_type != 'FileSystem':
                 if return_type:
                     return (path, 'RemoteDatabase' if os.path.splitext(path)[1] == '.sde' else 'LocalDatabase')
@@ -167,7 +180,7 @@ else:
 
         @staticmethod
         def form_connection_string(ws):
-            """form connection string by parsing .sde connection files"""
+            """Forms connection string by parsing .sde connection files."""
             if ws.endswith('.sde'):
                 with open(ws, 'rb') as f:
                     data = f.read()
@@ -186,11 +199,15 @@ else:
                 return 'DATABASE=' + ws
 
         def stopServiceAndCompressDatabase(self, sde_loc, service_url_or_name):
-            """stops service and compresses all associated databases"""
+            """Stops service and compresses all associated databases.
+            
+            Raises:
+                NotImplementedError: 'No access to the Arcpy Module!'
+            """
             raise NotImplementedError('No access to the Arcpy Module!')
 
 class MunchEncoder(munch.Munch):
-
+    """Class that encodes Munch objects."""
     def __repr__(self):
         return json.dumps(self, indent=2, cls=NameEncoder)
 
@@ -198,6 +215,12 @@ class MunchEncoder(munch.Munch):
         return self.__repr__()
 
 class ServerResources(JsonGetter):
+    """Class that handles server resources.
+    
+    Attribute:
+        json: JSON of resources.
+    """
+
     def __init__(self, json):
         self.json = MunchEncoder(json)
 
@@ -208,28 +231,50 @@ class ServerResources(JsonGetter):
         return self.__repr__()
 
 class ServerAdministrator(AdiminstratorBase):
+    """Class for server admin."""
     def __init__(self, server_url, usr='', pw='', token=''):
+        """Inits class with server info.
+
+        Args:
+            server_url: URL for server.
+            usr: Username.
+            pw: Password.
+            token: Token for URL.
+        """
+        
         self.ags = admin.ArcServerAdmin(server_url, usr, pw, token)
         self.__stopped_services = []
         self.__started_services = []
 
     @staticmethod
     def test_connection_string(string1, string2):
-        """tests if a database has the same instance and name"""
+        """Tests if a database has the same instance and name.
+        
+        Args:
+            string1: One string to test against.
+            string2: Other string to test against.
+        
+        Returns:
+            The combined string from string1 and string2 with instance and name.
+        """
+
         db_props1 = {k:v for k, v in iter(s.split('=') for s in string1.split(';'))}
         db_props2 = {k:v for k, v in iter(s.split('=') for s in string2.split(';'))}
         return ';'.join([db_props1.get('DATABASE'), db_props1.get('INSTANCE','NULL')]) == ';'.join([db_props2.get('DATABASE'), db_props2.get('INSTANCE','NULL')])
 
     def find_services_containing(self, ws, fcs=[], stop=False):
-        """finds services containing an entire workspace and any specific feature classes
+        """Finds services containing an entire workspace and any specific feature classes.
 
-        Required:
-            ws -- SDE workspace path
-            fcs -- list of specific feature classes to search for
-
-        Optional:
-            stop -- option to stop service once item is found
+        Args:
+            ws: SDE workspace path.
+            fcs: List of specific feature classes to search for.
+            stop: Optional boolean, stops service once item is found if True.
+                Default is False.
+        
+        Returns:
+            The services that were found.
         """
+
         ws = self.find_ws(ws)
         con_str = self.form_connection_string(ws)
         service_map = {'workspace': [], 'feature_classes': {}}
@@ -275,9 +320,10 @@ class ServerAdministrator(AdiminstratorBase):
 
 
     def startStoppedServices(self):
-        """start all stopped services that are in this instances cache, meaning those
-        that have been stopped from this instance
+        """Starts all stopped services that are in this instances cache, meaning 
+                those that have been stopped from this instance.
         """
+        
         for s in self.__stopped_services:
             s.start()
             print('Started service: "{}"'.format(s.serviceName))
