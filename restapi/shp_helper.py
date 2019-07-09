@@ -36,7 +36,22 @@ shp_dict = {
 shp_code = {v:k for k,v in six.iteritems(shp_dict)}
 
 class ShpWriter(object):
+    """Class that writes a shapefile.
+    
+    Attributes:
+        w: Shapefile writer object.
+        shapeType: Shape type.
+        path: Path of shapefile.
+    """
+
     def __init__(self, shapeType='NULL', path=''):
+        """Inits class with the shapefile.
+        
+        Args:
+            shapeType: Type of shape. Defaults to 'NULL'.
+            path: String for the path of the shapefile.
+        """
+        
         self.w = shapefile.Writer(shp_dict[shapeType.upper()] if isinstance(shapeType, six.string_types) else shapeType)
         self.shapeType = self.w.shapeType
         self.path = path
@@ -44,27 +59,40 @@ class ShpWriter(object):
     def add_field(self, name, fieldType="C", size="50", decimal=0):
         """Adds a dbf field descriptor to the shapefile.
 
-        Valid types for DBASE:
+        Args:
+            name: Name of new field.
+            fieldType: Type of field to add (valid values listed below). 
+                Defaults to "C".
+            size: Size of field (only used for "C" (text) fields). 
+                Defaults to "50".
+            decimal: Number of significant decimal places. Default is 0.
+            
+        Valid types for fieldType:
 
-        B 	Binary, a string 	10 digits representing a .DBT block number. The number is stored as a string, right justified and padded with blanks.
-        C 	Character 	All OEM code page characters - padded with blanks to the width of the field.
-        D 	Date 	8 bytes - date stored as a string in the format YYYYMMDD.
-        N 	Numeric 	Number stored as a string, right justified, and padded with blanks to the width of the field.
-        F 	Float/Double 	Number stored as a string, right justified, and padded with blanks to the width of the field.
+            B: Binary, a string 10 digits representing a .DBT block number. 
+                The number is stored as a string, right justified and padded with blanks.
+            C: Character,All OEM code page characters - padded with blanks to the 
+                width of the field.
+            D: Date, 8 bytes - date stored as a string in the format YYYYMMDD.
+            N: Numeric, Number stored as a string, right justified, and padded 
+                with blanks to the width of the field.
+            F: Float/Double, Number stored as a string, right justified, and 
+                padded with blanks to the width of the field.
 
         source: http://www.dbase.com/KnowledgeBase/int/db7_file_fmt.htm
         """
+
         if not size:
             size = "50"
         field_name = field_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore')
         self.w.field(field_name, fieldType, str(size), decimal) #field name cannot be unicode, must be str()
 
     def add_row(self, shape, attributes):
-        """method to add a rec
+        """Method to add a row.
 
-        Required:
-            shape -- shape geometry
-            attributes -- tuple of attributes in order of fields
+        Args:
+            shape: Shape geometry.
+            attributes: Tuple of attributes in order of fields.
         """
         if isinstance(shape, shapefile.shapefile._Shape):
             self.w._shapes.append(shape)
@@ -78,6 +106,12 @@ class ShpWriter(object):
         self.w.record(*attributes)
 
     def save(self, path=''):
+        """Saves the file in the given path.
+
+        Arg:
+            path: The path to be saved.
+        """
+
         if not path:
             if self.path:
                 self.w.save(self.path)
@@ -85,7 +119,27 @@ class ShpWriter(object):
             self.w.save(path)
 
 class ShpEditor(object):
+    """Class that handles the editing of shapefiles.
+
+    Attributes:
+        r: Shapefile reader.
+        fields: List of fields in file.
+        field_names: List of field names.
+        field_indices: Dictionary of field indices.
+        records: Records in shapefile.
+        shapes: List of shapes.
+        shapeType: Shape type.
+        path: Path of file.
+        w: Shapefile writer object.
+    """
+
     def __init__(self, path):
+        """Inits class with shapefile information.
+        
+        Arg:
+            path: Path for shapefile.
+        """
+        
         self.r = shapefile.Reader(path)
         self.__isBuilt = False
         self.fields = self.r.fields[1:]
@@ -102,12 +156,16 @@ class ShpEditor(object):
             self.field_names.append(f[0])
 
     def addDefaults(self, attributes, default=" "):
-        """adds default values to records to fill missing data.
+        """Adds default values to records to fill missing data.
 
-        Requried:
-            attributes -- list of attributes for a row
-            default -- deafault value for field.  Default is nothing (' ')
+        Args:
+            attributes: List of attributes for a row.
+            default: Default value for field. Default is nothing (" ")
+        
+        Returns:
+            Attributes in the row.
         """
+
         if not isinstance(attributes, list):
             attributes = list(attributes)
         f_diff = len(self.fields) - len(attributes)
@@ -121,23 +179,29 @@ class ShpEditor(object):
     def add_field(self, name, fieldType="C", size="50", decimal=0, default=" "):
         """Adds a dbf field descriptor to the shapefile.
 
-        Required:
-            name -- name of new field
-            fieldType -- type of field to add (valid values listed below)
-            size -- size of field (only used for "C" (text) fields)
-            decimal -- number of significant decimal places. Default is 0
-            default -- deafault value for field.  Default is nothing (' ')
+        Args:
+            name: Name of new field.
+            fieldType: Type of field to add (valid values listed below). 
+                Default is "C".
+            size: Size of field (only used for "C" (text) fields). Default is "50".
+            decimal: Number of significant decimal places. Default is 0.
+            default: Default value for field.  Default is nothing (' ').
 
-        Valid types for DBASE:
+        Valid types for fieldType:
 
-        B 	Binary, a string 	10 digits representing a .DBT block number. The number is stored as a string, right justified and padded with blanks.
-        C 	Character 	All OEM code page characters - padded with blanks to the width of the field.
-        D 	Date 	8 bytes - date stored as a string in the format YYYYMMDD.
-        N 	Numeric 	Number stored as a string, right justified, and padded with blanks to the width of the field.
-        F 	Float/Double 	Number stored as a string, right justified, and padded with blanks to the width of the field.
+            B: Binary, a string 10 digits representing a .DBT block number. 
+                The number is stored as a string, right justified and padded with blanks.
+            C: Character,All OEM code page characters - padded with blanks to the 
+                width of the field.
+            D: Date, 8 bytes - date stored as a string in the format YYYYMMDD.
+            N: Numeric, Number stored as a string, right justified, and padded 
+                with blanks to the width of the field.
+            F: Float/Double, Number stored as a string, right justified, and 
+                padded with blanks to the width of the field.
 
         source: http://www.dbase.com/KnowledgeBase/int/db7_file_fmt.htm
         """
+
         if not size:
             size = "50"
         field_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore')
@@ -151,13 +215,14 @@ class ShpEditor(object):
         self.__isBuilt = False
 
     def add_row(self, shape, attributes=[]):
-        """method to add a record to shapefile in memory, this does
-        not get applied until save() method is called.
+        """Method to add a row to shapefile in memory, this does
+                not get applied until save() method is called.
 
-        Required:
-            shape -- shape geometry
-            attributes -- tuple of attributes in order of fields
+        Args:
+            shape: Shape geometry.
+            attributes: Tuple of attributes in order of fields.
         """
+
         if isinstance(shape, shapefile.shapefile._Shape):
             self.shapes.append(shape)
             self.__shapeHolder._shapes.append(shape)
@@ -174,12 +239,13 @@ class ShpEditor(object):
         self.__isBuilt = False
 
     def write_row(self, shape, attributes=[]):
-        """method to write a record
+        """Method to write a row.
 
-        Required:
-            shape -- shape geometry
-            attributes -- tuple of attributes in order of fields
+        Args:
+            shape: Shape geometry
+            attributes: Tuple of attributes in order of fields.
         """
+
         if isinstance(shape, shapefile.shapefile._Shape):
             self.w._shapes.append(shape)
         else:
@@ -192,13 +258,13 @@ class ShpEditor(object):
         self.w.record(*self.addDefaults(attributes))
 
     def update_row(self, rowIndex=0, shape=None, *args, **attributes):
-        """method to add a rec
+        """Method to update a row.
 
-        Required:
-            rowIndex -- index for row
-            shape -- shape geometry, only put a value here if you are
-                updating the geometry
-            attributes -- key word argument of attributes in (field_name="field_value")
+        Args:
+            rowIndex: Index for row. Defaults to 0.
+            shape: Shape geometry, only put a value here if you are
+                updating the geometry. Defaults to None.
+            **attributes: Key word argument of attributes in (field_name="field_value").
         """
         # check if there is a shape edit, if not skip and do attribute update
         if shape:
@@ -218,11 +284,15 @@ class ShpEditor(object):
         self.__isBuilt = False
 
     def delete(self, index):
-        """deletes a record at an index
+        """Deletes a record/row at an index.
 
-        Required:
-            index -- index to delete record
+        Arg:
+            index: Index to delete record/row.
+
+        Raises:
+            IndexError: 'No record found at index: {}'.
         """
+
         try:
             self.shapes.pop(index)
             self.records.pop(index)
@@ -230,18 +300,19 @@ class ShpEditor(object):
             print('No record found at index: {}'.format(index))
 
     def _rebuild(self):
-        """adds all rows to shapefile"""
+        """Adds all rows to shapefile."""
         for shape, record in iter(self):
             self.write_row(shape, record)
         self.__isBuilt = True
 
     def save(self, path=''):
-        """saves the shapefile.  By default will save over existing
-        shapefile.  If you want to save a copy, specify a path
+        """Saves the shapefile.  By default will save over existing
+                shapefile.  If you want to save a copy, specify a path.
 
-        Optional:
-            path -- optional path to save a new copy of the shapefile
+        Arg:
+            path: Optional path to save a new copy of the shapefile.
         """
+
         if not self.__isBuilt:
             self._rebuild()
         if not path:
@@ -252,6 +323,6 @@ class ShpEditor(object):
             self.w.save(path)
 
     def __iter__(self):
-        """return generator for (shape, record) for each feature"""
+        """Returns generator for (shape, record) for each feature."""
         for feature in six.moves.zip(self.shapes, self.records):
             yield feature
