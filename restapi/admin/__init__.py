@@ -36,10 +36,13 @@ __all__ = ['ArcServerAdmin', 'Service', 'Folder', 'Cluster', 'do_post',
 
 @decorator
 def passthrough(f, *args, **kwargs):
-    """decorator to print results of function/method and returns json object
+    """Decorator to print results of function/method and returns json object.
 
-    set the global VERBOSE property to false if you do not want results of
-    operations to be echoed during session
+    Arg:
+        f: Function/method.
+    
+    Set the global VERBOSE property to false if you do not want results of
+    operations to be echoed during session.
 
     Example to disable print messages:
         restapi.admin.VERBOSE = False  # turns off verbosity
@@ -52,15 +55,26 @@ def passthrough(f, *args, **kwargs):
 class AdminRESTEndpoint(JsonGetter):
     """Base REST Endpoint Object to handle credentials and get JSON response
 
-    Required:
-        url -- image service url
-
-    Optional (below params only required if security is enabled):
-        usr -- username credentials for ArcGIS Server
-        pw -- password credentials for ArcGIS Server
-        token -- token to handle security (alternative to usr and pw)
+    Attributes:
+        url: URL for image service.
+        token: URL token.
     """
     def __init__(self, url, usr='', pw='', token=''):
+        """Inits class with credentials.
+
+        Args:
+            url: Image service url.
+        Below args only required if security is enabled:
+            usr: Username credentials for ArcGIS Server.
+            pw: Password credentials for ArcGIS Server.
+            token: Token to handle security (alternative to usr and pw).
+        
+        Raises:
+            RuntimeError: 'Token expired at {}! Please sign in again.'
+            RuntimeError: 'No token found, please try again with credentials'
+            TypeError: 'Token expired at {}! Please sign in again.'
+        """
+        
         self.url = 'http://' + url.rstrip('/') if not url.startswith('http') \
                     and 'localhost' not in url.lower() else url.rstrip('/')
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
@@ -104,17 +118,20 @@ class AdminRESTEndpoint(JsonGetter):
         self.json = munchify(self.response)
 
     def request(self, *args, **kwargs):
-        """wrapper for request to automatically pass in credentials"""
+        """Wrapper for request to automatically pass in credentials."""
         if 'token' not in kwargs:
             kwargs['token'] = self.token
         return do_post(*args, **kwargs)
 
     def refresh(self):
-        """refreshes the service properties"""
+        """Refreshes the service properties."""
         self.__init__(self.url, token=self.token)
 
 class BaseDirectory(AdminRESTEndpoint):
-    """base class to handle objects in service directory"""
+    """Class to handle objects in service directory.
+    
+    See AdminRESTEndpoint class for arguments.
+    """
 
     @property
     def _permissionsURL(self):
@@ -122,20 +139,26 @@ class BaseDirectory(AdminRESTEndpoint):
 
     @property
     def permissions(self):
-        """return permissions for service"""
+        """Returns permissions for service."""
         perms = self.request(self._permissionsURL).get(PERMISSIONS, [])
         return [Permission(r) for r in perms]
 
     @passthrough
     def addPermission(self, principal='', isAllowed=True, private=True):
-        """add a permission
-
-        Optional:
-            principal -- name of the role whome the permission is being assigned
-            isAllowed -- tells if a resource is allowed or denied
-            private -- default is True.  Secures service by making private, denies
-                public access.  Change to False to allow public access.
+        """Adds a permission.
+        
+        Args:
+            principal: Optional name of the role whome the permission is being 
+                assigned. Defaults to ''.
+            isAllowed: Optional boolean, tells if a resource is allowed or denied. 
+                Defaults to True.
+            private: Optional boolean, default is True. Secures service by making 
+                private, denies public access. Change to False to allow public access.
+        
+        Returns:
+            A list of the added permissions.
         """
+
         add_url = self._permissionsURL + '/add'
         added_permissions = []
         if principal:
@@ -163,17 +186,19 @@ class BaseDirectory(AdminRESTEndpoint):
 
     @passthrough
     def hasChildPermissionsConflict(self, principal, permission=None):
-        """check if service has conflicts with opposing permissions
-
-        Required:
-            principal -- name of role for which to check for permission conflicts
-
-        Optional:
-            permission -- JSON permission object
-
+        """Checks if service has conflicts with opposing permissions.
+        
+        Args:
+            principal: Name of role for which to check for permission conflicts.
+            permission: Optional JSON permission object. Defaults to None.
+            
         permission example:
-            permission = {"isAllowed": True, "constraint": ""}
+            permission: {"isAllowed": True, "constraint": ""}
+        
+        Returns:
+            Post request.
         """
+
         if not permission:
             permission = {IS_ALLOWED: True, CONSTRAINT: ""}
 
@@ -182,22 +207,35 @@ class BaseDirectory(AdminRESTEndpoint):
         return self.request(query_url, params)
 
     def report(self):
-        """generate a report for resource"""
+        """Returns a report for resource."""
         return [Report(r) for r in self.request(self.url + '/report')['reports']]
 
 class BaseResource(JsonGetter):
+    """Base resource class.
+
+    Attribute:
+        json: JSON object from input JSON.
+    """
+
     def __init__(self, in_json):
+        """inits class with json object.
+
+        Arg:
+            in_json: Input JSON object.
+        """
+        
         self.json = munchify(in_json)
         super(BaseResource, self).__init__()
 
 class EditableResource(JsonGetter):
+    """Class that handles editable resources."""
     def __getitem__(self, name):
-        """dict like access to json definition"""
+        """Dict like access to json definition."""
         if name in self.json:
             return self.json[name]
 
     def __getattr__(self, name):
-        """get normal class attributes and json abstraction at object level"""
+        """Gets normal class attributes and json abstraction at object level."""
         try:
             # it is a class attribute
             return object.__getattribute__(self, name)
@@ -209,7 +247,7 @@ class EditableResource(JsonGetter):
                 raise AttributeError(name)
 
     def __setattr__(self, name, value):
-        """properly set attributes for class as well as json abstraction"""
+        """Properly sets attributes for class as well as json abstraction."""
         # make sure our value is a Bunch if dict
         if isinstance(value, (dict, list)) and name != 'response':
             value = munchify(value)
@@ -234,75 +272,90 @@ class Permission(BaseResource):
     pass
 
 class SSLCertificate(AdminRESTEndpoint):
-    """class to handle SSL Certificate"""
+    """Class to handle SSL Certificate."""
     pass
 
 class Machine(AdminRESTEndpoint):
-    """class to handle ArcGIS Server Machine"""
+    """Class to handle ArcGIS Server Machine."""
     pass
 
 class DataItem(BaseResource):
-
+    """Class that handles data items."""
     @passthrough
     def makePrimary(self, machineName):
-        """promotes a standby machine to the primary data store machine. The
-        existing primary machine is downgraded to a standby machine
+        """Promotes a standby machine to the primary data store machine. The
+                existing primary machine is downgraded to a standby machine
 
-        Required:
-            machineName -- name of machine to make primary
+        Arg:
+            machineName: Name of machine to make primary.
+        
+        Returns:
+            Post request.
         """
+
         query_url = self.url + '/machines/{}/makePrimary'.format(machineName)
         return self.request(query_url)
 
     def validateDataStore(self, machineName):
-        """ensures that the data store is valid
+        """Ensures that the data store is valid.
 
-        Required:
-            machineName -- name of machine to validate data store against
+        Arg:
+            machineName: Name of machine to validate data store against.
         """
+
         query_url = self.url + '/machines/{}/validate'.format(machineName)
         return self.request(query_url)
 
 class Item(AdminRESTEndpoint):
-    """ This resource represents an item that has been uploaded to the server. Various
-    workflows upload items and then process them on the server. For example, when
-    publishing a GIS service from ArcGIS for Desktop or ArcGIS Server Manager, the
-    application first uploads the service definition (.SD) to the server and then
-    invokes the publishing geoprocessing tool to publish the service.
+    """This resource represents an item that has been uploaded to the server. Various
+            workflows upload items and then process them on the server. For example, 
+            when publishing a GIS service from ArcGIS for Desktop or ArcGIS Server 
+            Manager, the application first uploads the service definition (.SD) 
+            to the server and then invokes the publishing geoprocessing tool to 
+            publish the service.
 
     Each uploaded item is identified by a unique name (itemID). The pathOnServer
-    property locates the specific item in the ArcGIS Server system directory.
+            property locates the specific item in the ArcGIS Server system directory.
 
     The committed parameter is set to true once the upload of individual parts is complete.
-     """
+    """
+
     def __init__(self, url, usr='', pw='', token=''):
+        """Inits class with credentials for server.
+
+        Args:
+            url: Server URL.
+            usr: Username for login.
+            pw: Password for login.
+            token: Token for URL/login.
+        """
+        
         super(Item, self).__init__(url, usr, pw, token)
         pass
 
 class PrimarySiteAdministrator(AdminRESTEndpoint):
-    """Primary Site Administrator object"""
+    """Primary Site Administrator object."""
 
     @passthrough
     def disable(self):
-        """disables the primary site administartor account"""
+        """Disables the primary site administartor account."""
         query_url = self.url + '/disable'
         return self.request(query_url)
 
     @passthrough
     def enable(self):
-        """enables the primary site administartor account"""
+        """Enables the primary site administartor account."""
         query_url = self.url + '/enable'
         return self.request(query_url)
 
     @passthrough
     def update(self, username, password):
-        """updates the primary site administrator account
+        """Updates the primary site administrator account.
 
-
-        Required:
-            username -- new username for PSA (optional in REST API, required here
-                for your protection)
-            password -- new password for PSA
+        Args:
+            username: New username for PSA (optional in REST API, required here
+                for your protection).
+            password: New password for PSA.
         """
         query_url = self.url + '/update'
 
@@ -312,11 +365,11 @@ class PrimarySiteAdministrator(AdminRESTEndpoint):
         return self.request(query_url, params)
 
     def __bool__(self):
-        """returns True if PSA is enabled"""
+        """Returns True if PSA is enabled."""
         return not self.disabled
 
 class RoleStore(AdminRESTEndpoint):
-    """Role Store object"""
+    """Role Store object."""
 
     @property
     def specialRoles(self):
@@ -324,14 +377,13 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def addRole(self, rolename, description=''):
-        """adds a role to the role store
+        """Adds a role to the role store.
 
-        Required:
-            rolename -- name of role to add
-
-        Optional:
-            description -- optional description for new role
+        Args:
+            rolename: Name of role to add.
+            description: Optional description for new role.
         """
+
         query_url = self.url + '/add'
         params = {
             'rolename': rolename,
@@ -341,13 +393,14 @@ class RoleStore(AdminRESTEndpoint):
         return self.request(query_url, params)
 
     def getRoles(self, startIndex='', pageSize=1000):
-        """This operation gives you a pageable view of roles in the role store. It is intended
-        for iterating through all available role accounts. To search for specific role accounts
-        instead, use the searchRoles() method. <- from Esri help
+        """This operation gives you a pageable view of roles in the role store. 
+                It is intended for iterating through all available role accounts. 
+                To search for specific role accounts instead, use the searchRoles() 
+                method. <- from Esri help
 
-        Optional:
-            startIndex -- zero-based starting index from roles list.
-            pageSize -- maximum number of roles to return.
+        Args:
+            startIndex: Optional, zero-based starting index from roles list.
+            pageSize: Optional maximum number of roles to return. Default is 1000.
         """
         query_url = self.url + '/getRoles'
 
@@ -357,11 +410,11 @@ class RoleStore(AdminRESTEndpoint):
         return self.request(query_url, params)
 
     def searchRoles(self, filter='', maxCount=''):
-        """search the role store
+        """Searches the role store.
 
-        Optional:
-            filter -- filter string for roles (ex: "editors")
-            maxCount -- maximimum number of records to return
+        Args:
+            filter: Optional filter string for roles (ex: "editors"). 
+            maxCount: Optional aximimum number of records to return.
         """
         query_url = self.url + '/search'
 
@@ -372,24 +425,24 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def removeRole(self, rolename):
-        """removes a role from the role store
+        """Removes a role from the role store.
 
-        Required:
-            rolename -- name of role
+        Arg:
+            rolename : Name of role.
         """
+
         query_url = self.url + '/remove'
         return self.request({'rolename':rolename})
 
     @passthrough
     def updateRole(self, rolename, description=''):
-        """updates a role
+        """Updates a role.
 
-        Required:
-            rolename -- name of the role
-
-        Optional:
-            description -- descriptoin of role
+        Args:
+            rolename: Name of the role.
+            description: Optional description of role.
         """
+
         query_url = self.url + '/update'
 
         params = {'rolename': rolename,
@@ -399,13 +452,14 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def getRolesForUser(self, username, filter='', maxCount=100):
-        """returns the privilege associated with a user
+        """Returns the privilege associated with a user.
 
-        Required:
-            username -- name of user
-            filter -- optional filter to applied to resultant role set
-            maxCount -- max number of roles to return
+        Args:
+            username: Name of user.
+            filter: Optional filter to applied to resultant role set.
+            maxCount: Optional max number of roles to return. Defaults to 100.
         """
+
         query_url = self.url + '/getRolesForUser'
         params = {'username': username,
                   'filter': filter,
@@ -415,15 +469,14 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def getUsersWithinRole(self, rolename, filter='', maxCount=100):
-        """get all user accounts to whom this role has been assigned
+        """Gets all user accounts to whom this role has been assigned.
 
-        Required:
-            rolename -- name of role
-
-        Optional:
-            filter -- optional filter to be applied to the resultant user set
-            maxCount -- maximum number of results to return
+        Args:
+            rolename: Name of role.
+            filter: Optional filter to be applied to the resultant user set.
+            maxCount: Maximum number of results to return. Defaults to 100.
         """
+
         query_url = self.url + '/getUsersWithinRole'
         params = {'rolename': rolename,
                   'filter': filter,
@@ -433,12 +486,13 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def addUsersToRole(self, rolename, users):
-        """assign a role to multiple users with a single action
+        """Assigns a role to multiple users with a single action.
 
-        Required:
-            rolename -- name of role
-            users -- list of users or comma separated list
+        Args:
+            rolename: Name of role.
+            users: List of users or comma separated list.
         """
+
         query_url = self.url + '/addUsersToRole'
 
         if isinstance(users, (list, tuple)):
@@ -451,12 +505,13 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def removeUsersFromRole(self, rolename, users):
-        """removes a role assignment from multiple users.
+        """Removes a role assignment from multiple users.
 
-        Required:
-            rolename -- name of role
-            users -- list or comma separated list of user names
+        Args:
+            rolename: Name of role.
+            users : List or comma separated list of user names.
         """
+
         query_url = self.url + '/removeUsersFromRole'
 
         if isinstance(users, (list, tuple)):
@@ -469,12 +524,14 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def assignPrivilege(self, rolename, privilege='ACCESS'):
-        """assign administrative acess to ArcGIS Server
+        """Assigns administrative acess to ArcGIS Server.
 
-        Required:
-            rolename -- name of role
-            privilege -- administrative capability to assign (ADMINISTER | PUBLISH | ACCESS)
+        Args:
+            rolename: Name of role.
+            privilege: Administrative capability to assign 
+                (ADMINISTER | PUBLISH | ACCESS). Defaults to 'ACCESS'.
         """
+
         query_url = self.url + '/assignPrivilege'
 
         params = {'rolename': rolename,
@@ -484,46 +541,47 @@ class RoleStore(AdminRESTEndpoint):
 
     @passthrough
     def getPrivilegeForRole(self, rolename):
-        """gets the privilege associated with a role
+        """Gets the privilege associated with a role.
 
-        Required:
-            rolename -- name of role
+        Arg:
+            rolename: Name of role.
         """
+
         query_url = self.url + '/getPrivilege'
         return self.request(query_url, {'rolename':rolename})
 
     @passthrough
     def getRolesByPrivilege(self, privilege):
-        """returns the privilege associated with a user
+        """Returns the privilege associated with a user.
 
-        Required:
-            privilege -- name of privilege (ADMINISTER | PUBLISH)
+        Arg:
+            privilege: Name of privilege (ADMINISTER | PUBLISH).
         """
+
         query_url = self.url + '/getRolesByPrivilege'
         return self.request(query_url, {'privilege': privilege.upper()})
 
     def __iter__(self):
-        """make iterable"""
+        """Makes iterable."""
         for role in self.getRoles():
             yield role
 
 
 class UserStore(AdminRESTEndpoint):
-    """User Store object"""
+    """User Store object."""
 
     @passthrough
     def addUser(self, username, password, fullname='', description='', email=''):
-        """adds a user account to user store
-
-        Requred:
-            username -- username for new user
-            password -- password for new user
-
-        Optional:
-            fullname -- full name of user
-            description -- description for user
-            email -- email address for user account
+        """Adds a user account to user store.
+        
+        Args:
+            username: Username for new user.
+            password: Password for new user.
+            fullname: Optional full name of user.
+            description: Optional description for user.
+            email: Optional email address for user account.
         """
+
         query_url = self.url + '/add'
         params = {'username': username,
                   'password': password,
@@ -535,11 +593,12 @@ class UserStore(AdminRESTEndpoint):
 
     @passthrough
     def getUsers(self, startIndex='', pageSize=''):
-        """get all users in user store, intended for iterating over all user accounts
+        """Gets all users in user store, intended for iterating over all user
+                accounts
 
-        Optional:
-            startIndex -- zero-based starting index from roles list.
-            pageSize -- maximum number of roles to return.
+        Args:
+            startIndex: Optional zero-based starting index from roles list.
+            pageSize: Optional size for page.
         """
         query_url = self.url + '/getUsers'
 
@@ -549,12 +608,13 @@ class UserStore(AdminRESTEndpoint):
         return self.request(query_url, params)
 
     def searchUsers(self, filter='', maxCount=''):
-        """search the user store, returns User objects
-
-        Optional:
-            filter -- filter string for users (ex: "john")
-            maxCount -- maximimum number of records to return
+        """Searches the user store, returns User objects.
+        
+        Args:
+        filter: Optional filter string for users (ex: "john").
+        maxCount: Maximimum number of records to return.
         """
+
         query_url = self.url + '/search'
 
         params = {'filter': filter,
@@ -564,27 +624,27 @@ class UserStore(AdminRESTEndpoint):
 
     @passthrough
     def removeUser(self, username):
-        """removes a user from the user store
+        """Removes a user from the user store.
 
-        Required:
-            username -- name of user to remove
+        Arg:
+            username: Name of user to remove.
         """
+
         query_url = self.url + '/remove'
         return self.request(query_url, {'username':username})
 
     @passthrough
     def updateUser(self, username, password, fullname='', description='', email=''):
         """updates a user account in the user store
-
-        Requred:
-            username -- username for new user
-            password -- password for new user
-
-        Optional:
-            fullname -- full name of user
-            description -- description for user
-            email -- email address for user account
+        
+        Args:
+            username: Username for new user.
+            password: Password for new user.
+            fullname: Optional full name of user.
+            description: Optional description for user.
+            email: Optional email address for user account.
         """
+
         query_url = self.url + '/update'
         params = {
             'username': username,
@@ -603,11 +663,11 @@ class UserStore(AdminRESTEndpoint):
 
     @passthrough
     def assignRoles(self, username, roles):
-        """assign role to user to inherit permissions of role
+        """Assigns role to user to inherit permissions of role.
 
-        Required:
-            username -- name of user
-            roles -- list or comma separated list of roles
+        Args:
+            username: Name of user.
+            roles: List or comma separated list of roles.
         """
         query_url = self.url + '/assignRoles'
 
@@ -621,13 +681,14 @@ class UserStore(AdminRESTEndpoint):
 
     @passthrough
     def removeRoles(self, username, rolenames):
-        """removes roles that have been previously assigned to a user account, only
-        supported when role store supports reads and writes
+        """Removes roles that have been previously assigned to a user account, 
+                only supported when role store supports reads and writes.
 
-        Required:
-            username -- name of the user
-            roles -- list or comma separated list of role names
+        Args:
+            username: Name of the user.
+            roles: List or comma separated list of role names.
         """
+
         query_url = self.url + '/removeRoles'
 
         if isinstance(roles, (list, tuple)):
@@ -640,31 +701,32 @@ class UserStore(AdminRESTEndpoint):
 
     @passthrough
     def getPrivilegeForUser(self, username):
-        """gets the privilege associated with a role
+        """Gets the privilege associated with a role.
 
-        Required:
-            username -- name of user
+        Arg:
+            username: Name of user.
         """
+
         query_url = self.url + '/getPrivilege'
         params = {'username': username}
         return self.request(query_url, params)
 
     def __iter__(self):
-        """make iterable"""
+        """Makes iterable."""
         for user in self.getUsers():
             yield user
 
 class DataStore(AdminRESTEndpoint):
-    """class to handle Data Store operations"""
+    """Class to handle Data Store operations"""
 
     @passthrough
     def config(self):
-        """return configuratoin properties"""
+        """Returns configuration properties."""
         return self.request(self.url + '/config')
 
     # not available in ArcGIS REST API out of the box, included here to refresh data store cache
     def getItems(self):
-        """returns a refreshed list of all data items"""
+        """Returns a refreshed list of all data items."""
         items = []
         for it in self.getRootItems():
             items += self.findItems(it)
@@ -672,10 +734,10 @@ class DataStore(AdminRESTEndpoint):
 
     @passthrough
     def registerItem(self, item):
-        """registers an item with the data store
+        """Registers an item with the data store.
 
-        Required:
-            item -- JSON representation of new data store item to register
+        Arg:
+            item: JSON representation of new data store item to register.
 
         Example:
             item={
@@ -688,6 +750,7 @@ class DataStore(AdminRESTEndpoint):
             		}
             	}
         """
+
         if self.validateItem(item):
             query_url = self.url + '/registerItem'
             return self.request(query_url, params={'item': item})
@@ -696,28 +759,29 @@ class DataStore(AdminRESTEndpoint):
 
     @passthrough
     def unregisterItem(self, itemPath, force=True):
-        """unregisters an item with the data store
+        """Unregisters an item with the data store.
 
-        Required:
-            itemPath -- path to data item to unregister (DataItem.path)
-
-        Optional:
-            force -- added at 10.4, must be set to true
+        Args:
+            itemPath: Path to data item to unregister (DataItem.path).
+            force: Added at 10.4, must be set to True.
         """
+
         query_url = self.url + '/unregisterItem'
         return self.request(query_url, {'itemPath': itemPath, 'force': force})
 
     def findItems(self, parentPath, ancestorPath='', types='', id=''):
-        """search through items registered in data store
-
-        Required:
-            parentPath -- path of parent under which to find items
-
-        Optional:
-            ancestorPath -- path of ancestor which to find items
-            types -- filter for the type of items to search
-            id -- filter to search the ID of the item
+        """Searches through items registered in data store.
+        
+        Args:
+            parentPath: Path of parent under which to find items.
+            ancestorPath: Optional path of ancestor which to find items.
+            types: Optional filter for the type of items to search.
+            id: Optional filter to search the ID of the item.
+        
+        Returns:
+            Data items under the parent.
         """
+
         query_url = self.url + '/findItems'
         params = {'parentPath': parentPath,
                   'ancestorPath': ancestorPath,
@@ -731,11 +795,15 @@ class DataStore(AdminRESTEndpoint):
         return [DataItem(d) for d in ds_items]
 
     def validateItem(self, item):
-        """validates a data store item
+        """Validates a data store item.
 
-        Required:
-            item -- JSON representation of new data store item to validate
+        Arg:
+            item: JSON representation of new data store item to validate.
+        
+        Returns:
+            Boolean, True if item is validated.
         """
+
         query_url = self.url + '/validateDataItem'
         r = self.request(query_url, {'item': item})
         if 'status' in r and r['status'] == 'success':
@@ -746,100 +814,107 @@ class DataStore(AdminRESTEndpoint):
 
     @passthrough
     def validateAllDataItems(self):
-        """validates all data items in data store.  Warning, this operation can be
-        VERY time consuming, depending on how many items are registered with the
-        data store
+        """Validates all data items in data store.  Warning, this operation can be
+                VERY time consuming, depending on how many items are registered 
+                with the data store.
         """
+
         return self.request(self.url + '/validateAllDataItems')
 
     def computeRefCount(self, path):
-        """get the total number of references to a given data item that exists on
-        the server.  Can be used to determine if a data resource can be safely
-        deleted or taken down for maintenance.
+        """Returns the total number of references to a given data item that exists 
+                on the server. Can be used to determine if a data resource can 
+                be safely deleted or taken down for maintenance.
 
-        Required:
-            path -- path to resource on server (DataItem.path)
+        Arg:
+            path: Path to resource on server (DataItem.path).
         """
+
         query_url = self.url + '/computeTotalRefCount'
         r  = passthrough(self.request(query_url, {'path': path}))
         return int(r['totalRefCount'])
 
     def getRootItems(self):
-        """method to get all data store items at the root"""
+        """Methods to get all data store items at the root."""
         return self.request(self.url + '/items')['rootItems']
 
     @passthrough
     def startMachine(self, dataItem, machineName):
-        """starts the database instance running on the data store machine
-
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+        """Starts the database instance running on the data store machine.
+        
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to validate data store against.
         """
+
         query_url = self.url + '/items/{}/machines/{}/start'.format(dataItem, machineName)
         return self.request(query_url)
 
     @passthrough
     def stopMachine(self, dataItem, machineName):
-        """starts the database instance running on the data store machine
+        """Starts the database instance running on the data store machine.
 
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to validate data store against.
         """
+
         query_url = self.url + '/items/{}/machines/{}/stop'.format(dataItem, machineName)
         return self.request(query_url)
 
     @passthrough
     def removeMachine(self, dataItem, machineName):
-        """removes a standby machine from the data store, this operation is not
-        supported on the primary data store machine
+        """Removes a standby machine from the data store, this operation is not
+                supported on the primary data store machine.
 
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to validate data store against.
         """
         query_url = self.url + '/items/{}/machines/{}/remove'.format(dataItem, machineName)
         return self.request(query_url)
 
     @passthrough
     def makePrimary(self, dataItem, machineName):
-        """promotes a standby machine to the primary data store machine. The
-        existing primary machine is downgraded to a standby machine
+        """Promotes a standby machine to the primary data store machine. The
+                existing primary machine is downgraded to a standby machine.
 
         Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to make primary
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to make primary.
         """
         query_url = self.url + '/items/{}/machines/{}/makePrimary'.format(dataItem, machineName)
         return self.request(query_url)
 
     def validateDataStore(self, dataItem, machineName):
-        """ensures that the data store is valid
+        """Ensures that the data store is valid.
 
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to validate data store against.
         """
+
         query_url = self.url + '/items/{}/machines/{}/validate'.format(dataItem, machineName)
         return self.request(query_url)
 
     @passthrough
     def updateDatastoreConfig(self, datastoreConfig={}):
-        """update data store configuration.  Can use this to allow or block
-        automatic copying of data to server at publish time
+        """Updates data store configuration. Can use this to allow or block
+                automatic copying of data to server at publish time.
 
-        Optional:
-            datastoreConfig -- JSON object representing datastoreConfiguration.  if none
-                supplied, it will default to disabling copying data locally to the server.
+        Arg:
+            datastoreConfig: Optional JSON object representing datastoreConfiguration. 
+                If none supplied, it will default to disabling copying data locally 
+                to the server. Defaults to {}.
         """
+
         query_url = self.url + '/config/update'
         if not datastoreConfig:
             datastoreConfig = '{"blockDataCopy":"true"}'
         return self.request(query_url, {'datastoreConfig': datastoreConfig})
 
     def __iter__(self):
-        """make iterable"""
+        """Makes iterable."""
         for item in self.getItems():
             yield item
 
@@ -847,53 +922,56 @@ class DataStore(AdminRESTEndpoint):
         return '<ArcGIS DataStore>'
 
 class Cluster(AdminRESTEndpoint):
-    """class to handle Cluster object"""
+    """Class to handle Cluster object."""
 
     @property
     def machines(self):
-        """list all server machines participating in the cluster"""
+        """Returns all server machines participating in the cluster."""
         return [Machine(**r) for r in self.request(self.url + '/machines')]
 
     @property
     def services(self):
-        """get a list of all services in the cluster"""
+        """Gets a list of all services in the cluster."""
         return self.request(self.url + '/services')['services']
 
     @passthrough
     def start(self):
-        """starts the cluster"""
+        """Starts the cluster."""
         return self.request(self.url + '/start')
 
     @passthrough
     def stop(self):
-        """stops the cluster"""
+        """Stops the cluster"""
         return self.request(self.url + '/stop')
 
     @passthrough
     def delete(self):
-        """deletes the cluster configuration.  All machines in cluster will be stopped
-        and returened to pool of registered machines.  All GIS services in cluster are
-        stopped
+        """Deletes the cluster configuration. All machines in cluster will be 
+                stopped and returened to pool of registered machines. All GIS 
+                services in cluster are stopped.
         """
+
         return self.request(self.url + '/delete')
 
     @passthrough
     def editProtocol(self, clusterProtocol):
-        """edits the cluster protocol.  Will restart the cluster with updated protocol.
-         The clustering protocol defines a channel which is used by server machines within
-         a cluster to communicate with each other. A server machine will communicate with
-         its peers information about the status of objects running within it for load
-         balancing and default tolerance.
+        """Edits the cluster protocol.  Will restart the cluster with updated protocol.
+                The clustering protocol defines a channel which is used by server 
+                machines within a cluster to communicate with each other. A server 
+                machine will communicate with its peers information about the 
+                status of objects running within it for load balancing and default 
+                tolerance.
 
         ArcGIS Server supports the TCP clustering protocols where server machines communicate
         with each other over a TCP channel (port).
 
-        Required:
-            clusterProtocol -- JSON object representing the cluster protocol TCP port
+        Arg:
+            clusterProtocol: JSON object representing the cluster protocol TCP port.
 
         Example:
             clusterProtocol = {"tcpClusterPort":"4014"}
         """
+
         query_url = self.url + '/editProtocol'
         params = {'clusterProtocol': clusterProtocol}
 
@@ -901,15 +979,16 @@ class Cluster(AdminRESTEndpoint):
 
     @passthrough
     def addMachines(self, machineNames):
-        """add machines to cluster.  Machines need to be registered with the site
+        """Adds machines to cluster. Machines need to be registered with the site
         before they can be added.
 
-        Required:
-            machineNames -- list or comma-separated list of machine names
+        Arg:
+            machineNames: List or comma-separated list of machine names.
 
         Examples:
             machineNames= "SERVER2.DOMAIN.COM,SERVER3.DOMAIN.COM"
         """
+
         query_url = self.url + '/machines/add'
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
@@ -918,14 +997,15 @@ class Cluster(AdminRESTEndpoint):
 
     @passthrough
     def removeMachines(self, machineNames):
-        """remove machine names from cluster
+        """Removes machine names from cluster.
 
-        Required:
-            machineNames -- list or comma-separated list of machine names
+        Arg:
+            machineNames: List or comma-separated list of machine names.
 
         Examples:
             machineNames= "SERVER2.DOMAIN.COM,SERVER3.DOMAIN.COM"
         """
+
         query_url = self.url + '/machines/remove'
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
@@ -934,62 +1014,69 @@ class Cluster(AdminRESTEndpoint):
 
 
 class Folder(BaseDirectory):
-    """class to handle simple folder objects"""
+    """Class to handle simple folder objects."""
 
     def __str__(self):
-        """folder name"""
+        """Folder name"""
         return self.folderName
 
     def list_services(self):
-        """list services within folder"""
+        """Returns services within folder."""
         return ['.'.join([s.serviceName, s.type]) for s in self.services]
 
     def iter_services(self):
-        """iterate through folder and return Service Objects"""
+        """Iterates through folder and returns Service Objects."""
         for service in self.services:
             serviceUrl = '.'.join(['/'.join([self.url, service.serviceName]), service.type])
             yield Service(serviceUrl)
 
     @passthrough
     def delete(self):
-        """deletes the folder"""
+        """Deletes the folder."""
         query_url = self.url + '/deleteFolder'
         return self.request(query_url)
 
     @passthrough
     def edit(self, description, webEncrypted):
-        """edit a folder
+        """Edits a folder.
 
-        Required:
-            description -- folder description
-            webEncrypted -- boolean to indicate if the servies are accessible over SSL only.
+        Args:
+            description: Folder description.
+            webEncrypted: Boolean to indicate if the servies are accessible 
+                over SSL only.
         """
+
         query_url = self.url + '/editFolder'
         params = {'description': description, 'webEncrypted': webEncrypted}
         return self.request(query_url, params)
 
     def __getitem__(self, i):
-        """get service by index"""
+        """Gets service by index"""
         return self.services[i]
 
     def __iter__(self):
-        """iterate through list of services"""
+        """Iterates through list of services."""
         for s in self.services:
             yield s
 
     def __len__(self):
-        """return number of services in folder"""
+        """Returns number of services in folder."""
         return len(self.services)
 
     def __nonzero__(self):
-        """return True if services are present"""
+        """Returns True if services are present."""
         return bool(len(self))
 
 class Service(BaseDirectory, EditableResource):
     """Class to handle inernal ArcGIS Service instance all service properties
-    are accessed through the service's json property.  To get full list print()
-    Service.json or Service.print_info().
+            are accessed through the service's json property.  To get full list print()
+            Service.json or Service.print_info().
+    
+    Attributes:
+        fullName: List of full URL name.
+        serviceName: Service name that is derived from fullName.
     """
+
     url = None
     raw_response = None
     response = None
@@ -1000,35 +1087,55 @@ class Service(BaseDirectory, EditableResource):
     json = {}
 
     def __init__(self, url, usr='', pw='', token=''):
-        """initialize with json definition plus additional attributes"""
+        """Initializes with json definition plus additional attributes.
+        
+        Args:
+            url: URL.
+            usr: Username for login.
+            pw: Password for login.
+            token: Token for URL login.
+        """
+
         super(Service, self).__init__(url, usr, pw, token)
         self.fullName = self.url.split('/')[-1]
         self.serviceName = self.fullName.split('.')[0]
 
     @property
     def enabledExtensions(self):
-        """return list of enabled extensions, not available out of the box in the REST API"""
+        """Returns list of enabled extensions, not available out of the box in 
+                the REST API.
+        """
+
         return [e.typeName for e in self.extensions if str(e.enabled).lower() == 'true']
 
     @property
     def disabledExtensions(self):
-        """return list of disabled extensions, not available out of the box in the REST API"""
+        """Returns list of disabled extensions, not available out of the box 
+                in the REST API.
+        """
+
         return [e.typeName for e in self.extensions if str(e.enabled).lower() == 'false']
 
     @property
     def status(self):
-        """return status JSON object for service"""
+        """Returns status JSON object for service."""
         return munchify(self.request(self.url + '/status'))
 
     @passthrough
     def enableExtensions(self, extensions):
-        """enables an extension, this operation is not available through REST API out of the box
+        """Enables an extension, this operation is not available through REST API 
+                out of the box.
 
-        Required:
-            extensions -- name of extension(s) to enable.  Valid options are:
+        
+        Args:
+            extensions: Name of extension(s) to enable.  Valid options are:
 
-        NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
+            NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
+        
+        Returns:
+            A dictionary containing the statuses of the extensions.
         """
+
         if isinstance(extensions, six.string_types):
             extensions = extensions.split(';')
         editJson = self.response
@@ -1050,13 +1157,18 @@ class Service(BaseDirectory, EditableResource):
 
     @passthrough
     def disableExtensions(self, extensions):
-        """disables an extension, this operation is not available through REST API out of the box
+        """Disables an extension, this operation is not available through REST API 
+                out of the box.
 
-        Required:
-            extensions -- name of extension(s) to disable.  Valid options are:
+        Arg:
+            extensions: Name of extension(s) to disable.  Valid options are:
 
-        NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
+            NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
+        
+        Returns:
+            A dictionary containing the statuses of the extensions.
         """
+
         if isinstance(extensions, six.string_types):
             extensions = extensions.split(';')
         editJson = self.response
@@ -1078,7 +1190,7 @@ class Service(BaseDirectory, EditableResource):
 
     @passthrough
     def start(self):
-        """starts the service"""
+        """Starts the service."""
         r = {}
         if self.configuredState.lower() == 'stopped':
             r = self.request(self.url + '/start')
@@ -1091,7 +1203,7 @@ class Service(BaseDirectory, EditableResource):
 
     @passthrough
     def stop(self):
-        """stops the service"""
+        """Stops the service."""
         r = {}
         if self.configuredState.lower() == 'started':
             r = self.request(self.url + '/stop')
@@ -1104,7 +1216,7 @@ class Service(BaseDirectory, EditableResource):
 
     @passthrough
     def restart(self):
-        """restarts the service"""
+        """Restarts the service."""
         verb = VERBOSE
         VERBOSE = False
         self.stop()
@@ -1114,11 +1226,13 @@ class Service(BaseDirectory, EditableResource):
 
     @passthrough
     def edit(self, serviceJSON={}, **kwargs):
-        """edit the service, properties that can be edited vary by the service type
-
-        Optional
-            serviceJSON -- JSON representation of service with edits
-            kwargs -- list of keyword arguments, you can use these if there are just a
+        """Edits the service, properties that can be edited vary by the service 
+                type.
+        
+        Args:
+            serviceJSON: Optional JSON representation of service with edits.
+                Defaults to {}.
+            kwargs: List of keyword arguments, you can use these if there are just a
                 few service options that need to be updated.  It will grab the rest of
                 the service info by default.
         """
@@ -1134,27 +1248,26 @@ class Service(BaseDirectory, EditableResource):
 
     @passthrough
     def delete(self):
-        """deletes the service, proceed with caution"""
+        """Deletes the service, proceed with caution."""
         r = self.request(self.url + '/delete')
         self.response = None
         self.url = None
         return r
 
     def itemInfo(self):
-        """get service metadata"""
+        """Gets service metadata."""
         query_url = self.url + '/iteminfo'
         return self.request(query_url)
 
     @passthrough
     def editItemInfo(self, itemInfo, thumbnailFile=None):
-        """edit the itemInfo for service
-
-        Required:
-            itemInfo -- JSON itemInfo objet representing metadata
-
-        Optional:
-            thumbnailFile -- path to optional thumbnail image
+        """Edits the itemInfo for service.
+        
+        Args:
+            itemInfo: JSON itemInfo objet representing metadata.
+            thumbnailFile: Path to optional thumbnail image, defaults to None.
         """
+
         query_url = self.url + '/iteminfo/edit'
         if thumbnailFile and os.path.exists(thumbnailFile):
             # use mimetypes to guess "content_type"
@@ -1181,24 +1294,26 @@ class Service(BaseDirectory, EditableResource):
 
     @passthrough
     def uploadItemInfo(self, folder, file):
-        """uploads a file associated with the item information the server; placed in directory
-        specified by folder parameter
-
-        folder -- name of the folder to which the file will be uploaded
-        file -- full path to file to be uploaded to server
+        """Uploads a file associated with the item information the server; 
+                placed in directory specified by folder parameter.
+        
+        Args:   
+            folder: Name of the folder to which the file will be uploaded.
+            file: Full path to file to be uploaded to server.
         """
+
         query_url = self.url + '/iteminfo/upload'
         return self.request(query_url, {'folder': folder, 'file':file})
 
     @passthrough
     def deleteItemInformation(self):
-        """deletes information about the service, configuration is not changed"""
+        """Deletes information about the service, configuration is not changed."""
         query_url = self.url + '/iteminfo/delete'
         return self.request(query_url)
 
     def manifest(self):
-        """get service manifest.  This  documents the data and other resources that define the
-        service origins and power the service"""
+        """Gets service manifest. This  documents the data and other resources 
+                that define the service origins and power the service."""
         query_url = self.url + '/iteminfo/manifest/manifest.json'
         return BaseResource(self.request(query_url))
 
