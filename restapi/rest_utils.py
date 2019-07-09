@@ -1301,27 +1301,27 @@ class Folder(RESTEndpoint):
 
     @property
     def name(self):
-        """returns the folder name"""
+        """Returns the folder name."""
         return self.url.split('/')[-1]
 
     def list_services(self):
-        """method to list services"""
+        """Method to list services."""
         return ['/'.join([s.name, s.type]) for s in self.services]
 
     def __len__(self):
-        """return number of services in folder"""
+        """Returns number of services in folder."""
         return len(self.services)
 
     def __bool__(self):
-        """return True if services are present"""
+        """Returns True if services are present."""
         return bool(len(self))
 
 class GPResult(object):
-    """class to handle GP Result"""
+    """Class to handle GP Result."""
     def __init__(self, response):
-        """handler for GP result
+        """Handler for GP result.
 
-        res_dict -- JSON response from GP Task execution
+        response: JSON response from GP Task execution.
         """
         self.response = response
         RequestError(self.response)
@@ -1334,44 +1334,45 @@ class GPResult(object):
 
     @property
     def value(self):
-        """returns a value (if any) from results"""
+        """Returns a value (if any) from results."""
         if VALUE in self.response:
             return self.response[VALUE]
         return None
 
     @property
     def messages(self):
-        """return messages as JSON"""
+        """Returns messages as JSON."""
         if 'messages' in self.response:
             return [namedTuple('Message', d) for d in self.response['messages']]
         return []
 
     def print_messages(self):
-        """prints all the GP messages"""
+        """Prints all the GP messages."""
         for msg in self.messages:
             print('Message Type: {}'.format(msg.type))
             print('\tDescription: {}\n'.format(msg.description))
 
     def __len__(self):
-        """return length of results"""
+        """Returns length of results."""
         return len(self.results)
 
     def __getitem__(self, i):
-        """return result at index, usually will only be 1"""
+        """Returns result at index, usually will only be 1."""
         return self.results[i]
 
     def __bool__(self):
-        """return True if results"""
+        """Returns True if results."""
         return bool(len(self))
 
 class GeocodeResult(JsonGetter, SpatialReferenceMixin):
-    """class to handle Reverse Geocode Result"""
+    """Class to handle Reverse Geocode Result."""
     def __init__(self, res_dict, geo_type):
-        """geocode response object
+        """Geocode response object.
 
-        Required:
-            res_dict -- JSON response from geocode request
-            geo_type -- type of geocode operation (reverseGeocode|findAddressCandidates|geocodeAddresses)
+        Args:
+            res_dict: JSON response from geocode request
+            geo_type: Type of geocode operation 
+                (reverseGeocode|findAddressCandidates|geocodeAddresses).
         """
         RequestError(res_dict)
         super(GeocodeResult, self).__init__()
@@ -1380,7 +1381,7 @@ class GeocodeResult(JsonGetter, SpatialReferenceMixin):
 
     @property
     def results(self):
-        """returns list of result objects"""
+        """Returns list of result objects."""
         if self.type == 'esri_findAddressCandidates':
             return self.candidates
         elif self.type == 'esri_reverseGeocode':
@@ -1390,44 +1391,50 @@ class GeocodeResult(JsonGetter, SpatialReferenceMixin):
 
     @property
     def result(self):
-        """returns the top result"""
+        """Returns the top result."""
         try:
             return self.results[0]
         except IndexError:
             return None
 
     def __getitem__(self, index):
-        """allows for indexing of results"""
+        """Allows for indexing of results."""
         return self.results[index]
 
     def __len__(self):
-        """get count of results"""
+        """Returns count of results."""
         return len(self.results)
 
     def __iter__(self):
-        """return an iterator for results (as generator)"""
+        """Returns an iterator for results (as generator)."""
         for r in self.results:
             yield r
 
     def __bool__(self):
-        """returns True if results are returned"""
+        """Returns True if results are returned."""
         return bool(len(self))
 
     def __repr__(self):
         return '<{}: {} match{}>'.format(self.__class__.__name__, len(self), 'es' if len(self) else '')
 
 class EditResult(JsonGetter):
-    """class to handle Edit operation results"""
+    """Class to handle Edit operation results."""
     def __init__(self, res_dict, feature_id=None):
+        """Inits class with response
+        
+        Args:
+            res_dict: Dictionary of response. 
+        """
         RequestError(res_dict)
         self.json = munch.munchify(res_dict)
 
     @staticmethod
     def success_count(l):
+        """Returns number of successful attempts."""
         return len([d for d in l if d.get(SUCCESS_STATUS) in (True, TRUE)])
 
     def summary(self):
-        """print summary of edit operation"""
+        """Prints summary of edit operation."""
         if self.json.get(ADD_RESULTS, []):
             print('Added {} feature(s)'.format(self.success_count(getattr(self, ADD_RESULTS))))
         if self.json.get(UPDATE_RESULTS, []):
@@ -1458,17 +1465,17 @@ class EditResult(JsonGetter):
                 print('Updated 1 attachment')
 
 class BaseGeometry(SpatialReferenceMixin):
-    """base geometry obect"""
+    """Base geometry obect."""
 
     def dumps(self, **kwargs):
-        """retuns JSON as a string"""
+        """Returns JSON as a string."""
         if 'ensure_ascii' not in kwargs:
             kwargs['ensure_ascii'] = False
         return json.dumps(self.json, **kwargs)
 
 
 class BaseGeometryCollection(SpatialReferenceMixin):
-    """Base Geometry Collection"""
+    """Base Geometry Collection."""
     geometries = []
     json = {GEOMETRIES: []}
     geometryType = NULL
@@ -1478,7 +1485,7 @@ class BaseGeometryCollection(SpatialReferenceMixin):
         return len(self)
 
     def dumps(self, **kwargs):
-        """retuns JSON as a string"""
+        """Returns JSON as a string."""
         if 'ensure_ascii' not in kwargs:
             kwargs['ensure_ascii'] = False
         return json.dumps(self.json, **kwargs)
@@ -1500,21 +1507,21 @@ class BaseGeometryCollection(SpatialReferenceMixin):
         return '<restapi.GeometryCollection ({}): [{}]>'.format(self.count, self.geometryType)
 
 class GeocodeService(RESTEndpoint):
-    """class to handle Geocode Service"""
+    """Class to handle Geocode Service."""
 
     def geocodeAddresses(self, recs, outSR=4326, address_field=''):
-        """geocode a list of addresses.  If there is a singleLineAddress field present in the
-        geocoding service, the only input required is a list of addresses.  Otherwise, a record
-        set an be passed in for the "recs" parameter.  See formatting example at bottom.
-
-        Required:
-            recs -- JSON object for fields as record set if no SingleLine field available.
-                If singleLineAddress is present a list of full addresses can be passed in.
-
-        Optional:
-            outSR -- output spatial refrence for geocoded addresses
-            address_field -- name of address field or Single Line address field
-
+        """Geocodes a list of addresses.  If there is a singleLineAddress field 
+                present in the geocoding service, the only input required is a 
+                list of addresses.  Otherwise, a record set an be passed in for 
+                the "recs" parameter.  See formatting example at bottom.
+        
+        Args:
+            recs: JSON object for fields as record set if no SingleLine field 
+                available. If singleLineAddress is present a list of full addresses 
+                can be passed in.
+            outSR: Optional output spatial refrence for geocoded addresses.
+            address_field: Name of address field or Single Line address field.
+        
         # recs param examples
         # preferred option as record set (from esri help docs):
         recs = {
@@ -1535,10 +1542,16 @@ class GeocodeService(RESTEndpoint):
                 }
             ]
         }
-
         # full address list option if singleLineAddressField is present
         recs = ['100 S Riverfront St, Mankato, MN 56001',..]
+
+        Raises:
+            ValueError: 'Not a valid input for "recs" parameter!'
+
+        Returns:
+            The geocode result.
         """
+
         geo_url = self.url + '/geocodeAddresses'
         if isinstance(recs, (list, tuple)):
             addr_list = recs[:]
@@ -1568,16 +1581,19 @@ class GeocodeService(RESTEndpoint):
         return GeocodeResult(self.request(geo_url, params), geo_url.split('/')[-1])
 
     def reverseGeocode(self, location, distance=100, outSR=4326, returnIntersection=False, langCode='eng'):
-        """reverse geocodes an address by x, y coordinates
-
-        Required:
-            location -- input point object as JSON
-            distance -- distance in meters from given location which a matching address will be found
-            outSR -- wkid for output address
-
-        Optional:
-            langCode -- optional language code, default is eng (only used for StreMap Premium locators)
+        """Reverse geocodes an address by x, y coordinates.
+        
+        Args:
+            location: Input point object as JSON
+            distance: Distance in meters from given location which a matching 
+                address will be found. Default is 100.
+            outSR: WKID for output address. Default is 4326.
+            langCode: Optional language code, default is eng 
+                (only used for StreMap Premium locators).
+            returnIntersection: Optional boolean, if True, will return an 
+                intersection. Defaults to False.
         """
+
         geo_url = self.url + '/reverseGeocode'
         params = {LOCATION: location,
                   DISTANCE: distance,
@@ -1588,15 +1604,19 @@ class GeocodeService(RESTEndpoint):
         return GeocodeResult(self.request(geo_url, params), geo_url.split('/')[-1])
 
     def findAddressCandidates(self, address='', outSR=4326, outFields='*', returnIntersection=False, **kwargs):
-        """finds address candidates for an anddress
+        """Finds address candidates for an anddress.
 
-        Required:
-            address -- full address (380 New York Street, Redlands, CA 92373)
-            outFields -- list of fields for output. Default is * for all fields.  Will
+        Args:
+            address: Full address (380 New York Street, Redlands, CA 92373).
+            outFields: List of fields for output. Default is * for all fields. Will
                 accept either list of fields [], or comma separated string.
-            outSR -- wkid for output address
-            **kwargs -- key word arguments to use for Address, City, State, etc fields if no SingleLine field
+            outSR: wkid for output address. Defaults to 4326.
+            **kwargs: key word arguments to use for Address, City, State, etc 
+                fields if no SingleLine field.
+            returnIntersection: Optional boolean, if True, will return an 
+                intersection. Defaults to False.
         """
+
         geo_url = self.url + '/findAddressCandidates'
         params = {OUT_SR: outSR,
                   OUT_FIELDS: outFields,
@@ -1614,5 +1634,5 @@ class GeocodeService(RESTEndpoint):
         return GeocodeResult(self.request(geo_url, params), geo_url.split('/')[-1])
 
     def __repr__(self):
-        """string representation with service name"""
+        """String representation with service name."""
         return '<GeocodeService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
