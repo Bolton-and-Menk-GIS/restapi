@@ -1318,35 +1318,34 @@ class Service(BaseDirectory, EditableResource):
         return BaseResource(self.request(query_url))
 
     def statistics(self):
-        """return service statistics object"""
+        """Returns service statistics object."""
         return munchify(**self.request(self.url + '/statistics'))
 
     #**********************************************************************************
     #
     # helper methods not available out of the box
     def getExtension(self, extension):
-        """get an extension by name
+        """Returns an extension by name.
 
-        Required:
-            extension -- name of extension (not case sensative)
+        Arg:
+            extension: Name of extension (not case sensitive).
         """
+
         try:
             return [e for e in self.extensions if e.typeName.lower() == extension.lower()][0]
         except IndexError:
             return None
 
     def setExtensionProperties(self, extension, **kwargs):
-        """helper method to set extension properties by name and keyword arguments
-
-        Required:
-            extension -- name of extension (not case sensative)
-
-        Optional:
-            **kwargs -- keyword arguments to set properties for
-
+        """Helper method to set extension properties by name and keyword arguments.
+        
+        Args:
+            extension: Name of extension (not case sensitive).
+            **kwargs: Optional keyword arguments to set properties for.
+        
         example:
             # set capabilities for feature service extension
-            Service.setExtensionProperties('featureserver', capabilities='Create,Update,Delete')
+            Service.setExtensionProperties('featureserver', capabilities:'Create,Update,Delete')
         """
 
         ext = self.getExtension(extension)
@@ -1358,15 +1357,33 @@ class Service(BaseDirectory, EditableResource):
             self.edit()
 
     def __repr__(self):
-        """show service name"""
+        """Shows service name."""
         if self.url is not None:
             return '<Service: {}>'.format(self.url.split('/')[-1])
 
 
 
 class ArcServerAdmin(AdminRESTEndpoint):
-    """Class to handle internal ArcGIS Server instance"""
+    """Class to handle internal ArcGIS Server instance.
+    
+    Attributes:
+        service_cache: List of the service cache.
+        psa: Primary Site Administrator object
+        roleStore: Store of the roles for server.
+        userStore: Store of the users for server.
+        dataStore: Store of data from server.
+    """
+
     def __init__(self, url, usr='', pw='', token=''):
+        """Inits class with login info/credentials.
+
+        Args:
+            url: URL for server.
+            usr: Username for login.
+            pw: Password for login.
+            token: Token for URL/login.
+        """
+        
         #possibly redundant validation...
         if not 'arcgis' in url.lower():
             url += '/arcgis'
@@ -1397,40 +1414,41 @@ class ArcServerAdmin(AdminRESTEndpoint):
     # general methods and properties
     @property
     def machines(self):
-        """return machines"""
+        """Returns machines."""
         return munchify(self.request(self._machinesURL))
 
     @property
     def clusters(self):
-        """get a list of cluster objects"""
+        """Gets a list of cluster objects."""
         return self.request(self._clusterURL)
 
     @property
     def types(self):
-        """get a list of all server service types and extensions (types)"""
+        """Gets a list of all server service types and extensions (types)."""
         return self.request(self._servicesURL + '/types')
 
     @property
     def publicKey(self):
         """This resource returns the public key of the server that can be
-        used by a client application (or script) to encrypt data sent to
-        the server using the RSA algorithm for public-key encryption. In
-        addition to encrypting the sensitive parameters, the client is
-        also required to send to the server an additional flag encrypted
-        with value set to true.
+                used by a client application (or script) to encrypt data sent to
+                the server using the RSA algorithm for public-key encryption. In
+                addition to encrypting the sensitive parameters, the client is
+                also required to send to the server an additional flag encrypted
+                with value set to true.
         """
         return self.request(self.url + '/publicKey')
 
     def cluster(self, clusterName):
-        """returns a Cluster object
+        """Returns a Cluster object.
 
-        Required:
-            clusterName -- name of cluster to connect to
+        Arg:
+            clusterName: Name of cluster to connect to.
         """
+
         return Cluster(self.request(self._clusterURL + '/{}'.format(clusterName)))
 
     def list_services(self):
-        """list of fully qualified service names"""
+        """Returns a list of fully qualified service names."""
         services = ['/'.join([self._servicesURL,
                     '.'.join([serv['serviceName'], serv['type']])])
                     for serv in self.response['services']]
@@ -1444,14 +1462,14 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return services
 
     def iter_services(self):
-        """iterate through Service Objects"""
+        """Iterates through Service Objects."""
         if not self.service_cache:
             self.list_services()
         for serviceName in self.service_cache:
             yield self.service(serviceName)
 
     def rehydrateServices(self):
-        """reloads response to get updated service list"""
+        """Reloads response to get updated service list."""
         self.refresh()
         return self.list_services()
 
@@ -1459,13 +1477,14 @@ class ArcServerAdmin(AdminRESTEndpoint):
     # clusters
     @passthrough
     def createCluster(self, clusterName, machineNames, topCluserPort):
-        """create a new cluster on ArcGIS Server Site
+        """Creates a new cluster on ArcGIS Server Site.
 
-        Required:
-            clusterName -- name of new cluster
-            machineNames -- comma separated string of machine names or list
-            topClusterPort -- TCP port number used by all servers to communicate with eachother
+        Args:
+            clusterName: Name of new cluster.
+            machineNames: Comma separated string of machine names or list.
+            topClusterPort: TCP port number used by all servers to communicate with eachother.
         """
+
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
@@ -1476,49 +1495,55 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return self.request(self._clusterURL + '/create', params)
 
     def getAvailableMachines(self):
-        """list all server machines that don't participate in a cluster and are
-        available to be added to a cluster (i.e. registered with server"""
+        """Lists all server machines that don't participate in a cluster and are
+                available to be added to a cluster (i.e. registered with server.
+        """
+
         query_url = self.url.split('/clusters')[0] + '/clusters/getAvailableMachines'
         return self.request(query_url)['machines']
 
     @passthrough
     def startCluster(self, clusterName):
-        """starts a cluster
+        """Starts a cluster.
 
-        Required:
-            clusterName -- name of cluster to start
+        Arg:
+            clusterName: Name of cluster to start.
         """
+
         self._clusterURL + '/{}/start'.format(clusterName)
         return self.request(query_url)
 
     @passthrough
     def stopCluster(self, clusterName):
-        """stops a cluster
+        """Stops a cluster.
 
-        Required:
-            clusterName -- name of cluster to start
+        Arg:
+            clusterName: Name of cluster to stop.
         """
+
         self._clusterURL + '/{}/stop'.format(clusterName)
         return self.request(query_url)
 
     @passthrough
     def editProtocol(self, clusterName, clusterProtocol):
-        """edits the cluster protocol.  Will restart the cluster with updated protocol.
-         The clustering protocol defines a channel which is used by server machines within
-         a cluster to communicate with each other. A server machine will communicate with
-         its peers information about the status of objects running within it for load
-         balancing and default tolerance.
+        """Edits the cluster protocol.  Will restart the cluster with updated protocol.
+                The clustering protocol defines a channel which is used by server 
+                machines within a cluster to communicate with each other. A server 
+                machine will communicate with its peers information about the 
+                status of objects running within it for load balancing and default 
+                tolerance.
 
         ArcGIS Server supports the TCP clustering protocols where server machines communicate
-        with each other over a TCP channel (port).
+                with each other over a TCP channel (port).
 
-        Required:
-            clusterName -- name of cluster
-            clusterProtocol -- JSON object representing the cluster protocol TCP port
-
+        Args:
+            clusterName: Name of cluster.
+            clusterProtocol: JSON object representing the cluster protocol TCP port.
+        
         Example:
-            clusterProtocol = {"tcpClusterPort":"4014"}
+            clusterProtocol: {"tcpClusterPort":"4014"}
         """
+
         query_url = self._clusterURL + '/{}/editProtocol'.format(clusterName)
         params = {'clusterProtocol': clusterProtocol}
 
@@ -1526,39 +1551,44 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def deleteCluster(self, clusterName):
-        """delete a cluster
+        """Deletes a cluster.
 
-        clusterName -- cluster to be deleted
+        Arg:
+            clusterName: Cluster to be deleted.
         """
+
         query_url = self._clusterURL + '/{}/delete'.format(clusterName)
         self.request(query_url, {'clusterName': clusterName})
 
     def getMachinesInCluster(self, clusterName):
-        """list all server machines participating in a cluster
+        """Returns a list all server machines participating in a cluster.
 
-        Required:
-            clusterName -- name of cluster
+        Arg:
+            clusterName: Name of cluster.
         """
+
         query_url = self._clusterURL + '/{}/machines'.format(clusterName)
         return [ClusterMachine(r) for r in self.request(query_url)]
 
     def getServicesInCluster(self, clusterName):
-        """get a list of all services in a cluster
+        """Gets a list of all services in a cluster.
 
-        Required:
-            clusterName -- name of cluster to search for services
+        Arg:
+            clusterName: Name of cluster to search for services.
         """
+
         query_url = self._clusterURL+ '{}/services'.format(clusterName)
         return self.request(query_url).get('services', [])
 
     @passthrough
     def addMachinesToCluster(self, clusterName, machineNames):
-        """adds new machines to site.  Machines must be registered beforehand
+        """Adds new machines to site. Machines must be registered beforehand.
 
-        Required:
-            cluster -- cluster name
-            machineNames -- comma separated string of machine names or list
+        Args:
+            cluster: Cluster name.
+            machineNames: Comma separated string of machine names or list.
         """
+
         query_url = self._clusterURL + '{}/add'.format(clusterName)
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
@@ -1567,15 +1597,16 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def removeMachinesFromCluster(self, clusterName, machineNames):
-        """remove machine names from cluster
+        """Removes machine names from cluster.
 
-        Required:
-            clusterName -- name of cluster
-            machineNames -- list or comma-separated list of machine names
-
-        Examples:
-            machineNames= "SERVER2.DOMAIN.COM,SERVER3.DOMAIN.COM"
+        Args:
+            clusterName: Name of cluster.
+            machineNames: List or commaseparated list of machine names.
+            
+            Examples:
+                machineNames: "SERVER2.DOMAIN.COM,SERVER3.DOMAIN.COM"
         """
+
         query_url = self._clusterURL + '/{}/machines/remove'.format(clusterName)
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
@@ -1590,12 +1621,12 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def config(self):
-        """return configuratoin properties"""
+        """Returns configuration properties."""
         return self.request(self._dataURL + '/config')
 
     # not available in ArcGIS REST API, included here to refresh data store cache
     def getDataItems(self):
-        """returns a refreshed list of all data items"""
+        """Returns a refreshed list of all data items."""
         items = []
         for it in self.getRootItems():
             items += self.findDataItems(it)
@@ -1603,10 +1634,10 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def registerDataItem(self, item):
-        """registers an item with the data store
+        """Registers an item with the data store.
 
-        Required:
-            item -- JSON representation of new data store item to register
+        Arg:
+            item: JSON representation of new data store item to register.
 
         Example:
             item={
@@ -1623,120 +1654,136 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def unregisterDataItem(self, itemPath):
-        """unregisters an item with the data store
+        """Unregisters an item with the data store.
 
-        Required:
-            itemPath -- path to data item to unregister (DataItem.path)
+        Arg:
+            itemPath: Path to data item to unregister (DataItem.path).
         """
+
         return self.dataStore.unregisterItem(itemPath)
 
     def findDataItems(self, parentPath, ancestorPath='', types='', id=''):
-        """search through items registered in data store
-
-        Required:
-            parentPath -- path of parent under which to find items
-
-        Optional:
-            ancestorPath -- path of ancestor which to find items
-            types -- filter for the type of items to search
-            id -- filter to search the ID of the item
+        """Searches through items registered in data store.
+        
+        Args:
+            parentPath: Path of parent under which to find items.
+            ancestorPath: Optional path of ancestor which to find items.
+            types: Optional filter for the type of items to search.
+            id: Optional filter to search the ID of the item.
         """
+
         return self.dataStore.findItems(parentPath, ancestorPath, types, id)
 
     def validateDataItem(self, item):
-        """validates a data store item
+        """Validates a data store item.
 
-        Required:
-            item -- JSON representation of new data store item to validate
+        Arg:
+            item: JSON representation of new data store item to validate.
         """
+
         return self.dataStore.validateItem(item)
 
     @passthrough
     def validateAllDataItems(self):
-        """validates all data items in data store.  Warning, this operation can be
-        VERY time consuming, depending on how many items are registered with the
-        data store
+        """Validates all data items in data store.  Warning, this operation can be
+                VERY time consuming, depending on how many items are registered 
+                with the data store.
         """
+
         return self.dataStore.validateAllDataItems()
 
     def computeRefCount(self, path):
-        """get the total number of references to a given data item that exists on
-        the server.  Can be used to determine if a data resource can be safely
-        deleted or taken down for maintenance.
+        """Returns the total number of references to a given data item that 
+                exists on the server. Can be used to determine if a data resource 
+                can be  safely deleted or taken down for maintenance.
 
-        Required:
-            path -- path to resource on server (DataItem.path)
+        Arg:
+            path: Path to resource on server (DataItem.path).
         """
+
         return self.dataStore.computeRefCount(path)
 
     def getRootItems(self):
-        """method to get all data store items at the root"""
+        """Method to return all data store items at the root."""
         return self.dataStore.getRootItems()
 
     @passthrough
     def startDataStoreMachine(self, dataItem, machineName):
-        """starts the database instance running on the data store machine
+        """Starts the database instance running on the data store machine.
 
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to validate data store against.
         """
+
         return self.dataStore.startMachine(dataItem, machineName)
 
     @passthrough
     def stopDataStoreMachine(self, dataItem, machineName):
-        """starts the database instance running on the data store machine
+        """Stops the database instance running on the data store machine.
 
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to validate data store against.
         """
+
         return self.dataStore.stopMachine(dataItem, machineName)
 
     @passthrough
     def removeDataStoreMachine(self, dataItem, machineName):
-        """removes a standby machine from the data store, this operation is not
-        supported on the primary data store machine
+        """Removes a standby machine from the data store, this operation is not
+                supported on the primary data store machine.
 
-        Required:
-            dataItem -- name of data item (ex: enterpriseDatabases)
-            machineName -- name of machine to remove
+        Args:
+            dataItem: Name of data item (ex: enterpriseDatabases).
+            machineName: Name of machine to remove.
         """
+
         return self.dataStore.removeMachine(dataItem, machineName)
 
     @passthrough
     def makeDataStorePrimaryMachine(self, dataItem, machineName):
-        """promotes a standby machine to the primary data store machine. The
-        existing primary machine is downgraded to a standby machine
+        """Promotes a standby machine to the primary data store machine. The
+                existing primary machine is downgraded to a standby machine.
 
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to make primary
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to make primary.
         """
+
         return self.dataStore.makePrimary(dataItem, machineName)
 
     def validateDataStore(self, dataItem, machineName):
-        """ensures that the data store is valid
+        """Ensures that the data store is valid.
 
-        Required:
-            dataItem -- name of data item (DataItem.path)
-            machineName -- name of machine to validate data store against
+        Args:
+            dataItem: Name of data item (DataItem.path).
+            machineName: Name of machine to validate data store against.
         """
+
         return self.dataStore.validateDataStore(dataItem, machineName)
 
     @passthrough
     def updateDatastoreConfig(self, datastoreConfig={}):
-        """update data store configuration.  Can use this to allow or block
-        automatic copying of data to server at publish time
+        """Updates data store configuration. Can use this to allow or block
+                automatic copying of data to server at publish time.
 
-        Optional:
-            datastoreConfig -- JSON object representing datastoreConfiguration.  if none
-                supplied, it will default to disabling copying data locally to the server.
+        Arg:
+            datastoreConfig: Optional JSON object representing 
+                datastoreConfiguration. If none supplied, it will default to 
+                disabling copying data locally to the server.
         """
+
         return self.dataStore.updateDatastoreConfig(datastoreConfig)
 
     @passthrough
     def copyDataStore(self, other):
+        """Copies data store from one data store to another.
+        
+        Returns:
+            A list of the results.
+        """
+
         if not isinstance(other, (self.__class__, DataStore)):
             raise TypeError('type: {} is not supported!'.format(type(other)))
         if isinstance(other, self.__class__):
@@ -1765,19 +1812,24 @@ class ArcServerAdmin(AdminRESTEndpoint):
     # LOGS
     @passthrough
     def logSettings(self):
-        """returns log settings"""
+        """Returns log settings."""
         query_url = self._logsURL + '/settings'
         return self.request(query_url).get('settings', [])
 
     @passthrough
     def editLogSettings(self, logLevel='WARNING', logDir=None, maxLogFileAge=90, maxErrorReportsCount=10):
-        """edits the log settings
+        """Edits the log settings.
 
-        logLevel -- type of log [OFF, SEVERE, WARNING, INFO, FINE, VERBOSE, DEBUG]
-        logDir -- destination file path for root of log directories
-        maxLogFileAge -- number of days for server to keep logs.  Default is 90.
-        maxErrorReportsCount -- maximum number of error report files per machine
+        Args:
+            logLevel: Type of log [OFF, SEVERE, WARNING, INFO, FINE, VERBOSE, DEBUG].
+                Default is 'WARNING'.
+            logDir: Destination file path for root of log directories. 
+                Default is None.
+            maxLogFileAge: Number of days for server to keep logs. Default is 90.
+            maxErrorReportsCount: Maximum number of error report files per machine. 
+                Default is 10.
         """
+
         query_url = self._logsURL + '/settings/edit'
         if not logDir:
             logDir = r'C:\\arcgisserver\logs'
@@ -1790,38 +1842,38 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return self.request(query_url, params)
 
     def queryLogs(self, startTime='', endTime='', sinceLastStarted=False, level='WARNING', filter=None, pageSize=1000):
-        """query all log reports accross an entire site
-
-        Optional:
-            startTime -- most recent time to query.  Leave blank to start from now
-            endTime -- oldest time to query
-            sinceLastStart -- boolean to only return records since last time server
-                was started.
-            level -- log level [SEVERE, WARNING, INFO, FINE, VERBOSE, DEBUG].  Default is WARNING.
-            filter -- Filtering is allowed by any combination of services, server components, GIS
-                server machines, or ArcGIS Data Store machines. The filter accepts a semi-colon
-                delimited list of filter definitions. If any definition is omitted, it defaults to all.
-            pageSize -- max number of records to return, default is 1000
-
+        """Queries all log reports accross an entire site.
+        
+        Args:*
+            startTime: Optional arg for most recent time to query. Leave blank 
+                to start from now.
+            endTime: Optional arg for oldest time to query. Defaults to ''.
+            sinceLastStarted: Optional boolean to only return records since last 
+                time server was started. Defaults to False.
+            level: Optional arg for log level [SEVERE, WARNING, INFO, FINE, VERBOSE, DEBUG]. 
+                Default is 'WARNING'.
+            filter: Optional filter. Filtering is allowed by any combination of 
+                services, server components, GIS server machines, or ArcGIS Data 
+                Store machines. The filter accepts a semi:colon delimited list
+                of filter definitions. If any definition is omitted, it 
+                defaults to all.
+            pageSize: Optional max number of records to return, default is 1000.
+        
         startTime and endTime examples:
-             as datetime:  datetime.datetime(2015, 7, 30)
-             as a string: "2011-08-01T15:17:20,123"
-             in milliseconds:  1312237040123  #can use restapi.rest_utils.date_to_mil(datetime.datetime.now())
-                                              # to get time in milliseconds
-
+            as datetime:  datetime.datetime(2015, 7, 30)
+            as a string: "201108:01T15:17:20,123"
+            in milliseconds:  1312237040123  #can use restapi.rest_utils.date_to_mil(datetime.datetime.now())
+            # to get time in milliseconds
+        
         filter examples:
             Specific service logs on a specific machine:
-
-            {"services": ["System/PublishingTools.GPServer"], "machines": ["site2vm0.domain.com"]}
-
+                {"services": ["System/PublishingTools.GPServer"], "machines": ["site2vm0.domain.com"]}
             Only server logs on a specific machine:
-
-            {"server": "*", "machines": ["site2vm0.domain.com"]}
-
+                {"server": "*", "machines": ["site2vm0.domain.com"]}
             All services on all machines and only REST logs:
-
-            "services": "*", "server": ["Rest"]
+                "services": "*", "server": ["Rest"]
         """
+
         if isinstance(startTime, datetime.datetime):
             startTime = date_to_mil(startTime)
 
@@ -1849,9 +1901,19 @@ class ArcServerAdmin(AdminRESTEndpoint):
         r = self.request(query_url, params)
 
         class LogQuery(JsonGetter):
-            """class to handle LogQuery Report instance"""
+            """Class to handle LogQuery Report instance.
+            
+            Attribute:
+                json: JSON response.
+            """
+
             def __init__(self, resp):
-                """resp: JSON for log reports request"""
+                """Inits class with JSON response.
+                
+                Arg:
+                    resp: JSON for log reports request
+                """
+                
                 self.json = resp
 
             @property
@@ -1863,36 +1925,38 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 return mil_to_date(self.endTime)
 
             def __getitem__(self, index):
-                """allows for indexing of log files"""
+                """Allows for indexing of log files."""
                 return self.logMessages[index]
 
             def __iter__(self):
-                """return logMessages as generator"""
+                """Returns logMessages as generator."""
                 for log in self.logMessages:
                     yield log
 
             def __len__(self):
-                """get number of log messages returned by query"""
+                """Returns number of log messages returned by query."""
                 return len(self.logMessages)
 
             def __bool__(self):
-                """returns True if log messages were returned"""
+                """Returns True if log messages were returned."""
                 return bool(len(self))
 
         return LogQuery(r)
 
     @passthrough
     def countErrorReports(self, machines='All'):
-        """counts the number of error reports on each machine
+        """Counts the number of error reports on each machine.
 
-        Optional:
-            machines -- machine names to count error reports on.  Default is All
+        Args:
+            machines: Optional machine names to count error reports on. 
+                Default is All.
         """
+
         return self.request(self._logsURL + 'countErrorReports')
 
     @passthrough
     def cleanLogs(self):
-        """clean all log reports. Proceed with caution, cannot be undone!"""
+        """Cleans all log reports. Proceed with caution, cannot be undone!"""
         return self.request(self._logsURL + '/clean')
     #----------------------------------------------------------------------
     # SECURITY
@@ -1900,94 +1964,107 @@ class ArcServerAdmin(AdminRESTEndpoint):
     # USERS ------------------------------
     @passthrough
     def addUser(self, username, password, fullname='', description='', email=''):
-        """adds a user account to user store
-
-        Requred:
-            username -- username for new user
-            password -- password for new user
-
-        Optional:
-            fullname -- full name of user
-            description -- description for user
-            email -- email address for user account
+        """Adds a user account to user store.
+        
+        Args:
+            username: Username for new user.
+            password: Password for new user.
+            fullname: Optional full name of user.
+            description: Optional description for user.
+            email: Optional email address for user account.
         """
+
         return self.userStore.addUser(username, password, fullname, description, email)
 
     def getUsers(self, startIndex='', pageSize=1000):
-        """get all users in user store, intended for iterating over all user accounts
+        """Gets all users in user store, intended for iterating over all user 
+                accounts.
 
-        Optional:
-            startIndex -- zero-based starting index from roles list. Default is 0.
-            pageSize -- maximum number of roles to return. Default is 10.
+        Args:
+            startIndex: Optional, zero-based starting index from user list. 
+                Default is 0.
+            pageSize: Optional max number of users. Default is 1000.
         """
+
         return self.userStore.getUsers(startIndex, pageSize)
 
     def searchUsers(self, filter='', maxCount=''):
-        """search the user store, returns UserStore object
+        """Searches the user store, returns UserStore object.
 
-        Optional:
-            filter -- filter string for users (ex: "john")
-            maxCount -- maximimum number of records to return
+        Args:
+            filter: Optional filter string for users (ex: "john").
+                Default is ''.
+            maxCount: Optional maximimum number of records to return. Default is ''.
         """
+
         return self.userStore.searchUsers(filter, maxCount)
 
     @passthrough
     def removeUser(self, username):
-        """removes a user from the user store
+        """Removes a user from the user store.
 
-        Required:
-            username -- name of user to remove
+        Arg:
+            username: Name of user to remove.
         """
+
         return self.userStore.removeUser(username)
 
     @passthrough
     def updateUser(self, username, password, fullname='', description='', email=''):
         """updates a user account in the user store
-
-        Requred:
-            username -- username for new user
-            password -- password for new user
-
-        Optional:
-            fullname -- full name of user
-            description -- description for user
-            email -- email address for user account
+        
+        Args:
+            username: Username for new user.
+            password: Password for new user.
+            fullname: Optional full name of user.
+            description: Optional description for user.
+            email: Optional email address for user account.
         """
+
         return self.userStore.updateUser(username, password, fullname, description, email)
 
     @passthrough
     def assignRoles(self, username, roles):
-        """assign role to user to inherit permissions of role
+        """Assigns role to user to inherit permissions of role.
 
-        Required:
-            username -- name of user
-            roles -- list or comma separated list of roles
+        Args:
+            username: Name of user.
+            roles: List or comma separated list of roles.
         """
+
         return self.userStore.assignRoles(username, roles)
 
     @passthrough
     def removeRoles(self, username, rolenames):
-        """removes roles that have been previously assigned to a user account, only
-        supported when role store supports reads and writes
+        """Removes roles that have been previously assigned to a user account, 
+                only supported when role store supports reads and writes.
 
-        Required:
-            username -- name of the user
-            roles -- list or comma separated list of role names
+        Args:
+            username: Name of the user.
+            roles: List or comma separated list of role names.
         """
+
         return self.userStore.removeRoles(username, rolenames)
 
     @passthrough
     def getPrivilegeForUser(self, username):
-        """gets the privilege associated with a role
+        """Gets the privilege associated with a role.
 
-        Required:
-            username -- name of user
+        Arg:
+            username: Name of user.
         """
+
         return self.userStore.getPrivilegeForUser(username)
 
     # ROLES -----------------------------------------
     @passthrough
     def copyRoleStore(self, other):
+        """Copies a role store into another.
+        
+        Returns:
+            A list of the results.
+        """
+
         if not isinstance(other, (self.__class__, RoleStore)):
             raise TypeError('type: {} is not supported!'.format(type(other)))
         if isinstance(other, self.__class__):
@@ -2030,146 +2107,158 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def addRole(self, rolename, description='', **kwargs):
-        """adds a role to the role store
+        """Adds a role to the role store.
 
-        Required:
-            rolename -- name of role to add
-
-        Optional:
-            description -- optional description for new role
+        Arg:
+            rolename: Name of role to add.
+            description: Optional description for new role.
         """
+
         return self.roleStore.addRole(rolename, description, **kwargs)
 
     def getRoles(self, startIndex='', pageSize=1000):
-        """This operation gives you a pageable view of roles in the role store. It is intended
-        for iterating through all available role accounts. To search for specific role accounts
-        instead, use the searchRoles() method. <- from Esri help
+        """This operation gives you a pageable view of roles in the role store. 
+                It is intended for iterating through all available role accounts. 
+                To search for specific role accounts instead, use the searchRoles() 
+                method. <- from Esri help
 
-        Optional:
-            startIndex -- zero-based starting index from roles list.
-            pageSize -- maximum number of roles to return.
+        Args:
+            startIndex: Optional zero-based starting index from roles list.
+            pageSize: Optional maximum number of roles to return.
         """
+
         return self.roleStore.getRoles(startIndex, pageSize)
 
     def searchRoles(self, filter='', maxCount=''):
-        """search the role store
+        """Searches the role store.
 
-        Optional:
-            filter -- filter string for roles (ex: "editors")
-            maxCount -- maximimum number of records to return
+        Args:
+            filter: Optional filter string for roles (ex: "editors").
+            maxCount: Optional maximimum number of roles to return.
         """
+
         return self.roleStore.searchRoles(filter, maxCount)
 
     @passthrough
     def removeRole(self, rolename):
-        """removes a role from the role store
+        """Removes a role from the role store.
 
-        Required:
-            rolename -- name of role
+        Args:
+            rolename: Name of role.
         """
+
         return self.roleStore.removeRole(rolename)
 
     @passthrough
     def updateRole(self, rolename, description=''):
-        """updates a role
+        """Updates a role.
 
-        Required:
-            rolename -- name of the role
-
-        Optional:
-            description -- descriptoin of role
+        Args:
+            rolename: Name of the role
+            description: Optional description of role.
         """
+
         return self.roleStore.updateRole(rolename, description)
 
     @passthrough
     def getRolesForUser(self, username, filter='', maxCount=10):
-        """returns the privilege associated with a user
+        """Returns the roles associated with a user.
 
-        Required:
-            privilege -- name of privilege (ADMINISTER | PUBLISH)
+        Arg:
+            username: Name of user.
+            filter: Optional filter.
+            maxCount: Optional maximum count of roles to return. Defaults to 10.
         """
+
         return self.roleStore.getRolesForUser(username, filter, maxCount)
 
     @passthrough
     def getUsersWithinRole(self, rolename, filter='', maxCount=100):
-        """get all user accounts to whom this role has been assigned
+        """Returns all user accounts to whom this role has been assigned.
 
-        Required:
-            rolename -- name of role
-
-        Optional:
-            filter -- optional filter to be applied to the resultant user set
-            maxCount -- maximum number of results to return
+        Args:
+            rolename: Name of role.
+            filter: Optional filter to be applied to the resultant user set.
+            maxCount: Optional maximum number of results to return. 
+                Defaults to 100.
         """
+
         return self.roleStore.getUsersWithinRole(rolename, filter, maxCount)
 
     @passthrough
     def addUsersToRole(self, rolename, users):
-        """assign a role to multiple users with a single action
+        """Assigns a role to multiple users with a single action.
 
-        Required:
-            rolename -- name of role
-            users -- list of users or comma separated list
+        Args:
+            rolename: Name of role.
+            users: List of users or comma separated list.
         """
+
         return self.roleStore.addUsersToRole(rolename, users)
 
     @passthrough
     def removeUsersFromRole(self, rolename, users):
-        """removes a role assignment from multiple users.
+        """Removes a role assignment from multiple users.
 
-        Required:
-            rolename -- name of role
-            users -- list or comma separated list of user names
+        Args:
+            rolename: Name of role.
+            users: List or comma separated list of user names.
         """
+
         return self.roleStore.removeUsersFromRole(rolenameme, users)
 
     @passthrough
     def assignPrivilege(self, rolename, privilege='ACCESS'):
-        """assign administrative acess to ArcGIS Server
+        """Assigns administrative acess to ArcGIS Server.
 
-        Required:
-            rolename -- name of role
-            privilege -- administrative capability to assign (ADMINISTER | PUBLISH | ACCESS)
+        Args:
+            rolename: Name of role.
+            privilege: Administrative capability to assign 
+                (ADMINISTER | PUBLISH | ACCESS). Defaults to 'ACCESS'.
         """
+
         return self.roleStore.assignPrivilege(rolename, privilege)
 
     @passthrough
     def getPrivilegeForRole(self, rolename):
-        """gets the privilege associated with a role
+        """Returns the privilege associated with a role.
 
-        Required:
-            rolename -- name of role
+        Arg:
+            rolename: Name of role.
         """
+
         return self.roleStore.getPrivilegeForRole(rolename)
 
     @passthrough
     def getRolesByPrivilege(self, privilege):
-        """returns the privilege associated with a user
+        """Returns the roles associated with a privlege.
 
-        Required:
-            privilege -- name of privilege (ADMINISTER | PUBLISH)
+        Arg:
+            privilege: Name of privilege (ADMINISTER | PUBLISH).
         """
+
         return self.roleStore.getRolesByPrivilege(privilege)
 
     # GENERAL SECURITY ------------------------------
     @passthrough
     def securityConfig(self):
-        """returns the security configuration as JSON
+        """Returns the security configuration as JSON.
 
         http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Security_Configuration/02r3000001t9000000/
         """
+
         return self.request(self._securityURL + '/config')
 
     @passthrough
     def updateSecurityConfig(self, securityConfig):
-        """updates the security configuration on ArcGIS Server site.  Warning:
-        This operation will cause the SOAP and REST service endpoints to be
-        redeployed (with new configuration) on every server machine in the site.
-        If the authentication tier is GIS_SERVER, then the ArcGIS token service
-        is started on all server machines.
+        """Updates the security configuration on ArcGIS Server site. Warning:
+                This operation will cause the SOAP and REST service endpoints 
+                to be redeployed (with new configuration) on every server machine 
+                in the site. If the authentication tier is GIS_SERVER, then the 
+                ArcGIS token service is started on all server machines.
 
-        Required:
-            securityConfig -- JSON object for security configuration.
+        Arg:
+            securityConfig: JSON object for security configuration.
 
         Example:
             securityConfig={
@@ -2180,6 +2269,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   "allowedAdminAccessIPs": ""
                 	}
         """
+
         query_url = self._securityURL + '/config/update'
 
         params = {'securityConfig': json.dumps(securityConfig)
@@ -2189,19 +2279,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def updateIdentityStore(self, userStoreConfig, roleStoreConfig):
-        """Updates the location and properties for the user and role store in your ArcGIS Server site.
+        """Updates the location and properties for the user and role store in 
+                your ArcGIS Server site.
 
-        While the GIS server does not perform authentication when the authentication tier selected is
-        WEB_ADAPTOR, it requires access to the role store for the administrator to assign privileges to
-        the roles. This operation causes the SOAP and REST service endpoints to be redeployed (with the
-        new configuration) on every server machine in the site, and therefore this operation must be
-        used judiciously.
+        While the GIS server does not perform authentication when the authentication 
+                tier selected is WEB_ADAPTOR, it requires access to the role store 
+                for the administrator to assign privileges to the roles. This operation 
+                causes the SOAP and REST service endpoints to be redeployed 
+                (with the new configuration) on every server machine in the site, 
+                and therefore this operation must be used judiciously.
 
         http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Update_Identity_Store/02r3000001s0000000/
 
-        Required:
-            userStoreConfig -- JSON object representing user store config
-            roleStoreConfig -- JSON object representing role store config
+        Args:
+            userStoreConfig: JSON object representing user store config.
+            roleStoreConfig: JSON object representing role store config.
 
         Examples:
        	    userStoreConfig={
@@ -2237,11 +2329,11 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def testIdentityStore(self, userStoreConfig, roleStoreConfig):
-        """tests the connection to the input user and role store
+        """Tests the connection to the input user and role store.
 
-        Required:
-            userStoreConfig -- JSON object representing user store config
-            roleStoreConfig -- JSON object representing role store config
+        Args:
+            userStoreConfig: JSON object representing user store config.
+            roleStoreConfig: JSON object representing role store config.
 
         Examples:
             userStoreConfig={
@@ -2261,6 +2353,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 "properties": {}
             }
         """
+
         query_url = self._securityURL + '/config/testIdentityStore'
         params = {'userStoreConfig': json.dumps(userStoreConfig)
                     if isinstance(userStoreConfig, dict) else userStoreConfig,
@@ -2272,16 +2365,18 @@ class ArcServerAdmin(AdminRESTEndpoint):
     # TOKENS -----------------------------------------
     @passthrough
     def tokens(self):
-        """returns the token configuration with the server, can use updatetoken()
-        to change the shared secret key or valid token durations"""
+        """Returns the token configuration with the server, can use updatetoken()
+                to change the shared secret key or valid token durations.
+        """
+
         return self.request(self._securityURL + '/tokens')
 
     @passthrough
     def updateTokenConfig(self, tokenManagerConfig):
-        """update the token configuration
+        """Updates the token configuration.
 
-        Required:
-            tokenManagerConfig -- JSON object for token configuration
+        Arg:
+            tokenManagerConfig: JSON object for token configuration.
 
         Example:
             tokenManagerConfig={
@@ -2293,6 +2388,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                     }
                 }
         """
+
         query_url = self._securityURL + '/tokens/update'
 
         params = {'securityConfig': json.dumps(tokenManagerConfig)
@@ -2303,26 +2399,27 @@ class ArcServerAdmin(AdminRESTEndpoint):
     # PRIMARY SITE ADMINISTRATOR ------------------------------
     @passthrough
     def disablePSA(self):
-        """disables the primary site administartor account"""
+        """Disables the primary site administrator account."""
         query_url = self._securityURL + '/psa/disable'
         return self.request(query_url)
 
     @passthrough
     def enablePSA(self):
-        """enables the primary site administartor account"""
+        """Enables the primary site administrator account."""
         query_url = self._securityURL + '/psa/enable'
         return self.request(query_url)
 
     @passthrough
     def updatePSA(self, username, password):
-        """updates the primary site administrator account
+        """Updates the primary site administrator account.
 
 
-        Required:
-            username -- new username for PSA (optional in REST API, required here
-                for your protection)
-            password -- new password for PSA
+        Args:
+            username: New username for PSA (optional in REST API, required here
+                for your protection).
+            password: New password for PSA.
         """
+
         query_url = self._securityURL + '/psa/update'
 
         params = {'username': username,
@@ -2333,13 +2430,16 @@ class ArcServerAdmin(AdminRESTEndpoint):
     #----------------------------------------------------------------------
     # services
     def get_service_url(self, wildcard='*', asList=False):
-        """method to return a service url
+        """Returns a service url.
 
-        Optional:
-            wildcard -- wildcard used to grab service name (ex "moun*featureserver")
-            asList -- default is false.  If true, will return a list of all services
-                matching the wildcard.  If false, first match is returned.
+        Args:
+            wildcard: Optional wildcard used to grab service name. 
+                (ex "moun*featureserver")
+            asList: Optional boolean, default is false. If true, will return a 
+                list of all services matching the wildcard. If false, first match 
+                is returned.
         """
+
         if not self.service_cache:
             self.list_services()
         if '*' in wildcard:
@@ -2363,18 +2463,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return None
 
     def folder(self, folderName):
-        """administer folder
+        """Administers folder. Returns Folder object.
 
-        folderName -- name of folder to connect to
+        folderName: Name of folder to connect to.
         """
+
         query_url = self._servicesURL + '/{}'.format(folderName)
         return Folder(query_url)
 
     def service(self, service_name_or_wildcard):
-        """return a restapi.admin.Service() object
+        """Returns a restapi.admin.Service() object.
 
-        service_name_or_wildcard -- name of service or wildcard
+        Arg:
+            service_name_or_wildcard: Name of service or wildcard.
         """
+
         val_url = urllib.parse.urlparse(service_name_or_wildcard)
         if all([val_url.scheme, val_url.netloc, val_url.path]):
             service_url = service_name_or_wildcard
@@ -2387,16 +2490,17 @@ class ArcServerAdmin(AdminRESTEndpoint):
             return None
 
     def getPermissions(self, resource):
-        """return permissions for folder or service
+        """Returns permissions for folder or service.
 
-        Required:
-            resource -- name of folder or folder/service
+        Arg:
+            resource: Name of folder or folder/service.
 
         resource example:
             folder = 'Projects'
 
             service = 'Projects/HighwayReconstruction.MapServer'
         """
+
         query_url = self._servicesURL + '/{}/permissions'.format(resource)
 
         perms = self.request(query_url)['permissions']
@@ -2404,22 +2508,27 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def addPermission(self, resource, principal='', isAllowed=True, private=True):
-        """add a permission
-
-        Required:
-            resource -- name of folder or folder/service
-
-        Optional:
-            principal -- name of the role whom the permission is being assigned
-            isAllowed -- tells if a resource is allowed or denied
-            private -- default is True.  Secures service by making private, denies
-                public access.  Change to False to allow public access.
-
+        """Adds a permission.
+        
+        Args:
+            resource: Name of folder or folder/service.
+            principal: Optional name of the role whom the permission is being 
+                assigned.
+            isAllowed: Optional boolean, tells if a resource is allowed or denied. 
+                Default is True.
+            private: Optional boolean. Default is True. Secures service by making 
+                private, denies public access. Change to False to allow public 
+                access.
+    
         resource example:
             folder = 'Projects'
-
+        
             service = 'Projects/HighwayReconstruction.MapServer'
+        
+        Returns:
+            A list of the added permissions.
         """
+
         add_url = self._servicesURL + '/{}/permissions/add'.format(resource)
         added_permissions = []
         if principal:
@@ -2446,23 +2555,22 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def hasChildPermissionsConflict(self, resource, principal, permission=None):
-        """check if service has conflicts with opposing permissions
-
-        Required:
-            resource -- name of folder or folder/service
-            principal -- name of role for which to check for permission conflicts
-
-        Optional:
-            permission -- JSON permission object
-
+        """Checks if service has conflicts with opposing permissions.
+        
+        Args:
+            resource: Name of folder or folder/service.
+            principal: Name of role for which to check for permission conflicts.
+            permission: Optional JSON permission object. Defaults to None.
+        
         resource example:
             folder = 'Projects'
-
+            
             service = 'Projects/HighwayReconstruction.MapServer'
-
+        
         permission example:
             permission = {"isAllowed": True, "constraint": ""}
         """
+
         if not permission:
             permission = {"isAllowed": True, "constraint": ""}
 
@@ -2472,107 +2580,125 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def cleanPermissions(self, principal):
-        """cleans all permissions assigned to role (principal).  Useful when a role has
-        been deleted
+        """Cleans all permissions assigned to role (principal). Useful when a 
+                role has been deleted.
 
-        principal -- name of role to delete permisssions
+        Arg:
+            principal: Name of role to delete permisssions.
         """
+
         query_url = self._permissionsURL + '/clean'
         return self.request(query_url, {'principal': principal})
 
     @passthrough
     def createFolder(self, folderName, description=''):
-        """creates a new folder in the root directory.  ArcGIS server only supports
-        single folder hierachy
+        """Creates a new folder in the root directory.  ArcGIS server only supports
+                single folder hierachy
 
-        Required:
-            folderName -- name of new folder
-
-        Optional:
-            description -- description of folder
+        Args:
+            folderName: Name of new folder.
+            description: Optional description of folder.
         """
+
         query_url = self._servicesURL + '/createFolder'
         params = {'folderName': folderName, 'description': description}
         return self.request(query_url, params)
 
     @passthrough
     def deleteFolder(self, folderName):
-        """deletes a folder in the root directory.
+        """Deletes a folder in the root directory.
 
-        folderName -- name of new folder
+        folderName: Name of new folder.
         """
+
         query_url = self._servicesURL + '{}/deleteFolder'.format(folderName)
         return self.request(query_url)
 
     @passthrough
     def editFolder(self, folderName, description, webEncrypted):
-        """edit a folder
+        """Edits a folder
 
-        Required:
-            folderName -- name of folder to edit
-            description -- folder description
-            webEncrypted -- boolean to indicate if the servies are accessible over SSL only.
+        Args:
+            folderName: Name of folder to edit.
+            description: Folder description.
+            webEncrypted: Boolean to indicate if the servies are accessible 
+                over SSL only.
         """
+
         query_url = self._servicesURL + '/{}/editFolder'.format(folderName)
         params = {'description': description, 'webEncrypted': webEncrypted}
         return self.request(query_url, params)
 
     def extensions(self):
-        """return list of custom server object extensions that are registered with the server"""
+        """Returns list of custom server object extensions that are registered with the server."""
         return self.request(self._extensionsURL).get('extensions', [])
 
     @passthrough
     def registerExtension(self, id):
-        """regesters a new server object extension.  The .SOE file must first e uploaded to
-        the server using the restapi.admin.Service.uploadDataItem() method
+        """Registers a new server object extension. The .SOE file must first be 
+                uploaded to the server using the restapi.admin.Service.uploadDataItem() 
+                method.
 
-        id -- itemID of the uploaded .SOE file
+        Arg:
+            id: itemID of the uploaded .SOE file.
         """
+
         query_url = self._extensionsURL + '/register'
         return self.request(query_url, {'id': id})
 
     @passthrough
     def unregisterExtension(self, extensionFileName):
-        """unregister a server object extension
+        """Unregisters a server object extension.
 
-        extensionFileName -- name of .SOE file to unregister
+        Arg:
+            extensionFileName: Name of .SOE file to unregister.
         """
+
         query_url = self._extensionsURL + '/unregister'
         return self.request(query_url, {'extensionFileName': extensionFileName})
 
     @passthrough
     def updateExtension(self, id):
-        """updates extensions that have previously been registered with server
+        """Updates extensions that have previously been registered with server.
 
-        id -- itemID of the uploaded .SOE file
+        id: itemID of the uploaded .SOE file.
         """
+
         return self.request(self._extensionsURL + '/update', {'id': id})
 
     @passthrough
     def federate(self):
-        """federates ArcGIS Server with Portal for ArcGIS.  Imports services to make them available
-        for portal.
+        """Federates ArcGIS Server with Portal for ArcGIS.  Imports services to 
+                make them available for portal.
         """
+
         return self.request(self._servicesURL + '/federate')
 
     @passthrough
     def unfederate(self):
-        """unfederate ArcGIS Server from Portal for ArcGIS. Removes services from Portal"""
+        """Unfederates ArcGIS Server from Portal for ArcGIS. Removes services 
+                from Portal.
+        """
+
         return self.request(self._servicesURL + '/unfederate')
 
     @passthrough
     def startServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
-        """starts service or all services in a folder
+        """Starts service or all services in a folder.
 
-        Optional:
-            servicesAsJSON --list of services as JSON (example below)
+        Args:
+            servicesAsJSON: Optional list of services as JSON (example below)
 
-        *the following parameters are options to run on an individual folder (not valid params of the REST API)
+        *the following arguments are options to run on an individual folder 
+        (not valid args of the REST API):
 
-            folderName -- name of folder to start all services. Leave blank to start at root
-            serviceName -- name of service to start. Leave blank to start all in folder
-            type -- type of service to start (note: choosing MapServer will also stop FeatureServer):
-                valdid types: MapServer|GPServer|NAServer|GeocodeServer|ImageServer
+            folderName: Optional name of folder to start all services. Leave 
+                blank to start at root.
+            serviceName: Optional name of service to start. Leave blank to start 
+                all in folder.
+            type: Optional type of service to start 
+                (note: choosing MapServer will also stop FeatureServer).
+                valid types: MapServer|GPServer|NAServer|GeocodeServer|ImageServer
 
 
         servicesAsJSON example:
@@ -2591,6 +2717,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 ]
             }
         """
+
         query_url = self._servicesURL + '/startServices'
         if servicesAsJSON and isinstance(servicesAsJSON, dict):
             pass
@@ -2626,17 +2753,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def stopServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
-        """stops service or all services in a folder
+        """Stops service or all services in a folder.
 
-        Optional:
-            servicesAsJSON --list of services as JSON (example below)
+        Arg:
+            servicesAsJSON: Optional list of services as JSON (example below).
 
-        *the following parameters are options to run on an individual folder (not valid params of the REST API)
+        *the following arguments are options to run on an individual folder 
+        (not valid args of the REST API):
 
-            folderName -- name of folder to start all services. Leave blank to start at root
-            serviceName -- name of service to start. Leave blank to start all in folder
-            type -- type of service to start (note: choosing MapServer will also stop FeatureServer):
-                valdid types: MapServer|GPServer|NAServer|GeocodeServer|ImageServer
+            folderName: Optional name of folder to start all services. Leave 
+                blank to start at root.
+            serviceName: Optional name of service to start. Leave blank to start
+                all in folder.
+            type: Optional type of service to start 
+                (note: choosing MapServer will also stop FeatureServer).
+                valid types: MapServer|GPServer|NAServer|GeocodeServer|ImageServer
 
 
         servicesAsJSON example:
@@ -2655,6 +2786,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 ]
             }
         """
+
         query_url = self._servicesURL + '/stopServices'
         if servicesAsJSON and isinstance(servicesAsJSON, dict):
             pass
@@ -2690,17 +2822,21 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def restartServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
-        """restarts service or all services in a folder
+        """Restarts service or all services in a folder.
 
-        Optional:
-            servicesAsJSON --list of services as JSON (example below)
+        Args:
+            servicesAsJSON: Optional list of services as JSON (example below).
 
-        *the following parameters are options to run on an individual folder (not valid params of the REST API)
+        *the following arguments are options to run on an individual folder 
+        (not valid args of the REST API):
 
-            folderName -- name of folder to start all services. Leave blank to start at root
-            serviceName -- name of service to start. Leave blank to start all in folder
-            type -- type of service to start (note: choosing MapServer will also stop FeatureServer):
-                valdid types: MapServer|GPServer|NAServer|GeocodeServer|ImageServer
+            folderName: Optional name of folder to start all services. Leave 
+                blank to start at root.
+            serviceName: Optional name of service to start. Leave blank to 
+                start all in folder.
+            type: Optional type of service to start 
+                (note: choosing MapServer will also stop FeatureServer).
+                valid types: MapServer|GPServer|NAServer|GeocodeServer|ImageServer
 
 
         servicesAsJSON example:
@@ -2719,12 +2855,13 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 ]
             }
         """
+
         self.stopServices(servicesAsJSON, folderName, serviceName, type)
         self.startServices(servicesAsJSON, folderName, serviceName, type)
         return {'status': 'success'}
 
     def report(self):
-        """return a list of service report objects"""
+        """Returns a list of service report objects."""
 
         reps = self.request(self.url + '/report')['reports']
         return [Report(rep) for rep in reps]
@@ -2734,20 +2871,23 @@ class ArcServerAdmin(AdminRESTEndpoint):
     @passthrough
     def createSite(self, username, password, configStoreConnection='', directories='',
                    cluster='', logsSettings='', runAsync=True):
-        """create a new ArcGIS Server Site
+        """Creates a new ArcGIS Server Site.
 
-        Required:
-            username -- name of administrative account used by site (can be changed later)
-            password -- credentials for administrative account
-            configStoreConnection -- JSON object representing the connection to the config store
-            directories -- JSON object representing a collection of server directories to create.  By
-                default the server directories will be created locally.
-            cluster -- JSON object for optional cluster configuration.  By default cluster will be called
-                "default" with the first available port numbers starting at 4004.
-
-        Optional:
-            logsSettings -- optional log settings
-            runAsync -- flag to indicate if operation needs to ran asynchronously
+        Args:
+            username: Name of administrative account used by site 
+                (can be changed later).
+            password: Credentials for administrative account.
+            configStoreConnection: JSON object representing the connection to 
+                the config store.
+            directories: JSON object representing a collection of server 
+                directories to create. By default the server directories 
+                will be created locally.
+            cluster: JSON object for optional cluster configuration. By default 
+                cluster will be called. "default" with the first available port 
+                numbers starting at 4004.
+            logsSettings: Optional log settings.
+            runAsync: Optional boolean to indicate if operation needs to ran 
+                asynchronously. Defaults to True.
 
         Examples:
             configStoreConnection = {
@@ -2797,6 +2937,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                               "maxErrorReportsCount": 10
                             }}
         """
+        
         query_url = self._adminURL + '/createNewSite'
         params = {'username': username,
                   'password': password,
@@ -2807,27 +2948,28 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     @passthrough
     def deleteSite(self, f=JSON):
-        """Deletes the site configuration and releases all server resources.  Warning,
-        this is an unrecoverable operation, use with caution
+        """Deletes the site configuration and releases all server resources. Warning,
+                this is an unrecoverable operation, use with caution.
 
-        Optional:
-            f -- format for response (html|json)
+        Arg:
+            f: Format for response (html|json). Default is JSON.
         """
+
         return self.request(self._adminURL + '/deleteSite', {F: f})
 
     @passthrough
     def exportSite(self, location=None, f=JSON):
-        """Exports the site configuration to a location specified by user
+        """Exports the site configuration to a location specified by user.
 
-        Optional:
-            location --  A path to a folder accessible to the server where the exported
-                site configuration will be written. If a location is not specified, the
-                server writes the exported site configuration file to directory owned by
-                the server and returns a virtual path (an HTTP URL) to that location from
-                where it can be downloaded.
-            f -- format for response (html|json)
-
+        Args:
+            location: Optional path to a folder accessible to the server where 
+                the exported site configuration will be written. If a location 
+                is not specified, the server writes the exported site configuration 
+                file to directory owned by the server and returns a virtual path
+                (an HTTP URL) to that location from where it can be downloaded.
+            f: Optional format for response (html|json). Defaults to JSON.
         """
+
         url = self._serverRoot + '/exportSite'
         params = {
             LOCATION: location,
@@ -2836,33 +2978,32 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return self.request(url, params)
 
     def generate_token(self, usr, pw, expiration=60):
-        """Generates a token to handle ArcGIS Server Security, this is
-        different from generating a token from the admin side.  Meant
-        for external use.
+        """Returns a token to handle ArcGIS Server Security, this is
+                different from generating a token from the admin side. Meant
+                for external use.
 
-        Required:
-            user -- username credentials for ArcGIS Server
-            pw -- password credentials for ArcGIS Server
-
-        Optional:
-            expiration -- time (in minutes) for token lifetime.  Max is 100.
+        Args:
+            user: Username credentials for ArcGIS Server.
+            pw: Password credentials for ArcGIS Server.
+            expiration: Optional time (in minutes) for token lifetime. Max is 100.
+                Defaults to 60.
         """
+
         global generate_token
         return generate_token(usr, pw, expiration)
 
     def importSite(self,  location=None, f=JSON):
         """This operation imports a site configuration into the currently
-        running site. Importing a site means replacing all site configurations.
-        Warning, this operation is computationally expensive and can take a long
-        time to complete.
+                running site. Importing a site means replacing all site 
+                configurations. Warning, this operation is computationally 
+                expensive and can take a long time to complete.
 
-        Required:
-            location -- A file path to an exported configuration or an ID
+        Arg:
+            location: A file path to an exported configuration or an ID
                 referencing the stored configuration on the server.
-
-        Optional:
-            f -- format for response (html|json)
+            f: Optional format for response (html|json). Defaults to JSON.
         """
+
         url = self._serverRoot + '/importSite'
         params = {
             LOCATION: location,
@@ -2872,19 +3013,20 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     def joinSite(self, adminURL, username, password, f):
         """This is used to connect a server machine to an existing site. This is
-        considered a "push" mechanism, in which a server machine pushes its
-        configuration to the site. For the operation to be successful, you need
-        to provide an account with administrative privileges to the site.
+                considered a "push" mechanism, in which a server machine pushes its
+                configuration to the site. For the operation to be successful, 
+                you need to provide an account with administrative privileges to 
+                the site.
 
-        Required:
-            adminURL -- The site URL of the currently live site. This is typically
-                the Administrator Directory URL of one of the server machines of a site.
-            username -- The name of an administrative account for the site.
-            password -- The password of the administrative account.
-
-        Optional:
-            f -- format for response (html|json)
+        Args:
+            adminURL: The site URL of the currently live site. This is typically
+                the Administrator Directory URL of one of the server machines 
+                of a site.
+            username: The name of an administrative account for the site.
+            password: The password of the administrative account.
+            f: Optional format for response (html|json).
         """
+
         url = self._adminURL + '/joinSite'
         params = {
             ADMIN_URL: adminURL,
@@ -2895,33 +3037,36 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return self.request(url, params)
 
     def publicKey(self, f=JSON):
-        """Returns the public key of the server that can be used by a client application
-        (or script) to encrypt data sent to the server using the RSA algorithm for
-        public-key encryption. In addition to encrypting the sensitive parameters, the
-        client is also required to send to the server an additional flag encrypted with
-        value set to true.
+        """Returns the public key of the server that can be used by a client 
+                application (or script) to encrypt data sent to the server 
+                using the RSA algorithm for public-key encryption. In addition 
+                to encrypting the sensitive parameters, the client is also 
+                required to send to the server an additional flag encrypted with
+                value set to true.
 
-        Optional:
-            f -- format for response, if json it is wrapped in a Munch object. (html|json)
+        Arg:
+            f: Format for response, if json it is wrapped in a Munch object. 
+                (html|json). Defaults to JSON.
         """
+
         url = self._adminURL + '/publicKey'
         return munchify(self.request(url, {F: f}))
 
     def __len__(self):
-        """gets number of services"""
+        """Gets number of services."""
         if not self.service_cache:
             self.list_services()
         return len(self.service_cache)
 
     def __iter__(self):
-        """generator for service iteration"""
+        """Generator for service iteration."""
         if not self.service_cache:
             self.list_services()
         for s in self.service_cache:
             yield s
 
     def __getitem__(self, i):
-        """allows for service indexing"""
+        """Allows for service indexing."""
         if not self.service_cache:
             self.list_services()
         return self.service_cache[i]
@@ -2930,58 +3075,75 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return '<{}: {}>'.format(self.__class__.__name__, self.token.domain.split('//')[1].split(':')[0])
 
 class AGOLAdminInitializer(AdminRESTEndpoint):
+    """Class that handles initalizing AGOL Admin."""
      def __init__(self, url, usr='', pw='', token=''):
+         """Inits class with login info.
+
+         Args:
+            url: URL for server.
+            usr: Username for login.
+            pw: Password for login.
+            token: Token for URL/login.
+        """
+        
         if '/admin/' not in url.lower():
             url = url.split('/rest/')[0] + '/rest/admin/' + url.split('/rest/')[-1]
         super(AGOLAdminInitializer, self).__init__(url, usr, pw, token)
 
 class AGOLAdmin(AGOLAdminInitializer):
-    """class to handle AGOL Hosted Services Admin capabilities"""
+    """Class to handle AGOL Hosted Services Admin capabilities."""
 
     @property
     def portalInfo(self):
+        """Gets portal info."""
         return self.token.portalInfo
 
     @property
     def userContentUrl(self):
+        """Returns URL for user content."""
         return '{}://www.arcgis.com/sharing/rest/content/users/{}'.format(PROTOCOL, self.portalInfo.username)
 
     def list_services(self):
-        """returns a list of services"""
+        """Returns a list of services."""
         try:
             return [s.adminServiceInfo.name for s in self.json.services]
         except AttributeError:
             return []
 
     def content(self):
+        """Returns content from user content url."""
         return self.request(self.userContentUrl)
 
 class AGOLFeatureService(AGOLAdminInitializer):
-    """AGOL Feature Service"""
+    """Class that handles AGOL Feature Service."""
 
     @staticmethod
     def clearLastEditedDate(in_json):
-        """clears the lastEditDate within json, will throw an error if updating
+        """Clears the lastEditDate within json, will throw an error if updating
         a service JSON definition if this value is not an empty string/null.
 
-        Required:
-            in_json -- input json
+        Arg:
+            in_json: Input JSON.
+        
+        Returns:
+            The edited input JSON.
         """
+
         if EDITING_INFO in in_json:
             in_json[EDITING_INFO][LAST_EDIT_DATE] = ''
         return in_json
 
     @passthrough
     def addToDefinition(self, addToDefinition, async=FALSE):
-        """adds a definition property in a feature layer
+        """Adds a definition property in a feature layer.
 
-        Required:
-            addToDefinition -- The service update to the layer definition property
+        Args:
+            addToDefinition: The service update to the layer definition property
                 for a feature service layer.
-
-        Optional:
-            async -- option to run this process asynchronously
+            async: Optional boolean to run this process asynchronously. 
+                Default is FALSE.
         """
+
         self.clearLastEditedDate(addToDefinition)
         url = '/'.join([self.url, ADD_TO_DEFINITION])
 
@@ -2998,15 +3160,15 @@ class AGOLFeatureService(AGOLAdminInitializer):
 
     @passthrough
     def deleteFromDefinition(self, deleteFromDefinition, async=FALSE):
-        """deletes a definition property in a feature layer
+        """Deletes a definition property in a feature layer.
 
-        Required:
-            deleteFromDefinition -- The service update to the layer definition property
+        Args:
+            deleteFromDefinition: The service update to the layer definition property
                 for a feature service layer.
-
-        Optional:
-            async -- option to run this process asynchronously
+            async: Optional boolean to run this process asynchronously.
+                Defaults to FALSE.
         """
+
         self.clearLastEditedDate(deleteFromDefinition)
         url = '/'.join([self.url, DELETE_FROM_DEFINITION])
         params = {
@@ -3022,15 +3184,15 @@ class AGOLFeatureService(AGOLAdminInitializer):
 
     @passthrough
     def updateDefinition(self, updateDefinition, async=FALSE):
-        """deletes a definition property in a feature layer
+        """Updates a definition property in a feature layer.
 
-        Required:
-            updateDefinition -- The service update to the layer definition property
+        Args:
+            updateDefinition: The service update to the layer definition property
                 for a feature service layer.
-
-        Optional:
-            async -- option to run this process asynchronously
+            async: Optional boolean to run this process asynchronously.
+                Default is FALSE.
         """
+
         self.clearLastEditedDate(updateDefinition)
         url = '/'.join([self.url, UPDATE_DEFINITION])
         params = {
@@ -3081,6 +3243,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
 
     @passthrough
     def disableEditorTracking(self):
+        """Disables editor tracking."""
         capabilities = self.get(CAPABILITIES, '').split(',')
         editorInfo = self.get(EDITOR_TRACKING_INFO, {
             "enableEditorTracking": False,
@@ -3106,15 +3269,15 @@ class AGOLFeatureService(AGOLAdminInitializer):
 
     @passthrough
     def refresh(self):
-        """refreshes server cache for this layer"""
+        """Refreshes server cache for this layer."""
         return self.request(self.url + '/refresh')
 
     def reload_module(self):
-        """reloads the service to catch any changes"""
+        """Reloads the service to catch any changes."""
         self.__init__(self.url, token=self.token)
 
     def status(self):
-        """returns the status on service (whether it is topped or started)"""
+        """Returns the status on service (whether it is stopped or started)."""
         url = self.url + '/status'
         return self.request(url)
 
@@ -3122,16 +3285,16 @@ class AGOLFeatureService(AGOLAdminInitializer):
         return '<{}: "{}">'.format(self.__class__.__name__, self.url.split('/')[-2])
 
 class AGOLFeatureLayer(AGOLFeatureService):
-    """AGOL Feature Layer"""
+    """Class that handles AGOL Feature Layer."""
 
     def status(self):
-        """returns the status on service (whether it is topped or started)"""
+        """Returns the status on service (whether it is stopped or started)."""
         url = self.url.split('/FeatureServer/')[0] + '/FeatureServer/status'
         return self.request(url)
 
     @staticmethod
     def createNewGlobalIdFieldDefinition():
-        """will add a new global id field json defition"""
+        """Adds a new global id field json defition."""
         return munchify({
             NAME: 'GlobalID',
             TYPE: GLOBALID,
@@ -3145,17 +3308,16 @@ class AGOLFeatureLayer(AGOLFeatureService):
 
     @staticmethod
     def createNewDateFieldDefinition(name, alias='', autoUpdate=False):
-        """Will create a json definition for a new date field
+        """Creates a json definition for a new date field.
 
-        Required:
-            name -- name of new date field
-
-        Optional:
-            alias -- field name for alias
-            autoUpdate -- option to automatically populate the field with the current
-                date/time when a new record is added or updated (like editor tracking).
-                The default is False.
+        Args
+            name: Name of new date field.
+            alias: Optional field name for alias.
+            autoUpdate: Optional boolean to automatically populate the field 
+                with the current date/time when a new record is added or updated 
+                (like editor tracking). The default is False.
         """
+
         return munchify({
             NAME: name,
             TYPE: DATE_FIELD,
@@ -3169,16 +3331,15 @@ class AGOLFeatureLayer(AGOLFeatureService):
 
     @staticmethod
     def createNewFieldDefinition(name, field_type, alias='', **kwargs):
-        """Will create a json definition for a new field
+        """Creates a json definition for a new field.
 
-        Required:
-            name -- name of new field
-            field_type -- type of field
-
-        Optional:
-            alias -- field name for alias
-            **kwargs other field keys to set
+        Args:
+            name: Name of new field.
+            field_type: Type of field.
+            alias: Optional field name for alias.
+            **kwargs: Optional additional field keys to set.
         """
+
         fd = munchify({
             NAME: name,
             TYPE: field_type,
@@ -3199,26 +3360,28 @@ class AGOLFeatureLayer(AGOLFeatureService):
         return fd
 
     def addField(self, name, field_type, alias='', **kwargs):
-        """Will add a new field to layer
+        """Adds a new field to layer.
 
-        Required:
-            name -- name of new field
-            field_type -- type of field
-
-        Optional:
-            alias -- field name for alias
-            **kwargs other field keys to set
+        Args:
+            name: Name of new field.
+            field_type: Type of field.
+            alias: Optional field name for alias.
+            **kwargs: Optional additional field keys to set.
         """
+
         self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias, **kwargs)]})
 
     @passthrough
     def truncate(self, attachmentOnly=TRUE, async=FALSE):
-        """truncates the feature layer by removing all features
+        """Truncates the feature layer by removing all features.
 
-        Optional:
-            attachmentOnly -- delete all attachments only
-            async -- option to run this process asynchronously
+        Args:
+            attachmentOnly -- Optional boolean to delete all attachments only.
+                Defaults to TRUE.
+            async: Optional boolean to run this process asynchronously.
+                Defaults to FALSE.
         """
+        
         if not self.json.get(SUPPORTS_TRUNCATE, False):
             raise NotImplementedError('This resource does not support the Truncate method')
 
