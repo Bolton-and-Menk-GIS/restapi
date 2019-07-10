@@ -2159,7 +2159,7 @@ class FeatureService(MapService):
         return self.request(query_url, params)
 
 class FeatureLayer(MapServiceLayer):
-"""Class to handle Feature Service Layer."""
+    """Class to handle Feature Service Layer."""
     def __init__(self, url='', usr='', pw='', token='', proxy=None, referer=None):
         """Inits class with url and login credentials.
         
