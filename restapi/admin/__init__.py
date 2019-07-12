@@ -3076,7 +3076,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
 class AGOLAdminInitializer(AdminRESTEndpoint):
     """Class that handles initalizing AGOL Admin."""
-     def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token=''):
          """Inits class with login info.
 
          Args:
