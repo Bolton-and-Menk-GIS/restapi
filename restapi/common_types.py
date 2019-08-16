@@ -1189,7 +1189,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 will override add_params***.
 
         # default params for all queries
-        params : {'returnGeometry' : 'true', 'outFields' : fields,
+        params: {'returnGeometry' : 'true', 'outFields' : fields,
         'where': where, 'f' : 'json'}
         """
 

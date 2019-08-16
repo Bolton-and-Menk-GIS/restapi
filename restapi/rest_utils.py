@@ -209,6 +209,8 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
             if token.isAGOL or token.isAdmin:
                 params[TOKEN] = str(token)
                 cookies = None
+        elif '.arcgis.com' in service:
+            params[TOKEN] = str(token)
 
     stream = params.get(F) == 'image'
 
