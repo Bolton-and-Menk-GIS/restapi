@@ -38,28 +38,28 @@ rest_url = 'http://gis.srh.noaa.gov/arcgis/rest/services'
 ags = restapi.ArcServer(rest_url)
 
 # get folder and service properties
-print 'Number of folders: {}'.format(len(ags.folders))
-print 'Number of services: {}'.format(len(ags.services))
+print ('Number of folders: {}'.format(len(ags.folders)))
+print ('Number of services: {}'.format(len(ags.services)))
 
 # walk thru directories
 for root, folders, services in ags.walk():
-    print root
-    print folders
-    print services
-    print '\n'
+    print (root)
+    print (folders)
+    print (services)
+    print ('\n')
 
 # access "ahps_gauges" service (stream gauges)
 gauges = ags.get_MapService('ahps_gauges')
-print gauges.url #print MapService url
+print (gauges.url) #print MapService url
 
 # print layer names
-print gauges.list_layers()
+print (gauges.list_layers())
 
 # access "observed river stages" layer
 lyr = gauges.layer('observed_river_stages') #not case sensitive, also supports wildcard search (*)
 
 # list fields from col layer
-print lyr.list_fields()
+print (lyr.list_fields())
 
 #----------------------------------------------------------------------------------------------------#
 # search cursor
@@ -69,7 +69,7 @@ print lyr.list_fields()
 #  geometry or use the ArcGIS-like token "SHAPE@"
 query = "state = 'CA'"
 for row in lyr.cursor(where=query, fields=['SHAPE@', u'gaugelid', u'status', u'location']):
-    print row
+    print (row)
 
 # Note: can also do this from the MapService level like this:
 # cursor = gauges.cursor('observed_river_stages', where=query)
@@ -109,7 +109,7 @@ geocoder = restapi.Geocoder(henn)
 geoResult = geocoder.findAddressCandidates('353 N 5th St, Minneapolis, MN 55403')
 
 # export results to shapefile
-print 'found {} candidates'.format(len(geoResult))
+print ('found {} candidates'.format(len(geoResult)))
 geocoder.exportResults(geoResult, os.path.join(folder, 'target_field.shp'))
 
 # Esri geocoder
@@ -118,9 +118,9 @@ esri_geocoder = restapi.Geocoder(esri_url)
 
 # find candidates using key word arguments (**kwargs) to fill in locator fields, no single line option
 candidates = esri_geocoder.findAddressCandidates(Address='380 New York Street', City='Redlands', State='CA', Zip='92373')
-print 'Number of address candidates: {}'.format(len(candidates))
+print ('Number of address candidates: {}'.format(len(candidates)))
 for candidate in candidates:
-    print candidate.location
+    print (candidate.location)
 
 # export results to shapefile
 out_shp = os.path.join(folder, 'Esri_headquarters.shp')
@@ -173,8 +173,8 @@ os.remove(tmp)
 attachments = incidents.attachments(oid)
 
 for attachment in attachments:
-    print attachment
-    print attachment.contentType, attachment.size
+    print (attachment)
+    print (attachment.contentType, attachment.size)
     attachment.download(folder) # download attachment into restapi_test_data folder on Desktop
 
 # update the feature we just added
@@ -212,7 +212,7 @@ im.clip(geometry, tif)
 # test point identify
 x, y = 400994.780878, 157878.398217
 elevation = im.pointIdentify(x=x, y=y, sr=103793)
-print elevation
+print (elevation)
 
 #----------------------------------------------------------------------------------------------------#
 # Test Geoprocessing Service
@@ -220,9 +220,9 @@ gp_url = 'http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Network/ESR
 gp = restapi.GPTask(gp_url)
 
 # get a list of gp parameters (so we know what to pass in as kwargs)
-print '\nGP Task "{}" parameters:\n'.format(gp.name)
+print ('\nGP Task "{}" parameters:\n'.format(gp.name))
 for p in gp.parameters:
-    print '\t', p.name, p.dataType
+    print ('\t', p.name, p.dataType)
 
 point = {"geometryType":"esriGeometryPoint",
          "features":[
@@ -239,7 +239,7 @@ if gp_res:
     result = gp_res.results[0]
 
     # this returned a GPFeatureRecordSetLayer as an outputParameter, so we can export this to polygons
-    print '\nOutput Result: "{}", data type: {}\n'.format(result.paramName, result.dataType)
+    print ('\nOutput Result: "{}", data type: {}\n'.format(result.paramName, result.dataType))
 
     # now export the result value to fc (use the value property of the GPResult object from run())
     drive_times = os.path.join(folder, 'drive_times.shp')

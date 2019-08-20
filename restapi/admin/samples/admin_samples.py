@@ -28,7 +28,7 @@ def main(url, usr, pw, folder_name, service_name):
     # list services and configured state in a single folder
     folder = arcserver.folder(folder_name)
     for service in folder.iter_services():
-        print service.serviceName, service.configuredState
+        print (service.serviceName, service.configuredState)
 
         # can stop a service like this
         # service.stop()
@@ -36,13 +36,13 @@ def main(url, usr, pw, folder_name, service_name):
         # or start like this
         # service.start()
 
-    print '\n' * 3
+    print ('\n' * 3)
 
     # show all services and configured state (use iter_services to return restapi.admin.Service() object!)
     for service in arcserver.iter_services():
-        print service.serviceName, service.configuredState
+        print (service.serviceName, service.configuredState)
         
-    print '\n' * 3
+    print ('\n' * 3)
 
     #-----------------------------------------------------------------------------------------------#
     # setting security on a folder
@@ -58,14 +58,14 @@ def main(url, usr, pw, folder_name, service_name):
 
     # look thru the folder to check the configured states, should be stopped
     for service in folder.iter_services():
-        print service.serviceName, service.configuredState
+        print (service.serviceName, service.configuredState)
 
     # now restart
     arcserver.startServices(folderName=folder_name) # this can take a few minutes
 
     # look thru folder, services should be started
     for service in folder.iter_services():
-        print service.serviceName, service.configuredState
+        print (service.serviceName, service.configuredState)
 
     #-----------------------------------------------------------------------------------------------#
     # query log files (within last 3 days), need to convert to milliseconds
@@ -96,7 +96,7 @@ def main(url, usr, pw, folder_name, service_name):
 
     # iterate through all items of data store
     for item in ds:
-        print item.type, item.path
+        print (item.type, item.path)
         # if it is an enterprise database connection, you can get the connection string like this
         if item.type == 'egdb':
             print(item.info.connectionString)
