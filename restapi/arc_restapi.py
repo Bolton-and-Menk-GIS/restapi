@@ -21,11 +21,11 @@ arcpy.env.addOutputsToMap = False
 def find_ws_type(path):
     """Determines output workspace (feature class if not FileSystem).
         returns a tuple of workspace path and type.
-    
+
     Arg:
         path: Path for workspace.
     """
- 
+
     # try original path first
     if not arcpy.Exists(path):
         path = os.path.dirname(path)
@@ -48,7 +48,7 @@ def find_ws_type(path):
 
 class Geometry(BaseGeometry):
     """Class to handle restapi.Geometry.
-    
+
     Attributes:
         geometryType: The type of geometry.
         json: JSON object.
@@ -60,7 +60,7 @@ class Geometry(BaseGeometry):
         Arg:
             geometry: Input geometry.  Can be arcpy.Geometry(), shapefile/feature
                 class, or JSON.
-        
+
         Raises:
             ValueError: "Not a valid geometry input!"
             ValueError: "Not a vaild JSON object!"
@@ -150,6 +150,10 @@ class Geometry(BaseGeometry):
                     self.geometryType = ESRI_ENVELOPE
                 else:
                     raise ValueError('Not a valid JSON object!')
+            if SPATIAL_REFERENCE in geometry and spatialReference is None:
+                sr = geometry[SPATIAL_REFERENCE]
+                spatialReference = sr.get(LATEST_WKID) if sr.get(LATEST_WKID) else sr.get(WKID)
+                self.spatialReference = spatialReference
             if not self.geometryType and GEOMETRY_TYPE in geometry:
                 self.geometryType = geometry[GEOMETRY_TYPE]
         if not SPATIAL_REFERENCE in self.json and spatialReference is not None:
@@ -177,10 +181,10 @@ class Geometry(BaseGeometry):
 
     def envelopeAsJSON(self, featureBuffer=0, roundCoordinates=False):
         """Returns an envelope geometry object as JSON.
-        
+
         Args:
             featureBuffer: Optional buffer for the feature, defaults to 0.
-            roundCoordinates: Optional boolean arg, determines if coordinates are 
+            roundCoordinates: Optional boolean arg, determines if coordinates are
                 rounded. Defaults to False.
         """
 
@@ -249,7 +253,7 @@ class Geometry(BaseGeometry):
 
 class GeometryCollection(BaseGeometryCollection):
     """Represents an array of restapi.Geometry objects.
-    
+
     Attributes:
         geometries: A single geomtry or list of geometries.
         json = A JSON object.
@@ -261,12 +265,12 @@ class GeometryCollection(BaseGeometryCollection):
 
         Args:
             geometries: A single geometry or a list of geometries.  Valid inputs
-                are a shapefile|feature class|Layer, geometry as JSON, a 
+                are a shapefile|feature class|Layer, geometry as JSON, a
                 restapi.Geometry, or restapi.FeatureSet.
-            use_envelopes: Optional boolean, if set to true, will use the bounding 
+            use_envelopes: Optional boolean, if set to true, will use the bounding
                 box of each geometry passed in for the JSON attribute.
             spatialReference: Optional spatial reference. Defaults to None.
-        
+
         Raises:
             ValueError: 'Inputs are not valid ESRI JSON Geometries!!!'
 
@@ -368,7 +372,7 @@ class GeometryCollection(BaseGeometryCollection):
 
 class GeocodeHandler(object):
     """Class to handle geocode results.
-    
+
     Attributes:
         results: Results from the geocode.
         spatailReference: Spatial reference.
@@ -425,10 +429,10 @@ class Geocoder(GeocodeService):
             geocodeResultObject: Results from geocode operation, must be of type
                 GeocodeResult.
             out_fc: Full path to output feature class.
-        
+
         Raises:
             TypeError: "{} is not a {} object!"
-        
+
         Returns:
             The path to the output feature class.
         """
@@ -459,11 +463,11 @@ class Geocoder(GeocodeService):
 # ARCPY UTILITIES - only available here
 def create_empty_schema(feature_set, out_fc):
     """Creates empty schema in a feature class.
-    
+
     Args:
         feature_set: Input feature set.
         out_fc: Output feature class path.
-    
+
     Returns:
         A feature class.
     """
@@ -518,11 +522,11 @@ def create_empty_schema(feature_set, out_fc):
 
 def add_domains_from_feature_set(out_fc, fs):
     """Adds domains from a feature set to a feature class.
-    
+
     Args:
         out_fc: The output feature class path.
         fs: Input feature set.
-    """ 
+    """
 
     # find workspace type and path
     ws, wsType = find_ws_type(out_fc)
@@ -569,12 +573,12 @@ def add_domains_from_feature_set(out_fc, fs):
 
 def append_feature_set(out_fc, feature_set, cursor):
     """Appends features from a feature set to existing feature class manually with an insert cursor.
-    
+
     Args:
         out_fc: Output feature class path.
         feature_set: Input feature set.
         cursor: Insert cursor.
-    """ 
+    """
 
     fc_fields = arcpy.ListFields(out_fc)
     cur_fields = [f.name for f in fc_fields if f.type not in ('OID', 'Geometry') and not f.name.lower().startswith('shape')]
