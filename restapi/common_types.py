@@ -2759,7 +2759,7 @@ class FeatureLayer(MapServiceLayer):
                   F: JSON}
 
         # update features
-        return self.__edit_handler(self.reques(update_url, params))
+        return self.__edit_handler(self.request(update_url, params))
 
     def deleteFeatures(self, oids='', where='', geometry='', geometryType='',
                        spatialRel='', inSR='', gdbVersion='', rollbackOnFailure=True):
