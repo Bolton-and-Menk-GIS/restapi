@@ -6,7 +6,6 @@ import os
 import fnmatch
 import datetime
 import json
-from dateutil.relativedelta import relativedelta
 from collections import namedtuple
 from .. import requests
 from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, generate_token, ID_MANAGER, do_post, SpatialReferenceMixin
@@ -1884,7 +1883,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         #if not endTime:
         #    # default to 1 week ago
-        #    endTime = date_to_mil(datetime.datetime.now() - relativedelta(days=7))
+        #    endTime = date_to_mil(datetime.datetime.now() - datetime.timedelta(days=7))
 
         elif isinstance(endTime, datetime.datetime):
             endTime = date_to_mil(endTime)
@@ -3133,19 +3132,18 @@ class AGOLFeatureService(AGOLAdminInitializer):
         Returns:
             The edited input JSON.
         """
-
         if EDITING_INFO in in_json:
             in_json[EDITING_INFO][LAST_EDIT_DATE] = ''
         return in_json
 
     @passthrough
-    def addToDefinition(self, addToDefinition, async=FALSE):
+    def addToDefinition(self, addToDefinition, runAsync=FALSE):
         """Adds a definition property in a feature layer.
 
         Args:
             addToDefinition: The service update to the layer definition property
                 for a feature service layer.
-            async: Optional boolean to run this process asynchronously. 
+            runAsync: Optional boolean to run this process asynchronously. 
                 Default is FALSE.
         """
 
@@ -3155,7 +3153,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             ADD_TO_DEFINITION: addToDefinition,
-            ASYNC: async
+            ASYNC: runAsync
         }
 
         result = self.request(url, params)
@@ -3164,13 +3162,13 @@ class AGOLFeatureService(AGOLAdminInitializer):
         return result
 
     @passthrough
-    def deleteFromDefinition(self, deleteFromDefinition, async=FALSE):
+    def deleteFromDefinition(self, deleteFromDefinition, runAsync=FALSE):
         """Deletes a definition property in a feature layer.
 
         Args:
             deleteFromDefinition: The service update to the layer definition property
                 for a feature service layer.
-            async: Optional boolean to run this process asynchronously.
+            runAsync: Optional boolean to run this process asynchronously.
                 Defaults to FALSE.
         """
 
@@ -3179,7 +3177,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             DELETE_FROM_DEFINITION: deleteFromDefinition,
-            ASYNC: async
+            ASYNC: runAsync
         }
 
         result = self.request(url, params)
@@ -3188,13 +3186,13 @@ class AGOLFeatureService(AGOLAdminInitializer):
         return result
 
     @passthrough
-    def updateDefinition(self, updateDefinition, async=FALSE):
+    def updateDefinition(self, updateDefinition, runAsync=FALSE):
         """Updates a definition property in a feature layer.
 
         Args:
             updateDefinition: The service update to the layer definition property
                 for a feature service layer.
-            async: Optional boolean to run this process asynchronously.
+            runAsync: Optional boolean to run this process asynchronously.
                 Default is FALSE.
         """
 
@@ -3203,7 +3201,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             UPDATE_DEFINITION: updateDefinition,
-            ASYNC: async
+            ASYNC: runAsync
         }
 
         result = self.request(url, params)
@@ -3377,13 +3375,13 @@ class AGOLFeatureLayer(AGOLFeatureService):
         self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias, **kwargs)]})
 
     @passthrough
-    def truncate(self, attachmentOnly=TRUE, async=FALSE):
+    def truncate(self, attachmentOnly=TRUE, runAsync=FALSE):
         """Truncates the feature layer by removing all features.
 
         Args:
             attachmentOnly -- Optional boolean to delete all attachments only.
                 Defaults to TRUE.
-            async: Optional boolean to run this process asynchronously.
+            runAsync: Optional boolean to run this process asynchronously.
                 Defaults to FALSE.
         """
         
@@ -3393,7 +3391,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
         url = '/'.join([self.url, TRUNCATE])
         params = {
             ATTACHMENT_ONLY: attachmentOnly,
-            ASYNC: async
+            ASYNC: runAsync
         }
 
         return self.request(url, params)

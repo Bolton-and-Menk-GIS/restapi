@@ -1,3 +1,5 @@
 {
-    "python.pythonPath": "C:\\Python27\\ArcGIS10.4\\python.exe"
+    "python.pythonPath": "/Users/calebmackey/Documents/Development/venv_37",
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": true
 }

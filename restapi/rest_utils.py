@@ -18,9 +18,11 @@ from collections import namedtuple, OrderedDict
 from ._strings import *
 from urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 from urllib3 import disable_warnings
+from . import projections
+from . import enums
 
-from . import six
-from .six.moves import urllib
+import six
+from six.moves import urllib
 
 # disable ssl warnings
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
@@ -176,21 +178,21 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
                 cookies = {AGS_TOKEN: str(token)}
             else:
                 if TOKEN not in params:
-                    params[TOKEN] = str(token)
+                    params[enums.params.token] = str(token)
         elif token:
             if isinstance(token, Token) and (not token.isAGOL and not token.isAdmin):
-                cookies = {AGS_TOKEN: str(token)}
+                cookies = {enums.cookies.agstoken: str(token)}
             else:
-                if TOKEN not in params:
-                    params[TOKEN] = str(token)
+                if enums.params.token not in params:
+                    params[enums.params.token] = str(token)
 
     # auto fill in geometry params if a restapi.Geometry object is passed in (derived from BaseGeometry)
-    if params.get(GEOMETRY) and isinstance(params.get(GEOMETRY), BaseGeometry):
-        geometry = params.get(GEOMETRY)
-        if not GEOMETRY_TYPE in params and hasattr(geometry, GEOMETRY_TYPE):
-            params[GEOMETRY_TYPE] = getattr(geometry, GEOMETRY_TYPE)
-        if not IN_SR in params:
-            params[IN_SR] = geometry.getWKID() or geometry.getWKT()
+    if params.get(enums.params.geometry) and isinstance(params.get(enums.featureSet.geometry), BaseGeometry):
+        geometry = params.get(enums.params.geometry)
+        if not enums.params.geometryType in params and hasattr(geometry, enums.params.geometryType):
+            params[enums.params.geometryType] = getattr(geometry, enums.params.geometryType)
+        if not enums.params.inSR in params:
+            params[enums.params.inSR] = geometry.getWKID() or geometry.getWKT()
 
     for pName, p in six.iteritems(params):
         if isinstance(p, dict) or hasattr(p, 'json'):
@@ -199,7 +201,7 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
     # merge in any kwargs
     params.update(kwargs)
     if F not in params:
-        params[F] = JSON
+        params[enums.params.f] = JSON
 
     if not token and not proxy:
         proxy = ID_MANAGER.findProxy(service)
@@ -250,16 +252,16 @@ def do_proxy_request(proxy, url, params={}, referer=None):
         The HTTP request.
     """
 
-    frmat = params.get(F, JSON)
+    frmat = params.get(enums.params.f, enums.params.json)
     if F in params:
-        del params[F]
+        del params[enums.params.f]
 
     #p = '&'.join('{}={}'.format(k,v) for k,v in six.iteritems(params))
 
     # probably a better way to do this...
     headers = {'User-Agent': USER_AGENT}
     if referer:
-        headers[REFERER_HEADER] = referer
+        headers[enums.headers.referer] = referer
     #return requests.post('{}?{}?f={}&{}'.format(proxy, url, frmat, p).rstrip('&'), verify=False, headers=headers)
     return requests.post('{}?{}?f={}'.format(proxy, url, frmat).rstrip('&'), params, verify=False, headers=headers)
 
@@ -290,7 +292,7 @@ def guess_proxy_url(domain):
 
     # try again looking to see if it is in a folder called "proxy"
     for ptype in types:
-        proxy_url = '/'.join([domain, PROXY, PROXY + ptype])
+        proxy_url = '/'.join([domain, enums.misc.proxy, enums.misc.proxy + ptype])
         r = requests.get(proxy_url)
         try:
             if r.status_code == 400 or r.content:
@@ -328,14 +330,14 @@ def guess_wkid(wkt):
         The well-known ID, if one is found.
     """
 
-    if wkt in PRJ_STRINGS:
-        return PRJ_STRINGS[wkt]
+    if wkt in projections.wkt:
+        return projections.wkt[wkt]
     if 'PROJCS' in wkt:
         name = wkt.split('PROJCS["')[1].split('"')[0]
     elif 'GEOGCS' in wkt:
         name = wkt.split('GEOGCS["')[1].split('"')[0]
-    if name in PRJ_NAMES:
-        return PRJ_NAMES[name]
+    if name in projections.names:
+        return projections.names[name]
     return 0
 
 
@@ -440,18 +442,18 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
     # print('infoUrl is: "{}"'.format(infoUrl))
     infoResp = do_post(infoUrl)
     is_agol = False
-    is_portal = fnmatch.fnmatch(url, PORTAL_BASE_PATTERN)
-    if AUTH_INFO in infoResp and TOKEN_SERVICES_URL in infoResp[AUTH_INFO]:
-        base = infoResp[AUTH_INFO][TOKEN_SERVICES_URL]
-        is_agol = AGOL_BASE in base
+    is_portal = fnmatch.fnmatch(url, enums.PORTAL_BASE_PATTERN)
+    if AUTH_INFO in infoResp and enum.auth.tokenServicesUrl in infoResp[AUTH_INFO]:
+        base = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
+        is_agol = enums.agol.url.base in base
         if is_agol:
-            base = AGOL_TOKEN_SERVICE
+            base = enums.agol.urls.tokenService
 
         global PROTOCOL
         PROTOCOL =  base.split('://')[0]
         print('set PROTOCOL to "{}" from generate token'.format(PROTOCOL))
         try:
-            shortLived = infoResp.get(AUTH_INFO, {}).get(SHORT_LIVED_TOKEN_VALIDITY) or 60
+            shortLived = infoResp.get(enums.auth.info, {}).get(SHORT_LIVED_TOKEN_VALIDITY) or 60
         except KeyError:
             shortLived = 100
     else:
@@ -961,7 +963,7 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
     def hasGeometry(self):
         """Returns for if it has geometry."""
         if self.count:
-            if self.features[0].get(GEOMETRY):
+            if self.features[0].get(enums.params.geometry):
                 return True
         return False
 
@@ -1128,7 +1130,7 @@ class Feature(JsonGetter):
             field: Name of field for which to get attribute.
         """
 
-        if field in (ATTRIBUTES, GEOMETRY):
+        if field in (ATTRIBUTES, enums.params.geometry):
             return self.json.get(field, default)
         return self.json.get(ATTRIBUTES, {}).get(field, default)
 
@@ -1154,7 +1156,7 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
         """
         
         self.json = munch.munchify(in_json)
-        self.geometryType = self.json.get(GEOMETRY_TYPE)
+        self.geometryType = self.json.get(enums.params.geometryType)
         self.spatialReference = self.json.get(SPATIAL_REFERENCE)
 
     def list_related_OIDs(self):

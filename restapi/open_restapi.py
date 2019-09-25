@@ -9,10 +9,12 @@ import json
 import sys
 from collections import OrderedDict
 from .rest_utils import *
-from .shapefile import shapefile
+import shapefile
 
-from . import six
-from .six.moves import urllib
+from . import projections
+
+import six
+from six.moves import urllib
 
 # field types for shapefile module
 SHP_FTYPES = munch.munchify({
@@ -42,7 +44,7 @@ def project(SHAPEFILE, wkid):
     # write .prj file
     prj_file = os.path.splitext(SHAPEFILE)[0] + '.prj'
     with open(prj_file, 'w') as f:
-        f.write(PROJECTIONS.get(str(wkid), '').replace("'", '"'))
+        f.write(projections.projections.get(str(wkid), '').replace("'", '"'))
     return prj_file
 
 

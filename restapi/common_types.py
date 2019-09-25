@@ -10,9 +10,10 @@ from .decorator import decorator
 import sys
 import warnings
 from munch import munchify
+from . import projections
 
-from . import six
-from .six.moves import urllib, zip_longest
+import six
+from six.moves import urllib, zip_longest
 
 __opensource__ = False
 
@@ -3073,7 +3074,7 @@ class FeatureTable(FeatureLayer, MapServiceTable):
 
 class GeometryService(RESTEndpoint):
     """Class that handles the ArcGIS geometry service."""
-    linear_units = sorted(LINEAR_UNITS.keys())
+    linear_units = sorted(projections.linearUnits.keys())
     _default_url = 'https://utility.arcgisonline.com/ArcGIS/rest/services/Geometry/GeometryServer'
 
     def __init__(self, url=None, usr=None, pw=None, token=None, proxy=None, referer=None):
@@ -3096,7 +3097,7 @@ class GeometryService(RESTEndpoint):
     @staticmethod
     def getLinearUnits():
         """Returns a Munch() dictionary of linear units."""
-        return munch.munchify(LINEAR_UNITS)
+        return projections.linearUnits
 
     @staticmethod
     def getLinearUnitWKID(unit_name):
@@ -3113,7 +3114,7 @@ class GeometryService(RESTEndpoint):
         if isinstance(unit_name, int) or six.text_type(unit_name).isdigit():
             return int(unit_name)
 
-        for k,v in six.iteritems(LINEAR_UNITS):
+        for k,v in six.iteritems(projections.linearUnits):
             if k.lower() == unit_name.lower():
                 return int(v[WKID])
 
