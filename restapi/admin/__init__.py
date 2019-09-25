@@ -1101,6 +1101,11 @@ class Service(BaseDirectory, EditableResource):
         self.serviceName = self.fullName.split('.')[0]
 
     @property
+    def name(self):
+        """property alias for serviceName"""
+        return self.serviceName
+
+    @property
     def enabledExtensions(self):
         """Returns list of enabled extensions, not available out of the box in 
                 the REST API.
@@ -3077,7 +3082,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 class AGOLAdminInitializer(AdminRESTEndpoint):
     """Class that handles initalizing AGOL Admin."""
     def __init__(self, url, usr='', pw='', token=''):
-         """Inits class with login info.
+        """Inits class with login info.
 
          Args:
             url: URL for server.

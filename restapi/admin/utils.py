@@ -7,10 +7,13 @@ import json
 from six.moves import range
 
 
+
 __all__  = ['ServerAdministrator']
 
 if has_arcpy:
     import arcpy
+    mapping = getattr(arcpy, 'mapping' if hasattr(arcpy, 'mapping') else '_mp')
+    layer_types = (mapping.Layer, getattr(mapping, 'TableView' if hasattr(mapping, 'TableView') else 'Table'))
 
     class AdiminstratorBase(object):
         """Admin base class."""
@@ -39,7 +42,7 @@ if has_arcpy:
                         return find_existing(os.path.dirname(path))
 
             # try original path first
-            if isinstance(path, (arcpy.mapping.Layer, arcpy.mapping.TableView)):
+            if isinstance(path, layer_types):
                 path = path.dataSource
             if os.sep not in str(path):
                 if hasattr(path, 'dataSource'):
