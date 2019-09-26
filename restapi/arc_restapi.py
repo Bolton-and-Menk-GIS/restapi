@@ -7,9 +7,9 @@ import json
 import sys
 from .rest_utils import *
 
-from . import six
-from .six.moves import range
-from .six.moves import urllib
+import six
+from six.moves import range
+from six.moves import urllib
 
 # support for both ArcGIS Desktop and Pro layers
 ARCPY_LAYER_TYPE = arcpy.mapping.Layer if hasattr(arcpy, 'mapping') else arcpy._mp.Layer

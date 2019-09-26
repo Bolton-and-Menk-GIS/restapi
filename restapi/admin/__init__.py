@@ -7,11 +7,11 @@ import fnmatch
 import datetime
 import json
 from collections import namedtuple
-from .. import requests
 from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, generate_token, ID_MANAGER, do_post, SpatialReferenceMixin
 from ..decorator import decorator
-from ..munch import *
+import munch
 from .._strings import *
+import requests
 
 import six
 from six.moves import reload_module
@@ -114,7 +114,7 @@ class AdminRESTEndpoint(JsonGetter):
         self.raw_response = requests.post(self.url, params, verify=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
-        self.json = munchify(self.response)
+        self.json = munch.munchify(self.response)
 
     def request(self, *args, **kwargs):
         """Wrapper for request to automatically pass in credentials."""
@@ -223,7 +223,7 @@ class BaseResource(JsonGetter):
             in_json: Input JSON object.
         """
         
-        self.json = munchify(in_json)
+        self.json = munch.munchify(in_json)
         super(BaseResource, self).__init__()
 
 class EditableResource(JsonGetter):
@@ -249,7 +249,7 @@ class EditableResource(JsonGetter):
         """Properly sets attributes for class as well as json abstraction."""
         # make sure our value is a Bunch if dict
         if isinstance(value, (dict, list)) and name != 'response':
-            value = munchify(value)
+            value = munch.munchify(value)
         try:
             # set existing class property, check if it exists first
             object.__getattribute__(self, name)
@@ -1123,7 +1123,7 @@ class Service(BaseDirectory, EditableResource):
     @property
     def status(self):
         """Returns status JSON object for service."""
-        return munchify(self.request(self.url + '/status'))
+        return munch.munchify(self.request(self.url + '/status'))
 
     @passthrough
     def enableExtensions(self, extensions):
@@ -1323,7 +1323,7 @@ class Service(BaseDirectory, EditableResource):
 
     def statistics(self):
         """Returns service statistics object."""
-        return munchify(**self.request(self.url + '/statistics'))
+        return munch.munchify(**self.request(self.url + '/statistics'))
 
     #**********************************************************************************
     #
@@ -1419,7 +1419,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     @property
     def machines(self):
         """Returns machines."""
-        return munchify(self.request(self._machinesURL))
+        return munch.munchify(self.request(self._machinesURL))
 
     @property
     def clusters(self):
@@ -3054,7 +3054,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         url = self._adminURL + '/publicKey'
-        return munchify(self.request(url, {F: f}))
+        return munch.munchify(self.request(url, {F: f}))
 
     def __len__(self):
         """Gets number of services."""
@@ -3093,6 +3093,16 @@ class AGOLAdminInitializer(AdminRESTEndpoint):
         if '/admin/' not in url.lower():
             url = url.split('/rest/')[0] + '/rest/admin/' + url.split('/rest/')[-1]
         super(AGOLAdminInitializer, self).__init__(url, usr, pw, token)
+
+class PortalAdmin(ArcServerAdmin):
+
+    @property
+    def portalInfo(self):
+        """Gets portal info."""
+        return self.token.portalInfo
+
+    def __repr__(self):
+        return '<{}: "{}">'.format(self.__class__.__name__, self.url)
 
 class AGOLAdmin(AGOLAdminInitializer):
     """Class to handle AGOL Hosted Services Admin capabilities."""
@@ -3242,7 +3252,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
                 'name': lyr.name,
                 'result': status
             })
-        return munchify(result)
+        return munch.munchify(result)
 
     @passthrough
     def disableEditorTracking(self):
@@ -3268,7 +3278,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         else:
             result['disabled_at_feature_service'] = {'status': 'already disabled'}
 
-        return munchify(result)
+        return munch.munchify(result)
 
     @passthrough
     def refresh(self):
@@ -3298,7 +3308,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
     @staticmethod
     def createNewGlobalIdFieldDefinition():
         """Adds a new global id field json defition."""
-        return munchify({
+        return munch.munchify({
             NAME: 'GlobalID',
             TYPE: GLOBALID,
             ALIAS: 'GlobalID',
@@ -3321,7 +3331,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
                 (like editor tracking). The default is False.
         """
 
-        return munchify({
+        return munch.munchify({
             NAME: name,
             TYPE: DATE_FIELD,
             ALIAS: alias or name,
@@ -3343,7 +3353,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
             **kwargs: Optional additional field keys to set.
         """
 
-        fd = munchify({
+        fd = munch.munchify({
             NAME: name,
             TYPE: field_type,
             ALIAS: alias or name,

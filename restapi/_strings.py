@@ -388,7 +388,7 @@ FIELD_KEYS_CREATE = [NAME, ALIAS, TYPE, DOMAIN, LENGTH]
 
 GEOM_CODE = {v:k for k,v in six.iteritems(GEOM_DICT)}
 BASE_PATTERN = 'http*://*/rest/services*'
-PORTAL_BASE_PATTERN = 'http*://*/sharing'
+PORTAL_BASE_PATTERN = 'http*://*/sharing/rest*'
 PORTAL_SERVICES_PATTERN = 'http*://*/sharing/servers/*/rest/services/*'
 VERSION = '1.1'
 PACKAGE_NAME = 'restapi'

@@ -59,7 +59,8 @@ try:
     from .arc_restapi import *
     has_arcpy = True
 
-except:
+except Exception as e:
+    print('error: ', e)
     # using global is throwing a warning???
     setattr(sys.modules[__name__], '__opensource__', True)
     warnings.warn('No Arcpy found, some limitations in functionality may apply.')
@@ -911,10 +912,18 @@ class Portal(RESTEndpoint):
         url = get_portal_base(url) + '/rest/portals/self'
         print('URL FOR INIT: "{}"'.format(url))
         super(Portal, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
+        service_url = self.json.get('helperServices', {}).get('printTask', {}).get('url', '').split('/Utilities')[0]
+        print('service url: ', service_url)
+        self.ags = ArcServer(service_url, token=self.token)
 
     @property
     def portalUrl(self):
         return get_portal_base(self.url)
+
+    @property
+    def servers(self):
+        if isinstance(self.token, Token):
+            return self.token.get('servers', [])
 
     # @property
     # def services_url(self):
@@ -935,6 +944,9 @@ class Portal(RESTEndpoint):
                 self._elevated_token = token
 
             return FeatureService(item.url)
+
+    def __repr__(self):
+        return '<{}: "{}">'.format(self.__class__.__name__, self.portalHostname)
 
 
 class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):

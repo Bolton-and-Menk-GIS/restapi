@@ -2,7 +2,7 @@ from munch import munchify, Munch
 import six
 
 BASE_PATTERN = 'http*://*/rest/services*'
-PORTAL_BASE_PATTERN = 'http*://*/sharing'
+PORTAL_BASE_PATTERN = 'http*://*/sharing/rest*'
 PORTAL_SERVICES_PATTERN = 'http*://*/sharing/servers/*/rest/services/*'
 VERSION = '1.1'
 PACKAGE_NAME = 'restapi'
@@ -84,6 +84,7 @@ agol = _setter([
     { 
         'urls': {
             'base': 'www.arcgis.com',
+            'sharingRest': 'https://www.arcgis.com/sharing/rest',
             'tokenService': 'https://www.arcgis.com/sharing/rest/generateToken',
             'self': 'https://www.arcgis.com/sharing/portals/self',
             'orgMaps': '.maps.arcgis.com'
@@ -255,6 +256,7 @@ params =  _setter([
     'time',
     'objectIds',
     'outFields',
+    'geometry',
     'units',
     'adds',
     'updates',
