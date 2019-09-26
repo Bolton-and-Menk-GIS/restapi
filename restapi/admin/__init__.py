@@ -53,6 +53,7 @@ def passthrough(f, *args, **kwargs):
         print(json.dumps(o, indent=2))
     return o
 
+
 class AdminRESTEndpoint(JsonGetter):
     """Base REST Endpoint Object to handle credentials and get JSON response
 
@@ -82,36 +83,45 @@ class AdminRESTEndpoint(JsonGetter):
         self.token = token
 
         # check for portal stuff first!
-        if '/home' in url:
-            url = get_portal_base(url)
         parsed = parse_url(url)
+        # baseUrl = url
+        # if '/home' in url:
+        #     baseUrl = get_portal_base(url)
+        
 
-        def get_admin_url(token): 
-            if isinstance(token, Token) and token.isPortal:
-                if len(token.get('servers', [])):
-                    # get adminUrl from token servers
-                    return token.servers[0].adminUrl
-            return None
+        # def get_admin_url(token): 
+        #     if isinstance(token, Token) and token.isPortal:
+        #         if len(token.get('servers', [])):
+        #             # get adminUrl from token servers
+        #             return token.servers[0].adminUrl
+        #     return None
 
-        if '/sharing' in url and parsed.netloc != enums.agol.urls.base:
-            adminUrl = get_admin_url(token)
-            if adminUrl:
-                self.url = adminUrl + '/admin/services'
-
-            else:
-                portalBase = get_portal_base(url)
+        if ('/sharing' in url or '/home' in url) and parsed.netloc != enums.agol.urls.base:
+            portalBase = get_portal_base(url)
+            self.url = portalBase
+            if not isinstance(token, Token):
                 infoResp = do_post(portalBase + '/rest/info')
                 tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
-                if tokUrl:
-                    self.check_for_token(tokUrl, usr, pw, token)
+                self.check_for_token(tokUrl, usr, pw, token)
 
-                    # if we have a valid token, get actual admin server address from token
-                    adminUrl = get_admin_url(self.token)
-                    if adminUrl:
-                        self.url = adminUrl + '/admin/services'
+            # adminUrl = get_admin_url(token)
+            # if adminUrl:
+            #     self.url = adminUrl + '/admin/services'
+
+            # else:
+            #     portalBase = get_portal_base(url)
+            #     infoResp = do_post(portalBase + '/rest/info')
+            #     tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
+            #     if tokUrl:
+            #         self.check_for_token(tokUrl, usr, pw, token)
+
+            #         # if we have a valid token, get actual admin server address from token
+            #         adminUrl = get_admin_url(self.token)
+            #         if adminUrl:
+            #             self.url = adminUrl + '/admin/services'
                     
 
-        if not fnmatch.fnmatch(self.url, BASE_PATTERN):
+        elif not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _fixer = self.url.split('/arcgis')[0] + '/arcgis/admin'
             if fnmatch.fnmatch(_fixer, BASE_PATTERN):
                 self.url = _fixer.lower()
@@ -122,16 +132,7 @@ class AdminRESTEndpoint(JsonGetter):
         
         if not self.token:
             self.check_for_token(self.url, usr, pw, self.token)
-        # if not self.token:
-        #     if usr and pw:
-        #         self.token = generate_token(self.url, usr, pw)
-        #     else:
-        #         self.token = ID_MANAGER.findToken(self.url)
-        #         if self.token and self.token.isExpired:
-        #             raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-        #         elif self.token is None:
-        #             raise RuntimeError('No token found, please try again with credentials')
-
+        
         else:
             if isinstance(token, Token) and token.isExpired:
                 raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
@@ -148,7 +149,11 @@ class AdminRESTEndpoint(JsonGetter):
         if isinstance(self.token, Token):
             self.url = self.token.domain.split('://')[0] + '://' + self.url.split('://')[-1]
 
-        self.raw_response = requests.post(self.url, params, verify=False)
+        resource_url = self.url
+        if self.url.endswith('/sharing'):
+            resource_url = self.url + '/rest/portals/self'
+
+        self.raw_response = requests.post(resource_url, params, verify=False)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
@@ -3126,69 +3131,9 @@ class ArcServerAdmin(AdminRESTEndpoint):
         return self.service_cache[i]
 
     def __repr__(self):
-        return '<{}: {}>'.format(self.__class__.__name__, self.token.domain.split('//')[1].split(':')[0])
+        # return '<{}: {}>'.format(self.__class__.__name__, self.token.domain.split('//')[1].split(':')[0])
+        return '<{}: "{}">'.format(self.__class__.__name__, parse_url(self.url).netloc.split(':')[0])
 
-
-class PortalIntializer(AdminRESTEndpoint):
-    def __init__(self, url, usr='', pw='', token=''):
-        """Inits class with credentials.
-
-        Args:
-            url: Image service url.
-        Below args only required if security is enabled:
-            usr: Username credentials for ArcGIS Server.
-            pw: Password credentials for ArcGIS Server.
-            token: Token to handle security (alternative to usr and pw).
-        
-        Raises:
-            RuntimeError: 'Token expired at {}! Please sign in again.'
-            RuntimeError: 'No token found, please try again with credentials'
-            TypeError: 'Token expired at {}! Please sign in again.'
-        """
-        
-        self.url = 'http://' + url.rstrip('/') if not url.startswith('http') \
-                    and 'localhost' not in url.lower() else url.rstrip('/')
-        
-        self.token = token
-
-        # check for portal stuff first!
-        if '/home' in url:
-            url = get_portal_base(url)
-        parsed = parse_url(url)
-
-        def get_admin_url(token): 
-            if isinstance(token, Token) and token.isPortal:
-                if len(token.get('servers', [])):
-                    # get adminUrl from token servers
-                    return token.servers[0].adminUrl
-            return None
-
-        if '/sharing' in url and parsed.netloc != enums.agol.urls.base:
-            adminUrl = get_admin_url(token)
-            if adminUrl:
-                self.url = adminUrl + '/rest/services'
-
-            else:
-                portalBase = get_portal_base(url)
-                infoResp = do_post(portalBase + '/rest/info')
-                tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
-                if tokUrl:
-                    self.check_for_token(tokUrl, usr, pw, token)
-
-                    # if we have a valid token, get actual admin server address from token
-                    adminUrl = get_admin_url(self.token)
-                    if adminUrl:
-                        self.url = adminUrl + '/rest/services'
-
-        if not fnmatch.fnmatch(self.url, BASE_PATTERN):
-            _fixer = self.url.split('/arcgis')[0] + '/arcgis/admin'
-            if fnmatch.fnmatch(_fixer, BASE_PATTERN):
-                self.url = _fixer.lower()
-            else:
-                return RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
-        self.url = self.url.replace('/services//', '/services/') # cannot figure out where extra / is coming from in service urls
-        params = {'f': 'json'}
-        
 
 class AGOLAdminInitializer(AdminRESTEndpoint):
     """Class that handles initalizing AGOL Admin."""
@@ -3206,15 +3151,21 @@ class AGOLAdminInitializer(AdminRESTEndpoint):
             url = url.split('/rest/')[0] + '/rest/admin/' + url.split('/rest/')[-1]
         super(AGOLAdminInitializer, self).__init__(url, usr, pw, token)
 
-class PortalAdmin(ArcServerAdmin):
+class Portal(AdminRESTEndpoint):
 
     @property
     def portalInfo(self):
         """Gets portal info."""
         return self.token.portalInfo
 
+    @property
+    def servers(self):
+        servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
+        serversResp = requests.get(servers_url, {TOKEN: self.token.token, F: JSON}, verify=False).json()
+        return [ArcServerAdmin(s.get('adminUrl') + '/admin/services', token=self.token) for s in serversResp.get('servers', [])]
+
     def __repr__(self):
-        return '<{}: "{}">'.format(self.__class__.__name__, self.url)
+        return '<{}:Admin: "{}">'.format(self.__class__.__name__, self.name)
 
 class AGOLAdmin(AGOLAdminInitializer):
     """Class to handle AGOL Hosted Services Admin capabilities."""

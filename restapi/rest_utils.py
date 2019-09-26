@@ -548,7 +548,7 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         portal_resp = do_post(portal_url, {TOKEN: resp.get(TOKEN)})
         # print('PORTAL RESP (ENT): ', portal_resp)
         resp['_' + PORTAL_INFO] = portal_resp
-        resp[DOMAIN] = get_portal_base(portalBase)
+        resp[DOMAIN] = get_portal_base(portalBase, root=True)
         
         # get services domain
         serversUrl = portalBase + '/servers'
@@ -606,11 +606,14 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
 
     return token
 
-def get_portal_base(url):
+def get_portal_base(url, root=False):
     """Gets the portal base URL."""
     if '/home' in url:
         url = url.split('/home')[0]
-    return url if url.endswith('/sharing') else url.split('/sharing/')[0] + '/sharing' 
+    if root:
+        return url.split('/sharing')[0] 
+    else: 
+        return url if url.endswith('/sharing') else url.split('/sharing')[0] +  '/sharing'
 
 def generate_elevated_portal_token(server_url, user_token, **kwargs):
     """Generates an elevated portal token.
