@@ -473,7 +473,6 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
     infoResp = do_post(infoUrl)
     is_agol = False
     is_portal = enums.agol.urls.sharingRest != url and fnmatch.fnmatch(url, enums.PORTAL_BASE_PATTERN)
-    print('is_portal: {}'.format(is_portal))
     host = six.moves.urllib.parse.urlparse(url).netloc 
     if AUTH_INFO in infoResp and enums.auth.tokenServicesUrl in infoResp[AUTH_INFO]:
         base = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
@@ -484,7 +483,6 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         else:
             if not is_portal and base:
                 is_portal = fnmatch.fnmatch(base, enums.PORTAL_BASE_PATTERN)
-                print('updated is_portal: {}'.format(is_portal))
 
         global PROTOCOL
         PROTOCOL =  base.split('://')[0]
@@ -545,11 +543,8 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         resp[DOMAIN] = portalBase
         
         # get services domain
-        print('info resp:\n{}'.format(infoResp))
         serversUrl = portalBase + '/servers'
-        print('serversUrl: "{}"'.format(serversUrl))
         serversResp = do_post(serversUrl, { TOKEN: resp.get(TOKEN) }) 
-        print(serversResp)
         resp['servers'] = serversResp.get('servers')
     else:
         resp['_' + PORTAL_INFO] = {}
@@ -1276,6 +1271,8 @@ class PortalInfo(JsonGetter):
         self.json = response
         #super(PortalInfo, self).__init__(response)
         super(JsonGetter, self).__init__()
+
+   
 
     @property
     def username(self):
