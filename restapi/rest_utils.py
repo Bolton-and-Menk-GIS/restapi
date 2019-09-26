@@ -123,6 +123,14 @@ TEMP_DIR = tempfile.gettempdir()
 if not os.access(TEMP_DIR, os.W_OK| os.X_OK):
     TEMP_DIR = None
 
+def parse_url(url):
+    """alias for urllib parse
+    
+    Args:
+        url (str): url to parse
+    """
+    return six.moves.urllib.parse.urlparse(url)
+
 def namedTuple(name, pdict):
     """Creates a named tuple from a dictionary.
 
@@ -540,7 +548,7 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         portal_resp = do_post(portal_url, {TOKEN: resp.get(TOKEN)})
         # print('PORTAL RESP (ENT): ', portal_resp)
         resp['_' + PORTAL_INFO] = portal_resp
-        resp[DOMAIN] = portalBase
+        resp[DOMAIN] = get_portal_base(portalBase)
         
         # get services domain
         serversUrl = portalBase + '/servers'
@@ -589,10 +597,19 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
                 token_copy.adminUrl = serv.adminUrl
                 ID_MANAGER.tokens[server_url] = Token(token_copy)
 
+                # check for admin url
+                if serv.adminUrl:
+                    admin_tok = {}
+                    admin_tok.update(token_copy)
+                    admin_tok['isAdmin'] = True
+                    ID_MANAGER.tokens[serv.adminUrl] = Token(admin_tok)
+
     return token
 
 def get_portal_base(url):
     """Gets the portal base URL."""
+    if '/home' in url:
+        url = url.split('/home')[0]
     return url if url.endswith('/sharing') else url.split('/sharing/')[0] + '/sharing' 
 
 def generate_elevated_portal_token(server_url, user_token, **kwargs):

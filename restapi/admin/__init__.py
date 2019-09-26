@@ -7,11 +7,13 @@ import fnmatch
 import datetime
 import json
 from collections import namedtuple
-from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, generate_token, ID_MANAGER, do_post, SpatialReferenceMixin
+from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, \
+    generate_token, ID_MANAGER, do_post, SpatialReferenceMixin, parse_url, get_portal_base
 from ..decorator import decorator
 import munch
 from .._strings import *
 import requests
+from .. import enums
 
 import six
 from six.moves import reload_module
@@ -76,24 +78,59 @@ class AdminRESTEndpoint(JsonGetter):
         
         self.url = 'http://' + url.rstrip('/') if not url.startswith('http') \
                     and 'localhost' not in url.lower() else url.rstrip('/')
+        
+        self.token = token
+
+        # check for portal stuff first!
+        if '/home' in url:
+            url = get_portal_base(url)
+        parsed = parse_url(url)
+
+        def get_admin_url(token): 
+            if isinstance(token, Token) and token.isPortal:
+                if len(token.get('servers', [])):
+                    # get adminUrl from token servers
+                    return token.servers[0].adminUrl
+            return None
+
+        if '/sharing' in url and parsed.netloc != enums.agol.urls.base:
+            adminUrl = get_admin_url(token)
+            if adminUrl:
+                self.url = adminUrl + '/admin/services'
+
+            else:
+                portalBase = get_portal_base(url)
+                infoResp = do_post(portalBase + '/rest/info')
+                tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
+                if tokUrl:
+                    self.check_for_token(tokUrl, usr, pw, token)
+
+                    # if we have a valid token, get actual admin server address from token
+                    adminUrl = get_admin_url(self.token)
+                    if adminUrl:
+                        self.url = adminUrl + '/admin/services'
+                    
+
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _fixer = self.url.split('/arcgis')[0] + '/arcgis/admin'
             if fnmatch.fnmatch(_fixer, BASE_PATTERN):
                 self.url = _fixer.lower()
             else:
-                RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
+                return RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
         self.url = self.url.replace('/services//', '/services/') # cannot figure out where extra / is coming from in service urls
         params = {'f': 'json'}
-        self.token = token
+        
         if not self.token:
-            if usr and pw:
-                self.token = generate_token(self.url, usr, pw)
-            else:
-                self.token = ID_MANAGER.findToken(self.url)
-                if self.token and self.token.isExpired:
-                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
-                elif self.token is None:
-                    raise RuntimeError('No token found, please try again with credentials')
+            self.check_for_token(self.url, usr, pw, self.token)
+        # if not self.token:
+        #     if usr and pw:
+        #         self.token = generate_token(self.url, usr, pw)
+        #     else:
+        #         self.token = ID_MANAGER.findToken(self.url)
+        #         if self.token and self.token.isExpired:
+        #             raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+        #         elif self.token is None:
+        #             raise RuntimeError('No token found, please try again with credentials')
 
         else:
             if isinstance(token, Token) and token.isExpired:
@@ -115,6 +152,19 @@ class AdminRESTEndpoint(JsonGetter):
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
+
+    def check_for_token(self, url, usr=None, pw=None, token=None):
+        if not self.token:
+            if usr and pw:
+                self.token = generate_token(url, usr, pw)
+            else:
+                self.token = ID_MANAGER.findToken(self.url)
+                if self.token and self.token.isExpired:
+                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+                elif self.token is None:
+                    raise RuntimeError('No token found, please try again with credentials')
+
+        return self.token
 
     def request(self, *args, **kwargs):
         """Wrapper for request to automatically pass in credentials."""
@@ -2482,7 +2532,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             service_name_or_wildcard: Name of service or wildcard.
         """
 
-        val_url = urllib.parse.urlparse(service_name_or_wildcard)
+        val_url = six.moves.urllib.parse.urlparse(service_name_or_wildcard)
         if all([val_url.scheme, val_url.netloc, val_url.path]):
             service_url = service_name_or_wildcard
         else:
@@ -3077,6 +3127,68 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
     def __repr__(self):
         return '<{}: {}>'.format(self.__class__.__name__, self.token.domain.split('//')[1].split(':')[0])
+
+
+class PortalIntializer(AdminRESTEndpoint):
+    def __init__(self, url, usr='', pw='', token=''):
+        """Inits class with credentials.
+
+        Args:
+            url: Image service url.
+        Below args only required if security is enabled:
+            usr: Username credentials for ArcGIS Server.
+            pw: Password credentials for ArcGIS Server.
+            token: Token to handle security (alternative to usr and pw).
+        
+        Raises:
+            RuntimeError: 'Token expired at {}! Please sign in again.'
+            RuntimeError: 'No token found, please try again with credentials'
+            TypeError: 'Token expired at {}! Please sign in again.'
+        """
+        
+        self.url = 'http://' + url.rstrip('/') if not url.startswith('http') \
+                    and 'localhost' not in url.lower() else url.rstrip('/')
+        
+        self.token = token
+
+        # check for portal stuff first!
+        if '/home' in url:
+            url = get_portal_base(url)
+        parsed = parse_url(url)
+
+        def get_admin_url(token): 
+            if isinstance(token, Token) and token.isPortal:
+                if len(token.get('servers', [])):
+                    # get adminUrl from token servers
+                    return token.servers[0].adminUrl
+            return None
+
+        if '/sharing' in url and parsed.netloc != enums.agol.urls.base:
+            adminUrl = get_admin_url(token)
+            if adminUrl:
+                self.url = adminUrl + '/rest/services'
+
+            else:
+                portalBase = get_portal_base(url)
+                infoResp = do_post(portalBase + '/rest/info')
+                tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
+                if tokUrl:
+                    self.check_for_token(tokUrl, usr, pw, token)
+
+                    # if we have a valid token, get actual admin server address from token
+                    adminUrl = get_admin_url(self.token)
+                    if adminUrl:
+                        self.url = adminUrl + '/rest/services'
+
+        if not fnmatch.fnmatch(self.url, BASE_PATTERN):
+            _fixer = self.url.split('/arcgis')[0] + '/arcgis/admin'
+            if fnmatch.fnmatch(_fixer, BASE_PATTERN):
+                self.url = _fixer.lower()
+            else:
+                return RequestError({'error':{'URL Error': '"{}" is an invalid ArcGIS REST Endpoint!'.format(self.url)}})
+        self.url = self.url.replace('/services//', '/services/') # cannot figure out where extra / is coming from in service urls
+        params = {'f': 'json'}
+        
 
 class AGOLAdminInitializer(AdminRESTEndpoint):
     """Class that handles initalizing AGOL Admin."""
