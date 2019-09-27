@@ -910,11 +910,8 @@ class Portal(RESTEndpoint):
         """
 
         url = get_portal_base(url) + '/rest/portals/self'
-        print('URL FOR INIT: "{}"'.format(url))
         super(Portal, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
         service_url = self.json.get('helperServices', {}).get('printTask', {}).get('url', '').split('/Utilities')[0]
-        print('service url: ', service_url)
-        self.ags = ArcServer(service_url, token=self.token)
 
     @property
     def portalUrl(self):
@@ -922,8 +919,10 @@ class Portal(RESTEndpoint):
 
     @property
     def servers(self):
-        if isinstance(self.token, Token):
-            return self.token.get('servers', [])
+        servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
+        serversResp = requests.get(servers_url, {TOKEN: self.token.token, F: JSON}, verify=False).json()
+        return [ArcServer(s.get('url') + '/rest/services', token=self.token) for s in serversResp.get('servers', [])]
+
 
     # @property
     # def services_url(self):

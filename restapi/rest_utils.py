@@ -729,6 +729,7 @@ class JsonGetter(object):
 
     def __repr__(self):
         return json.dumps(self.json, sort_keys=True, indent=2, cls=NameEncoder, ensure_ascii=False)
+        
 
 class RESTEndpoint(JsonGetter):
     """Base REST Endpoint Object to handle credentials and get JSON response."""

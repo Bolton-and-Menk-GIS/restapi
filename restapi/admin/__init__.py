@@ -84,18 +84,6 @@ class AdminRESTEndpoint(JsonGetter):
 
         # check for portal stuff first!
         parsed = parse_url(url)
-        # baseUrl = url
-        # if '/home' in url:
-        #     baseUrl = get_portal_base(url)
-        
-
-        # def get_admin_url(token): 
-        #     if isinstance(token, Token) and token.isPortal:
-        #         if len(token.get('servers', [])):
-        #             # get adminUrl from token servers
-        #             return token.servers[0].adminUrl
-        #     return None
-
         if ('/sharing' in url or '/home' in url) and parsed.netloc != enums.agol.urls.base:
             portalBase = get_portal_base(url)
             self.url = portalBase
@@ -103,23 +91,6 @@ class AdminRESTEndpoint(JsonGetter):
                 infoResp = do_post(portalBase + '/rest/info')
                 tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
                 self.check_for_token(tokUrl, usr, pw, token)
-
-            # adminUrl = get_admin_url(token)
-            # if adminUrl:
-            #     self.url = adminUrl + '/admin/services'
-
-            # else:
-            #     portalBase = get_portal_base(url)
-            #     infoResp = do_post(portalBase + '/rest/info')
-            #     tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
-            #     if tokUrl:
-            #         self.check_for_token(tokUrl, usr, pw, token)
-
-            #         # if we have a valid token, get actual admin server address from token
-            #         adminUrl = get_admin_url(self.token)
-            #         if adminUrl:
-            #             self.url = adminUrl + '/admin/services'
-                    
 
         elif not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _fixer = self.url.split('/arcgis')[0] + '/arcgis/admin'
@@ -3152,11 +3123,6 @@ class AGOLAdminInitializer(AdminRESTEndpoint):
         super(AGOLAdminInitializer, self).__init__(url, usr, pw, token)
 
 class Portal(AdminRESTEndpoint):
-
-    @property
-    def portalInfo(self):
-        """Gets portal info."""
-        return self.token.portalInfo
 
     @property
     def servers(self):

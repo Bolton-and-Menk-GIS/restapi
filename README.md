@@ -1,11 +1,21 @@
 # restapi
 Python API for working with ArcGIS REST API.  This package has been designed to work with arcpy or open source and does not require arcpy.  It will try to use arcpy if available for some data conversions, otherwise will use open source options. Also included is a subpackage for administering ArcGIS Server Sites.  This is updated often, so continue checking here for new functionality!
 
-help docs
----------
-````py
-restapi.getHelp()
-````
+### Connecting to a Portal
+```py
+url = 'https://domain.gis.com/portal/home'
+portal = restapi.admin.Portal(url, 'username', 'password')
+
+# get servers
+servers = portal.servers
+
+# stop sample cities service
+server = servers[0]
+
+service = server.service('SampleWorldCities.MapServer')
+service.stop()
+
+```
 
 One of the first things you might do is to connect to a services directory (or catalog):
 
