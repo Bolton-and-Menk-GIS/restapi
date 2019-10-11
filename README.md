@@ -1,39 +1,15 @@
 # restapi
-Python API for working with ArcGIS REST API.  This package has been designed to work with arcpy or open source and does not require arcpy.  It will try to use arcpy if available for some data conversions, otherwise will use open source options. Also included is a subpackage for administering ArcGIS Server Sites.  This is updated often, so continue checking here for new functionality!
+This is a Python API for working with ArcGIS REST API, ArcGIS Online, and Portal/ArcGIS Enterprise.  This package has been designed to work with arcpy or open source and does not require arcpy.  It will try to use arcpy if available for some data conversions, otherwise will use open source options. Also included is a subpackage for administering ArcGIS Server Sites.  This is updated often, so continue checking here for new functionality!
 
-### Connecting to a Portal
-```py
-url = 'https://domain.gis.com/portal/home'
-portal = restapi.admin.Portal(url, 'username', 'password')
-
-# get servers
-servers = portal.servers
-
-# stop sample cities service
-server = servers[0]
-
-service = server.service('SampleWorldCities.MapServer')
-service.stop()
-
-```
 
 One of the first things you might do is to connect to a services directory (or catalog):
 
-````py
->>> # check your own server
->>> services_directory = 'localhost:6080/arcgis/rest/services'
->>> ags = restapi.ArcServer(services_directory)
->>> # see list of services
->>> ags.services
-[u'http://localhost:6080/arcgis/rest/services/SampleWorldCities/MapServer', u'http://localhost:6080/arcgis/rest/services/BELL/Bell_Webmap_REST/MapServer']
->>> 
-````
 
 Connect to external services
 
 ````py
 # connect NOAA ArcGIS Server Instance
-rest_url = 'http://gis.srh.noaa.gov/arcgis/rest/services'
+rest_url = 'https://gis.ngdc.noaa.gov/arcgis/rest/services'
 
 # no authentication is required, so no username and password are supplied
 ags = restapi.ArcServer(rest_url)
@@ -361,6 +337,23 @@ restapi also contains an administrative subpackage (warning: most functionality 
 
 ```py
 from restapi import admin
+```
+
+
+### Connecting to a Portal
+```py
+url = 'https://domain.gis.com/portal/home'
+portal = restapi.admin.Portal(url, 'username', 'password')
+
+# get servers
+servers = portal.servers
+
+# stop sample cities service
+server = servers[0]
+
+service = server.service('SampleWorldCities.MapServer')
+service.stop()
+
 ```
 
 To connect to an ArcGIS Server instance that you would like to administer you can do the following:

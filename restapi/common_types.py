@@ -1366,7 +1366,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         if self.hasAttachments:
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
-            r = self.request(query_url)
+            r = self.request(query_url, { F: JSON })
 
             add_tok = ''
             if self.token:

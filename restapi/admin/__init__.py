@@ -3192,7 +3192,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             ADD_TO_DEFINITION: addToDefinition,
-            ASYNC: runAsync
+            # ASYNC: runAsync
         }
 
         result = self.request(url, params)
@@ -3216,7 +3216,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             DELETE_FROM_DEFINITION: deleteFromDefinition,
-            ASYNC: runAsync
+            # ASYNC: runAsync
         }
 
         result = self.request(url, params)
@@ -3240,7 +3240,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             UPDATE_DEFINITION: updateDefinition,
-            ASYNC: runAsync
+            # ASYNC: runAsync
         }
 
         result = self.request(url, params)
@@ -3314,7 +3314,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         """Refreshes server cache for this layer."""
         return self.request(self.url + '/refresh')
 
-    def reload_module(self):
+    def reload(self):
         """Reloads the service to catch any changes."""
         self.__init__(self.url, token=self.token)
 
@@ -3372,7 +3372,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
         })
 
     @staticmethod
-    def createNewFieldDefinition(name, field_type, alias='', **kwargs):
+    def createNewFieldDefinition(name, field_type=TEXT_FIELD, alias='', **kwargs):
         """Creates a json definition for a new field.
 
         Args:
@@ -3386,13 +3386,13 @@ class AGOLFeatureLayer(AGOLFeatureService):
             NAME: name,
             TYPE: field_type,
             ALIAS: alias or name,
-            SQL_TYPE: SQL_TYPE_OTHER,
-            NULLABLE: TRUE,
-            EDITABLE: TRUE,
-            DOMAIN: NULL,
-            DEFAULT_VALUE:  NULL,
-            LENGTH: NULL,
-            VISIBLE: TRUE
+            # SQL_TYPE: SQL_TYPE_OTHER,
+            NULLABLE: True,
+            EDITABLE: True,
+            # DOMAIN: NULL,
+            # DEFAULT_VALUE:  NULL,
+            # LENGTH: NULL,
+            # VISIBLE: True
         })
         for k,v in six.iteritems(kwargs):
             if k in fd:
@@ -3401,7 +3401,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
             fd[LENGTH] = 50 # default
         return fd
 
-    def addField(self, name, field_type, alias='', **kwargs):
+    def addField(self, name, field_type=TEXT_FIELD, alias='', **kwargs):
         """Adds a new field to layer.
 
         Args:
@@ -3411,7 +3411,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
             **kwargs: Optional additional field keys to set.
         """
 
-        self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias, **kwargs)]})
+        self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias or name, **kwargs)]})
 
     @passthrough
     def truncate(self, attachmentOnly=TRUE, runAsync=FALSE):

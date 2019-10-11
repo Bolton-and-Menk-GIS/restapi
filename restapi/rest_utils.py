@@ -227,8 +227,8 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
     # auto fill in geometry params if a restapi.Geometry object is passed in (derived from BaseGeometry)
     if params.get(enums.params.geometry) and isinstance(params.get(enums.featureSet.geometry), BaseGeometry):
         geometry = params.get(enums.params.geometry)
-        if not enums.params.geometryType in params and hasattr(geometry, enums.params.geometryType):
-            params[enums.params.geometryType] = getattr(geometry, enums.params.geometryType)
+        if not enums.geometry.type in params and hasattr(geometry, enums.geometry.type):
+            params[enums.geometry.type] = getattr(geometry, enums.geometry.type)
         if not enums.params.inSR in params:
             params[enums.params.inSR] = geometry.getWKID() or geometry.getWKT()
 
@@ -1215,7 +1215,7 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
         """
         
         self.json = munch.munchify(in_json)
-        self.geometryType = self.json.get(enums.params.geometryType)
+        self.geometryType = self.json.get(enums.geometry.type)
         self.spatialReference = self.json.get(SPATIAL_REFERENCE)
 
     def list_related_OIDs(self):

@@ -24,6 +24,7 @@ def _setter(lst=[]):
 
 geometry = _setter([
     {
+        'type': 'geometryType',
         'precision': 'geometryPrecision',
         'polygon': 'esriGeometryPolygon',
         'point': 'esriGeometryPoint',

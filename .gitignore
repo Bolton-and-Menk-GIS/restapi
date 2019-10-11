@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 
+.vscode/
+
 private_tests/
 kandi.py
 tester.py

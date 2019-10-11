@@ -5,7 +5,7 @@ pushd %~dp0
 REM Command file for Sphinx documentation
 
 if "%SPHINXBUILD%" == "" (
-	set SPHINXBUILD=sphinx-build
+	set SPHINXBUILD=set SPHINXBUILD="C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\Scripts\sphinx-build.exe"
 )
 set SOURCEDIR=.
 set BUILDDIR=_build
@@ -33,3 +33,5 @@ goto end
 
 :end
 popd
+
+set /p DUMMY=Hit ENTER to continue...
