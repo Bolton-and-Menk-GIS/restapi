@@ -3682,6 +3682,5 @@ class GPTask(BaseService):
             else:
                 res[VALUE] = res[RESULTS][0].get(VALUE)
 
-            print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
-
+        print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
         return GPResult(res)
