@@ -3124,8 +3124,7 @@ class AGOLAdminInitializer(AdminRESTEndpoint):
 
 class Portal(AdminRESTEndpoint):
 
-    @property
-    def servers(self):
+    def getServers(self):
         servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
         serversResp = requests.get(servers_url, {TOKEN: self.token.token, F: JSON}, verify=False).json()
         return [ArcServerAdmin(s.get('adminUrl') + '/admin/services', token=self.token) for s in serversResp.get('servers', [])]

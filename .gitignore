@@ -5,6 +5,7 @@ __pycache__/
 .vscode/
 
 private_tests/
+rest_tests/
 kandi.py
 tester.py
 fs_tester.py

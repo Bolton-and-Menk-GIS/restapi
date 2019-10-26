@@ -6,6 +6,7 @@ import fnmatch
 import datetime
 import collections
 import mimetypes
+import warnings
 import tempfile
 import time
 import codecs
@@ -1292,7 +1293,6 @@ class PortalInfo(JsonGetter):
         self.json = response
         #super(PortalInfo, self).__init__(response)
         super(JsonGetter, self).__init__()
-
    
 
     @property
@@ -1391,35 +1391,99 @@ class Folder(RESTEndpoint):
         for s in self.list_services():
             yield s
 
-class GPResult(object):
-    """Class to handle GP Result."""
+class GPJob(JsonGetter):
+    """Represents a Geoproccesing Job"""
+    def __init__(self, json):
+        self.json = json
+
+    @property 
+    def status(self):
+        # shorthand for jobStatus
+        return self.json.get(JOB_STATUS)
+
+    def __repr__(self):
+        return '<GeoprocessingJob "{}" - status: {}>'.format(self.get(JOB_ID), self.status)
+
+class GPResult(JsonGetter):
+    """Class to handle GP Result"""
+    def __init__(self, result):
+        """represents a GPResult object
+        
+        Args:
+            result (dict): result from a GPTask
+        """
+        # Cast to FeatureSet if recorset 
+        if result.get(DATA_TYPE) == GP_RECORDSET_LAYER:
+            result[VALUE] = FeatureSet(result.get(VALUE))
+        self.json = result
+
+    def __repr__(self):
+        return '<GPResult "{}">'.format(self.get(PARAM_NAME, 'Unknown'))  
+
+class GPTaskError(JsonGetter):
+    def __init__(self, error):
+        self.json = error
+        if ERROR in error:
+            warnings.warn('GP Task Failed:\n{}'.format('\n\t'.join(self.json.error.get(DETAILS, []))))
+
+    def __repr__(self):
+        return '<{}: {}>'.format(self.__class__.__name__, self.json.get(ERROR, {}).get(MESSAGE))
+
+class GPTaskResponse(JsonGetter):
+    """Class to handle GP Task Response."""
     def __init__(self, response):
-        """Handler for GP result.
+        """Handler for GP Task Response.
 
         response: JSON response from GP Task execution.
         """
-        self.response = response
-        RequestError(self.response)
+        self._values = {}
+        self.json = response
 
-    @property
-    def results(self):
-        if RESULTS in self.response:
-           return [namedTuple('Result', r) for r in self.response[RESULTS]]
-        return []
+        # get values cache
+        if isinstance(self.results, dict):
+            for key in self.results.keys():
+                self.getValue(key)
 
-    @property
-    def value(self):
-        """Returns a value (if any) from results."""
-        if VALUE in self.response:
-            return self.response[VALUE]
-        return None
+        elif isinstance(self.results, list):
+            for res in self.results:
+                self.getValue(res.get(PARAM_NAME))
 
-    @property
-    def messages(self):
-        """Returns messages as JSON."""
-        if 'messages' in self.response:
-            return [namedTuple('Message', d) for d in self.response['messages']]
-        return []
+    def getValue(self, paramName=None):
+        """Gets a result value by param name
+        
+        Args:
+            paramName (str, optional): The Parameter Name, if none supplied the first parameter found will be returned. Defaults to None.
+        
+        Returns:
+            [any]: the return value
+        """
+        result = None
+        if self.results:
+            if isinstance(self.results, dict):
+                if paramName not in self.results:
+                    # get first value
+                    paramName = list(self.results.keys())[0]
+
+                if paramName in self._values:
+                    return self._values[paramName]
+
+                if self.async:
+                    url = '/'.join([self.jobUrl, self.results.get(paramName).get(PARAM_URL)])
+                    result = GPResult(do_post(url, { F: JSON })).value
+            
+            elif isinstance(self.results, list):
+                if not paramName:
+                    paramName = self.results[0].paramName
+
+                if paramName in self._values:
+                    return self._values[paramName]
+
+                result = GPResult([r for r in self.results if paramName == r.paramName][0]).value
+
+        if result:
+            self._values[paramName] = result
+    
+        return result
 
     def print_messages(self):
         """Prints all the GP messages."""
@@ -1433,11 +1497,17 @@ class GPResult(object):
 
     def __getitem__(self, i):
         """Returns result at index, usually will only be 1."""
-        return self.results[i]
+        return list(self.results.values())[i]
 
     def __bool__(self):
         """Returns True if results."""
         return bool(len(self))
+
+    def __repr__(self):
+        jobId = self.json.get(JOB_ID)
+        if jobId:
+            return '<{} [{}] ("{}")>'.format(self.__class__.__name__, self.json.get(JOB_STATUS), jobId)
+        return '<{}>'.format(self.__class__.__name__)
 
 class GeocodeResult(JsonGetter, SpatialReferenceMixin):
     """Class to handle Reverse Geocode Result."""

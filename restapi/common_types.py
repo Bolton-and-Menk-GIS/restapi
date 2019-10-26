@@ -1056,7 +1056,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # check for tokens (only shape and oid)
         fields = self._fix_fields(fields)
-        print('FIX FIELDS OUTPUT: ', fields)
+        # print('FIX FIELDS OUTPUT: ', fields)
         params[OUT_FIELDS] = fields
 
         # geometry validation
@@ -3622,7 +3622,11 @@ class GPTask(BaseService):
         """Lists the parameter names."""
         return [p.name for p in self.parameters]
 
-    def run(self, params_json={}, outSR='', processSR='', returnZ=False, returnM=False, **kwargs):
+    def check_job_status(self, jobId):
+        jobs_url = '{}/jobs/{}'.format(self.url, jobId)
+        return GPJob(self.request(jobs_url, { F: JSON }))
+
+    def run(self, params_json={}, outSR='', processSR='', returnZ=False, returnM=False, wait=True, timeout=1000, **kwargs):
         """Runs a Syncrhonous/Asynchronous GP task, automatically uses appropriate 
                 option.
 
@@ -3636,6 +3640,8 @@ class GPTask(BaseService):
                 Defaults to False.
             returnM: Optional boolean to return M values with data if applicable. 
                 Defaults to False.
+            wait (bool): option to wait for completion.  Only applicable when running
+                asynchronous jobs
             kwargs: Keyword arguments, can substitute this to pass in GP params 
                 by name instead of using the params_json dictionary. Only valid 
                 if params_json dictionary is not supplied.
@@ -3655,24 +3661,51 @@ class GPTask(BaseService):
         params_json[RETURN_Z] = returnZ
         params_json[RETURN_M] = returnZ
         params_json[F] = JSON
+        start = datetime.datetime.now()
+
         r = self.request(gp_exe_url, params_json, ret_json=False)
-        gp_elapsed = r.elapsed
 
         # get result object as JSON
         res = r.json()
 
-        # determine if there's an output parameter: if feature set, push result value into defaultValue
-        if self.outputParameter and self.outputParameter.dataType == 'GPFeatureRecordSetLayer':
-            try:
-                default = self.outputParameter.defaultValue
-                feature_set = default
-                feature_set[FEATURES] = res[RESULTS][0][VALUE][FEATURES]
-                feature_set[FIELDS] = default['Fields'] if 'Fields' in default else default[FIELDS]
-                res[VALUE] = feature_set
-            except:
-                pass
-        else:
-            res[VALUE] = res[RESULTS][0].get(VALUE)
+        if self.isAsynchronous:
+            if not wait:
+                # return job id now
+                return GPJob(res)
 
+            # get status of job
+            time.sleep(1)
+            res = self.check_job_status(res.get(JOB_ID))
+
+            # otherwise, wait until succeeds or fails
+            tries = 0
+            status = res.get(JOB_STATUS)
+            while status in (JOB_EXECUTING, JOB_SUBMITTED):
+                time.sleep(1)
+                job = self.check_job_status(res.get(JOB_ID))
+                status = job.get(JOB_STATUS)
+                tries += 1
+                if tries == timeout:
+                    break
+
+            if tries == timeout:
+                # raise timeout error
+                warnings.warn('GP Job Timed out after {} tries'.format(tries))
+                return job
+
+            if status == JOB_FAILED:
+                # raise error for job failing
+                raise RuntimeError('GP Job failed:\n{}'.format(json.dumps(job, indent=2)))
+
+            elif status == JOB_SUCCEEDED:
+                res = job.json
+                res[JOB_URL] = '{}/{}/{}'.format(self.url, JOBS, res.get(JOB_ID))
+        
+        if ERROR in res:
+            return GPTaskError(munchify(res))
+                
+        res[ASYNC] = self.isAsynchronous
+        gp_elapsed = str(datetime.datetime.now() - start)
+        res['elapsed'] = gp_elapsed
         print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
-        return GPResult(res)
+        return GPTaskResponse(munchify(res))
