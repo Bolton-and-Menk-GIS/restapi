@@ -1470,7 +1470,7 @@ class GPTaskResponse(JsonGetter):
                 if paramName in self._values:
                     return self._values[paramName]
 
-                if self.async:
+                if self.isAsync:
                     url = '/'.join([self.jobUrl, self.results.get(paramName).get(PARAM_URL)])
                     result = GPResult(do_post(url, { F: JSON })).value
             

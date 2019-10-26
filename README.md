@@ -272,7 +272,7 @@ A note about input Geometries
 restapi will try to use arcpy first if you have it, otherwise will defer to open source.  Both
 support the reading of shapefiles to return the first feature back as a restapi.Geometry object
 
-It also supports arcpy Geometries and shapefile._Shape() objects
+It also supports arcpy Geometries and shapefile.Shape() objects
 ````py
 >>> shp = r'C:\TEMP\Polygons.shp' # a shapefile on disk somewhere
 >>> geom = restapi.Geometry(shp)

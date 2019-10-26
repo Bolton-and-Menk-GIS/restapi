@@ -96,6 +96,13 @@ except Exception as e:
 
     arcpy = ArcpyPlaceholder()
 
+    # datetime to date string
+    def datetime_to_datestring(d):
+        if isinstance(d, datetime.datetime):
+            return d.strftime('%Y%m%d')
+        return mil_to_date(d).strftime('%Y%m%d')
+
+
 USE_GEOMETRY_PASSTHROUGH = True #can be set to false to not use @geometry_passthrough
 
 @decorator
@@ -275,9 +282,7 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         Returns:
             Feature class.
         """
-        
-        import shp_helper
-        from .shapefile import shapefile
+        from . import shp_helper
         out_fc = validate_name(out_fc)
         # validate features input (should be list or dict, preferably list)
         if not isinstance(feature_set, FeatureSet):
@@ -286,6 +291,7 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         # make new shapefile
         fields = feature_set.fields
         this_sr = feature_set.getSR()
+        date_fields = [f.name for f in fields if f.type == DATE_FIELD]
         if not outSR:
             outSR = this_sr
         else:
@@ -297,10 +303,10 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         g_type = getattr(feature_set, GEOMETRY_TYPE)
 
         # add all fields
-        w = shp_helper.ShpWriter(G_DICT[g_type].upper(), out_fc)
+        w = shp_helper.ShpWriter(out_fc, G_DICT[g_type].upper())
         field_map = []
         for fld in fields:
-            if fld.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+            if fld.type not in [OID, SHAPE] + list(SKIP_FIELDS.keys()):
                 if not any(['shape_' in fld.name.lower(),
                             'shape.' in fld.name.lower(),
                             '(shape)' in fld.name.lower(),
@@ -316,8 +322,8 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         # search cursor to write rows
         s_fields = [fl for fl in fields if fl.name in [f[0] for f in field_map]]
         for feat in feature_set:
-            row = [feat.get(field) for field in [f[0] for f in field_map]]
-            w.add_row(Geometry(feat.geometry).asShape(), row)
+            row = [datetime_to_datestring(feat.get(field)) if field in date_fields else feat.get(field) for field in [f[0] for f in field_map]]
+            w.add_row(Geometry(feat.geometry).asShape(), *row)
 
         w.save()
         print('Created: "{0}"'.format(out_fc))
@@ -3704,7 +3710,7 @@ class GPTask(BaseService):
         if ERROR in res:
             return GPTaskError(res)
                 
-        res[ASYNC] = self.isAsynchronous
+        res['isAsync'] = self.isAsynchronous
         gp_elapsed = str(datetime.datetime.now() - start)
         res['elapsed'] = gp_elapsed
         print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))

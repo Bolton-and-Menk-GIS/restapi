@@ -9,7 +9,7 @@ import json
 import sys
 from collections import OrderedDict
 from .rest_utils import *
-import shapefile
+shapefile =  shp_helper.shapefile
 
 from . import projections
 
@@ -143,11 +143,11 @@ def partHandler(shape):
             as a list.
 
     Arg:
-        shape: shapefile._Shape() object.
+        shape: shapefile.Shape() object.
     """
 
     parts = []
-    if isinstance(shape, shapefile._Shape):
+    if isinstance(shape, shapefile.Shape):
         if hasattr(shape, 'parts'):
             # add parts
             part_indices = shape.parts
@@ -180,7 +180,7 @@ def partHandler(shape):
         else:
             parts = [shape]
     else:
-        raise IOError('Not a valid shapefile._Shape() input!')
+        raise IOError('Not a valid shapefile.Shape() input!')
     return parts
 
 def find_ws_type(path):
@@ -235,7 +235,7 @@ class Geometry(BaseGeometry):
                 self.geometryType = v
 
         self.json = OrderedDict2()
-        if isinstance(geometry, shapefile._Shape):
+        if isinstance(geometry, shapefile.Shape):
             if geometry.shapeType in (1, 11, 21):
                 self.geometryType = ESRI_POINT
             elif geometry.shapeType in (3, 13, 23):
@@ -374,8 +374,8 @@ class Geometry(BaseGeometry):
         return d
 
     def asShape(self):
-        """Returns geometry as shapefile._Shape() object."""
-        shp = shapefile._Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
+        """Returns geometry as shapefile.Shape() object."""
+        shp = shapefile.Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
         if self.geometryType != ESRI_POINT:
             shp.points = self.json[JSON_CODE[self.geometryType]]
         else:

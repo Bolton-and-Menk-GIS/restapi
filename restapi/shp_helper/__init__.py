@@ -7,7 +7,7 @@
 # Created:     01/19/2015
 #-------------------------------------------------------------------------------
 from __future__ import print_function
-import shapefile
+from .. import shapefile
 import datetime
 import json
 import unicodedata
@@ -44,15 +44,18 @@ class ShpWriter(object):
         path: Path of shapefile.
     """
 
-    def __init__(self, shapeType='NULL', path=''):
+    def __init__(self, path, shapeType='NULL', autoBalance=True):
         """Inits class with the shapefile.
         
         Args:
             shapeType: Type of shape. Defaults to 'NULL'.
             path: String for the path of the shapefile.
+            autoBalance (bool): option to make sure the record and shape count is matched, default is True.
         """
-        
-        self.w = shapefile.Writer(shp_dict[shapeType.upper()] if isinstance(shapeType, six.string_types) else shapeType)
+        self.w = shapefile.Writer(path, 
+            shapeType=shp_dict[shapeType.upper()] if isinstance(shapeType, six.string_types) else shapeType, 
+            autoBalance=autoBalance
+        )
         self.shapeType = self.w.shapeType
         self.path = path
 
@@ -84,18 +87,19 @@ class ShpWriter(object):
 
         if not size:
             size = "50"
-        field_name = field_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore')
+        # field_name = field_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore')
+        field_name = name.encode('utf-8')
         self.w.field(field_name, fieldType, str(size), decimal) #field name cannot be unicode, must be str()
 
-    def add_row(self, shape, attributes):
+    def add_row(self, shape, *attributes, **kwattributes):
         """Method to add a row.
 
         Args:
             shape: Shape geometry.
             attributes: Tuple of attributes in order of fields.
         """
-        if isinstance(shape, shapefile.shapefile._Shape):
-            self.w._shapes.append(shape)
+        if isinstance(shape, shapefile.Shape):
+            self.w.shape(shape)
         else:
             if self.shapeType in (1, 8, 11, 21, 25, 31):
                 self.w.point(*shape)
@@ -103,7 +107,8 @@ class ShpWriter(object):
                 self.w.line(shape)
             else:
                 self.w.poly(shape)
-        self.w.record(*attributes)
+        
+        self.w.record(*attributes, **kwattributes)
 
     def save(self, path=''):
         """Saves the file in the given path.
@@ -111,12 +116,7 @@ class ShpWriter(object):
         Arg:
             path: The path to be saved.
         """
-
-        if not path:
-            if self.path:
-                self.w.save(self.path)
-        else:
-            self.w.save(path)
+        self.w.close()
 
 class ShpEditor(object):
     """Class that handles the editing of shapefiles.
@@ -223,7 +223,7 @@ class ShpEditor(object):
             attributes: Tuple of attributes in order of fields.
         """
 
-        if isinstance(shape, shapefile.shapefile._Shape):
+        if isinstance(shape, shapefile.Shape):
             self.shapes.append(shape)
             self.__shapeHolder._shapes.append(shape)
         else:
@@ -246,7 +246,7 @@ class ShpEditor(object):
             attributes: Tuple of attributes in order of fields.
         """
 
-        if isinstance(shape, shapefile.shapefile._Shape):
+        if isinstance(shape, shapefile.Shape):
             self.w._shapes.append(shape)
         else:
             if self.w.shapeType in (1, 8, 11, 21, 25, 31):
@@ -268,7 +268,7 @@ class ShpEditor(object):
         """
         # check if there is a shape edit, if not skip and do attribute update
         if shape:
-            if not isinstance(shape, shapefile.shapefile._Shape):
+            if not isinstance(shape, shapefile.Shape):
                 self.shapes[rowIndex].points = shape
             else:
                 self.shapes[rowIndex] = shape
