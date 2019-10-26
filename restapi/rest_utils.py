@@ -1393,8 +1393,8 @@ class Folder(RESTEndpoint):
 
 class GPJob(JsonGetter):
     """Represents a Geoproccesing Job"""
-    def __init__(self, json):
-        self.json = json
+    def __init__(self, jobInfo):
+        self.json = munch.munchify(jobInfo)
 
     @property 
     def status(self):
@@ -1415,15 +1415,18 @@ class GPResult(JsonGetter):
         # Cast to FeatureSet if recorset 
         if result.get(DATA_TYPE) == GP_RECORDSET_LAYER:
             result[VALUE] = FeatureSet(result.get(VALUE))
-        self.json = result
+        self.json = munch.munchify(result)
 
     def __repr__(self):
         return '<GPResult "{}">'.format(self.get(PARAM_NAME, 'Unknown'))  
 
 class GPTaskError(JsonGetter):
     def __init__(self, error):
-        self.json = error
-        if ERROR in error:
+        self.json = munch.munchify(error)
+        self.showWarning()
+
+    def showWarning(self):
+        if ERROR in self.json:
             warnings.warn('GP Task Failed:\n{}'.format('\n\t'.join(self.json.error.get(DETAILS, []))))
 
     def __repr__(self):
@@ -1437,7 +1440,7 @@ class GPTaskResponse(JsonGetter):
         response: JSON response from GP Task execution.
         """
         self._values = {}
-        self.json = response
+        self.json = munch.munchify(response)
 
         # get values cache
         if isinstance(self.results, dict):

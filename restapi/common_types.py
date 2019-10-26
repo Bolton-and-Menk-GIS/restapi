@@ -3702,10 +3702,10 @@ class GPTask(BaseService):
                 res[JOB_URL] = '{}/{}/{}'.format(self.url, JOBS, res.get(JOB_ID))
         
         if ERROR in res:
-            return GPTaskError(munchify(res))
+            return GPTaskError(res)
                 
         res[ASYNC] = self.isAsynchronous
         gp_elapsed = str(datetime.datetime.now() - start)
         res['elapsed'] = gp_elapsed
         print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
-        return GPTaskResponse(munchify(res))
+        return GPTaskResponse(res)
