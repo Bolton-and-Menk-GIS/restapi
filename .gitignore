@@ -4,6 +4,7 @@ __pycache__/
 
 .vscode/
 
+testData/
 private_tests/
 rest_tests/
 kandi.py

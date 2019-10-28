@@ -1,7 +1,11 @@
 # restapi
 This is a Python API for working with ArcGIS REST API, ArcGIS Online, and Portal/ArcGIS Enterprise.  This package has been designed to work with arcpy or open source and does not require arcpy.  It will try to use arcpy if available for some data conversions, otherwise will use open source options. Also included is a subpackage for administering ArcGIS Server Sites.  This is updated often, so continue checking here for new functionality!
 
+### Why would you use this package?
+Esri currently provides the [ArcGIS API for Python](https://developers.arcgis.com/python/) which provides complete bindings to the ArcGIS REST API.  This package has less coverage of the REST API, but has many convience functions not available in the ArcGIS API for Python.  This package will also support older versions of Python (i.e. 2.7.x) whereas Esri's package only supports 3.x.
 
+
+## Connecting to an ArcGIS Server
 One of the first things you might do is to connect to a services directory (or catalog):
 
 
@@ -94,41 +98,97 @@ lyr.clip(esri_json, sac, fields=['gaugelid', 'location'])
 
 You can also connect to a MapService directly
 
-````py
+```py
 url = 'http://gis.srh.noaa.gov/arcgis/rest/services/ahps_gauges/MapServer'
 gauges = restapi.MapService(url)
-````
+```
 
-Feature Editing
+Working with Feature Layers
 ---------------
 
-````py
-# feature service testing
-fs_url = 'http://sampleserver3.arcgisonline.com/ArcGIS/rest/services/SanFrancisco/311Incidents/FeatureServer'
-fs = restapi.FeatureService(fs_url)
+### query examples
+```py
 
-# reference a feature layer within featuer service
-#   note - layer method returns a restapi.FeatureLayer, different from restapi.MapServiceLayer
-incidents = fs.layer('incidents')
+# create FeatureLayer
+url = 'https://services.arcgis.com/V6ZHFr6zdgNZuVG0/arcgis/rest/services/Hazards_Uptown_Charlotte/FeatureServer/0'
+hazards = restapi.FeatureLayer(url)
+
+# QUERY EXAMPLES
+
+# query all features, to fetch all regardless of `maxRecordCount` 
+# use `exceed_limit=true` keyword arg
+fs = hazards.query()
+print('All Hazards Count: {}'.format(fs.count))
+
+# query features that are "High" Priority
+high_priority = hazards.query(where="Priority = 'High'")
+print('High Priority Hazards count: {}'.format(high_priority.count))
+```
+
+### download features
+```py
+# download features - choosing a geodatbase output will bring over domain 
+# info (when you have access to arcpy), whereas a shapefile output will 
+# just bring over the domain values
+shp = os.path.join(test_data_folder, 'hazards.shp')
+    
+# export layer to shapefile in WGS 1984 projection
+hazards.export_layer(shp, outSR=4326)
+```
+
+## feature editing
+
+### add features using `FeatureLayer.addFeatures()`
+```py
+# add new records via FeatureLayer.addFeatures()
+desc = "restapi edit test"
+new_ft = {
+    "attributes": {
+        "HazardType": "Flooding",
+        "Description": desc,
+        "SpecialInstructions": None,
+        "Status": "Active",
+        "GlobalID": "416f04e5-0ae9-4444-8d0c-d4e9b44e7f87",
+        "Priority": "Moderate"
+    },
+    "geometry": create_random_coordinates()
+}
 
 # add new feature
-adds = [{"attributes":
-   	        {
-        	"req_type":"Damaged Property",
-        	"req_date":"07/19/2009",
-        	"req_time":"11:08",
-        	"address":"173 RESTAPI DR",
-        	"x_coord":"-122.4167",
-        	"y_coord":"37.7833",
-        	"district":"7",
-        	"status":1},
-        "geometry": {"x":-122.4167,
-                      "y":37.7833,
-                      "spatialReference":
-                          {"wkid":4326}}}]
+results = hazards.addFeatures([new_ft])
+print(results)
+```
+### using `restapi` cursors
 
-result = incidents.addFeatures(adds)
-````
+`restapi` also supports cursors similar to what you get when using `arcpy`.  However, these work directly with the REST API and JSON features while also supporting `arcpy` and `shapefile` geometry types.  See the below example on how to use an `insertCursor` to add new records:
+
+```py
+# add 3 new features using an insert cursor 
+# using this in a "with" statement will call applyEdits on __exit__
+fields = ["SHAPE@", 'HazardType', "Description", "Priority"]
+with hazards.insertCursor(fields) as irows:
+    for i in range(3):
+        irows.insertRow([create_random_coordinates(), "Wire Down", desc, "High"])
+```
+
+records can be updated with an `updateCursor` and a where clause.  Note that the `OBJECTID` field must be included in the query to indicate which records will be updated.  The `OID@` field token can be used to retreive the `objectIdFieldName`:
+
+```py
+# now update records with updateCursor
+whereClause = "Description = '{}'".format(desc)
+
+with hazards.updateCursor(["Priority", "OID@"], where=whereClause) as rows:
+    for row in rows:
+        row[0] = "Low"
+        rows.updateRow(row)
+```
+
+Deleting features can be done with a simple `where` clause:
+
+```py
+# now delete the records we added
+hazards.deleteFeatures(where=whereClause)
+```
 
 We can also add attachments
 ````py
