@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 
 .vscode/
+.idea/
 
 testData/
 private_tests/
