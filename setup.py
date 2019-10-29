@@ -1,9 +1,8 @@
-from distutils.core import setup
-from setuptools import find_packages
+from setuptools import setup, find_packages
 import os
 
 name = 'bmi-arcgis-restapi'
-        
+
 setup(name=name,
       version='0.1',
       description='Package for working with ArcGIS REST API',
@@ -11,11 +10,11 @@ setup(name=name,
       author_email='calebma@bolton-menk.com',
       url='https://github.com/Bolton-and-Menk-GIS/restapi',
       license='GPL',
-      packages=['restapi'],
+      packages=find_packages(),
       include_package_data=True,
-      zip_Safe=False,
       package_data={'restapi': ['shapefile/*.json',
-                                'test/*.py',
-                                'admin/samples/*.py']},
+                                'test/testData/*',
+                                'admin/samples/*.py',
+                                'projections/bin/*']},
       install_requires=['munch', 'requests']
 )
