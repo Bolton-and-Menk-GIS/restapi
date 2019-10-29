@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 
 .vscode/
+.idea/
 
 restapi/test/testData/
 testData/
