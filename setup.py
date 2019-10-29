@@ -9,7 +9,7 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 name = 'bmi-arcgis-restapi'
 
 setup(name=name,
-      version='1.0',
+      version='0.2',
       description='Package for working with ArcGIS REST API',
       author='Caleb Mackey',
       author_email='calebma@bolton-menk.com',
@@ -23,5 +23,14 @@ setup(name=name,
                                 'projections/bin/*']},
       install_requires=['munch', 'requests'],
       long_description=long_description,
-      long_description_content_type='text/markdown'
+      long_description_content_type='text/markdown',
+      classifiers=[
+          'Development Status :: 5 - Production/Stable',
+          'Intended Audience :: Developers',
+          'License :: OSI Approved :: GNU General Public License v2 (GPLv2)',
+          'Natural Language :: English',
+          'Programming Language :: Python :: 2.7',
+          'Programming Language :: Python :: 3',
+          'Topic :: Scientific/Engineering :: GIS'
+      ]
 )
