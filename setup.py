@@ -1,7 +1,7 @@
 from distutils.core import setup
 import os
 
-name = 'restapi'
+name = 'bmi-arc-restapi'
 pckgs = []
 for root,dirs,files in os.walk(name):
     if '__init__.py' in files:
@@ -15,7 +15,7 @@ setup(name=name,
       url='https://github.com/Bolton-and-Menk-GIS/restapi',
       license='GPL',
       packages=pckgs,
-      package_dir={name: name},
+      package_dir={name: 'restapi'},
       package_data={name: ['shapefile/*.json',
                                 'test/*.py',
                                 'admin/samples/*.py']},
