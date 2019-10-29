@@ -5,6 +5,18 @@ This is a Python API for working with ArcGIS REST API, ArcGIS Online, and Portal
 Esri currently provides the [ArcGIS API for Python](https://developers.arcgis.com/python/) which provides complete bindings to the ArcGIS REST API.  This package has less coverage of the REST API, but has many convience functions not available in the ArcGIS API for Python.  This package will also support older versions of Python (i.e. 2.7.x) whereas Esri's package only supports 3.x.
 
 
+## Installation
+`restapi` is supported on Python 2.7 and 3.x. To install using pip:  
+````py
+pip install bmi-arcgis-restapi
+````
+
+After installation, it should be available to use in Python:  
+````py
+import restapi
+````
+
+
 ## Connecting to an ArcGIS Server
 One of the first things you might do is to connect to a services directory (or catalog):
 
