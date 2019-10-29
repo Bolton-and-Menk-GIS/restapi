@@ -1,4 +1,5 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
+#from distutils.core import setup
 import os
 
 name = 'bmi-arcgis-restapi'
