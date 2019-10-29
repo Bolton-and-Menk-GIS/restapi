@@ -15,6 +15,8 @@ from . import projections
 import six
 from six.moves import urllib, zip_longest
 
+DEFAULT_REQUEST_FORMAT = JSON
+
 __opensource__ = False
 
 def force_open_source(force=True):
@@ -51,6 +53,7 @@ def force_open_source(force=True):
 
 try:
     # can explicitly choose to use open source
+    # raise ImportError  # uncomment this to test open source when arcpy is available
     if FORCE_OPEN_SOURCE:
         print('you have chosen to explicitly use the open source version.')
         raise ImportError
@@ -64,6 +67,8 @@ except Exception as e:
     # using global is throwing a warning???
     setattr(sys.modules[__name__], '__opensource__', True)
     warnings.warn('No Arcpy found, some limitations in functionality may apply.')
+    # global DEFAULT_REQUEST_FORMAT 
+    DEFAULT_REQUEST_FORMAT = GEOJSON
     from .open_restapi import *
     has_arcpy = False
     class Callable(object):
@@ -98,12 +103,20 @@ except Exception as e:
 
     # datetime to date string
     def datetime_to_datestring(d):
-        if isinstance(d, datetime.datetime):
-            return d.strftime('%Y%m%d')
-        return mil_to_date(d).strftime('%Y%m%d')
+        if d:
+            if isinstance(d, datetime.datetime):
+                return d.strftime('%Y%m%d')
+            return mil_to_date(d).strftime('%Y%m%d')
+        return d
 
 
 USE_GEOMETRY_PASSTHROUGH = True #can be set to false to not use @geometry_passthrough
+
+# extend feature to get geometry
+def get_geometry_object(self):
+    return Geometry(getattr(self, GEOMETRY))
+
+Feature.getGeometry = get_geometry_object
 
 @decorator
 def geometry_passthrough(func, *args, **kwargs):
@@ -285,7 +298,7 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         from . import shp_helper
         out_fc = validate_name(out_fc)
         # validate features input (should be list or dict, preferably list)
-        if not isinstance(feature_set, FeatureSet):
+        if not isinstance(feature_set, (FeatureSet, GeoJSONFeatureSet)):
             feature_set = FeatureSet(feature_set)
 
         # make new shapefile
@@ -322,8 +335,9 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         # search cursor to write rows
         s_fields = [fl for fl in fields if fl.name in [f[0] for f in field_map]]
         for feat in feature_set:
+            # print(feat)
             row = [datetime_to_datestring(feat.get(field)) if field in date_fields else feat.get(field) for field in [f[0] for f in field_map]]
-            w.add_row(Geometry(feat.geometry).asShape(), *row)
+            w.add_row(feat.getGeometry().asShape(), *row)
 
         w.save()
         print('Created: "{0}"'.format(out_fc))
@@ -1016,9 +1030,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     else:
                         server_response[key] = getattr(self, key)
 
-        elif self.type == TABLE:
-            if FIELDS not in server_response:
-                server_response[FIELDS] = getattr(self, FIELDS)
+        # elif self.type == TABLE:
+        if FIELDS not in server_response:
+            server_response[FIELDS] = getattr(self, FIELDS)
 
         if all(map(lambda k: k in server_response, [FIELDS, FEATURES])):
             if records:
@@ -1125,7 +1139,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
 
 
-    def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, fetch_in_chunks=False, f=JSON, kmz='', **kwargs):
+    def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, fetch_in_chunks=False, f=DEFAULT_REQUEST_FORMAT, kmz='', **kwargs):
         """Queries layer and gets response as JSON.
         
         Args:
@@ -1217,7 +1231,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         for where2 in self.iter_queries(where, params, max_recs=records):
             sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
             params[WHERE] = sql
-            print('FIELDS: ', params.get('fields'))
+            # print('FIELDS: ', params.get('fields'))
             yield self._format_server_response(self.request(query_url, params))
 
 
@@ -2557,6 +2571,7 @@ class FeatureLayer(MapServiceLayer):
                     raise RuntimeError('Missing OID or GlobalId Field in Data!')
 
         cur_fields = self._fix_fields(fields)
+        add_params[F] = JSON
         fs = self.query(where, cur_fields, add_params, records, exceed_limit)
         return UpdateCursor(fs, fields)
 

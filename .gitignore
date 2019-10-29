@@ -4,6 +4,7 @@ __pycache__/
 
 .vscode/
 
+restapi/test/testData/
 testData/
 private_tests/
 rest_tests/

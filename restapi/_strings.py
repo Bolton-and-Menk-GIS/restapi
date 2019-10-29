@@ -41,6 +41,7 @@ GEOMETRY = 'geometry'
 ATTRIBUTES = 'attributes'
 FEATURES = 'features'
 PROPERTIES = 'properties'
+GEOJSON = 'geojson'
 
 # common request parms
 USER_NAME = 'username'

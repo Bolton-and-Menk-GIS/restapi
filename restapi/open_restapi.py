@@ -253,23 +253,7 @@ class Geometry(BaseGeometry):
             try:
                 geometry = OrderedDict2(**json.loads(geometry))
             except:
-                # maybe it's a shapefile/feature class?
-                if arcpy.Exists(geometry):
-                    desc = arcpy.Describe(geometry)
-                    spatialReference = desc.spatialReference.factoryCode
-                    self.geometryType = 'esriGeometry{}'.format(desc.shapeType.title())
-                    with arcpy.da.SearchCursor(geometry, ['SHAPE@JSON']) as rows:
-                        for row in rows:
-                            esri_json = json.loads(row[0])
-                            break
-
-                    for k,v in sorted(six.iteritems(esri_json)):
-                        if k != SPATIAL_REFERENCE:
-                            self.json[k] = v
-                    if SPATIAL_REFERENCE in esri_json:
-                        self.json[SPATIAL_REFERENCE] = esri_json[SPATIAL_REFERENCE]
-                else:
-                    raise IOError('Not a valid geometry input!')
+                raise IOError('Not a valid geometry input!')
 
         if isinstance(geometry, dict):
             if SPATIAL_REFERENCE in geometry:
@@ -281,6 +265,13 @@ class Geometry(BaseGeometry):
                         spatialReference = sr_json[WKID]
                     except:
                         raise IOError('No spatial reference found in JSON object!')
+
+            # first check for geojson
+            if COORDINATES in geometry:
+                self.geometryType = geometry.get(TYPE)
+                self.json = munch.munchify(geometry)
+                return
+                
             if FEATURES in geometry:
                 d = geometry[FEATURES][0]
                 if GEOMETRY in d:
@@ -375,29 +366,30 @@ class Geometry(BaseGeometry):
 
     def asShape(self):
         """Returns geometry as shapefile.Shape() object."""
-        shp = shapefile.Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
-        if self.geometryType != ESRI_POINT:
-            shp.points = self.json[JSON_CODE[self.geometryType]]
-        else:
-            shp.points = [[self.json[X], self.json[Y]]]
+        return shapefile.Shape._from_geojson(self.json)
+#         shp = shapefile.Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
+#         if self.geometryType != ESRI_POINT:
+#             shp.points = self.json[JSON_CODE[self.geometryType]]
+#         else:
+#             shp.points = [[self.json[X], self.json[Y]]]
 
-        # check if multipart, will need to fix if it is
-        if any(isinstance(i, list) for i in shp.points):
-            coords = []
-            part_indices = [0] + [len(i) for i in iter(shp.points)][:-1]
-##            for i in shp.points:
-##                coords.extend(i)
-##            shp.points = coords
-            shp.parts = shapefile._Array('i', part_indices)
-        else:
-            shp.parts = shapefile._Array('i', [0])
+#         # check if multipart, will need to fix if it is
+#         if any(isinstance(i, list) for i in shp.points):
+#             coords = []
+#             part_indices = [0] + [len(i) for i in iter(shp.points)][:-1]
+# ##            for i in shp.points:
+# ##                coords.extend(i)
+# ##            shp.points = coords
+#             shp.parts = shapefile._Array('i', part_indices)
+#         else:
+#             shp.parts = shapefile._Array('i', [0])
 
-        if shp.shapeType not in (0,1,8,18,28,31):
-            XMin = min(coords[0] for coords in shp.points)
-            YMin = min(coords[1] for coords in shp.points)
-            XMax = max(coords[0] for coords in shp.points)
-            YMax = max(coords[1] for coords in shp.points)
-            shp.bbox = shapefile._Array('d', [XMin, YMin, XMax, YMax])
+#         if shp.shapeType not in (0,1,8,18,28,31):
+#             XMin = min(coords[0] for coords in shp.points)
+#             YMin = min(coords[1] for coords in shp.points)
+#             XMax = max(coords[0] for coords in shp.points)
+#             YMax = max(coords[1] for coords in shp.points)
+#             shp.bbox = shapefile._Array('d', [XMin, YMin, XMax, YMax])
 
         return shp
 

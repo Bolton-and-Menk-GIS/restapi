@@ -1041,7 +1041,7 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     def __iter__(self):
         for feature in self.features:
-            yield feature
+            yield Feature(feature)
 
     def __len__(self):
         return len(self.features)
@@ -1182,6 +1182,8 @@ class Feature(JsonGetter):
         """
         
         self.json = munch.munchify(feature)
+        self._propsGetter = ATTRIBUTES if ATTRIBUTES in self.json else PROPERTIES
+        self._type = GEOJSON if self._propsGetter == PROPERTIES else ESRI_JSON_FORMAT
 
     def get(self, field, default=None):
         """Returns/gets an attribute from the feature.
@@ -1190,9 +1192,9 @@ class Feature(JsonGetter):
             field: Name of field for which to get attribute.
         """
 
-        if field in (ATTRIBUTES, enums.params.geometry):
+        if field in (self._propsGetter, enums.params.geometry):
             return self.json.get(field, default)
-        return self.json.get(ATTRIBUTES, {}).get(field, default)
+        return self.json.get(self._propsGetter, {}).get(field, default)
 
     def __repr__(self):
         return self.dumps(indent=2)
