@@ -19,53 +19,18 @@ DEFAULT_REQUEST_FORMAT = JSON
 
 __opensource__ = False
 
-def force_open_source(force=True):
-    """This function can be used to explicitly use open source mode, even if arcpy is 
-            available.
-
-    Arg:
-        force: Optional boolean, when True will force restapi to use open 
-            source mode. Defaults to True.
-    """
-
-    setattr(sys.modules[__name__], '__opensource__', force)
-    if force:
-        from .open_restapi import Geometry, GeometryCollection, exportReplica, project, \
-        partHandler, find_ws_type, SHP_FTYPES, GeocodeHandler, Geocoder
-
-        for f in ['Geometry', 'GeometryCollection', 'exportReplica', 'partHandler', 'project', 'find_ws_type', 'SHP_FTYPES', 'GeocodeHandler', 'Geocoder']:
-            setattr(sys.modules[PACKAGE_NAME], f, locals().get(f))
-            setattr(sys.modules[__name__], f, locals().get(f))
-
-        setattr(sys.modules[PACKAGE_NAME], 'exportFeatureSet', exportFeatureSet_os)
-        setattr(sys.modules[__name__], 'exportFeatureSet', exportFeatureSet_os)
-
-    else:
-        from .arc_restapi import  Geometry, GeometryCollection,  find_ws_type, GeocodeHandler, Geocoder
-
-        for f in ['Geometry', 'GeometryCollection', 'find_ws_type', 'GeocodeHandler', 'Geocoder']:
-
-            setattr(sys.modules[PACKAGE_NAME], f, locals().get(f))
-            setattr(sys.modules[__name__], f, locals().get(f))
-
-        setattr(sys.modules[PACKAGE_NAME], 'exportFeatureSet', exportFeatureSet_arcpy)
-        setattr(sys.modules[__name__], 'exportFeatureSet', exportFeatureSet_arcpy)
-
 try:
-    # can explicitly choose to use open source
-    # raise ImportError  # uncomment this to test open source when arcpy is available
-    if FORCE_OPEN_SOURCE:
-        print('you have chosen to explicitly use the open source version.')
+    if str(os.environ.get('RESTAPI_USE_ARCPY')).upper() in ('FALSE', '0'):
         raise ImportError
-
     import arcpy
     from .arc_restapi import *
     has_arcpy = True
 
 except Exception as e:
-    print('error: ', e)
+    print('arcpy import error: ', e)
     # using global is throwing a warning???
-    setattr(sys.modules[__name__], '__opensource__', True)
+    setattr(sys.modules[PACKAGE_NAME], '__opensource__', True)
+    __opensource__ = True
     warnings.warn('No Arcpy found, some limitations in functionality may apply.')
     # global DEFAULT_REQUEST_FORMAT 
     DEFAULT_REQUEST_FORMAT = GEOJSON
@@ -1203,6 +1168,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                         server_response[FEATURES] += resp[FEATURES]
 
             else:
+                if isinstance(records, int) and str(self.currentVersion) >= '10.3':
+                    params[RESULT_RECORD_COUNT] = records
+
                 server_response = self.request(query_url, params)
 
             return self._format_server_response(server_response, records)
@@ -1386,7 +1354,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         if self.hasAttachments:
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
-            r = self.request(query_url, { F: JSON })
+            r = self.request(query_url, { F: JSON }, ret_json=True)
 
             add_tok = ''
             if self.token:

@@ -16,6 +16,23 @@ After installation, it should be available to use in Python:
 import restapi
 ````
 
+## A note about `arcpy`
+By default, `restapi` will import Esri's `arcpy` module if available. However, this module is not required to use this package.  `arcpy` is only used when available to write data to disk in esri specific formats (file geodatabase, etc) and working with `arcpy` Geometries.  When `arcpy` is not availalbe, the  [pyshp](https://pypi.org/project/pyshp/) module is used to write data (shapefile format only) and work with `shapefile.Shape` objects (geometry).  Also worth noting is that open source version is much faster than using `arcpy`.
+
+That being said, there may be times when you want to force `restapi` to use the open source version, even when you have access to `arcpy`.  Some example scenarios being when you don't need to write any data in an Esri specific format, you want the script to execute very fast, or you are working in an environment where `arcpy` may not play very nicely ([Flask](https://palletsprojects.com/p/flask/), [Django](https://www.djangoproject.com/), etc.).  To force `restapi` to use the open source version, you can simply create an environment variable called `RESTAPI_USE_ARCPY` and set it to `FALSE` or `0`.  This variable will be checked before attempting to import `arcpy`.
+
+Here is an example on how to force open source at runtime:
+
+```py
+import os
+os.environ['RESTAPI_USE_ARCPY'] = 'FALSE'
+
+# now import restapi
+import restapi
+```
+
+
+
 
 ## Connecting to an ArcGIS Server
 One of the first things you might do is to connect to a services directory (or catalog):

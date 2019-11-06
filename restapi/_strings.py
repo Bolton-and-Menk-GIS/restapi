@@ -4,8 +4,6 @@ import json
 
 import six
 
-FORCE_OPEN_SOURCE = False
-
 # CONSTANTS
 # esri fields
 OID = 'esriFieldTypeOID'

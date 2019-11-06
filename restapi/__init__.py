@@ -11,6 +11,7 @@
 #-------------------------------------------------------------------------------
 from . import _strings
 from .common_types import *
+from . import enums
 try:
     from . import admin
 except:

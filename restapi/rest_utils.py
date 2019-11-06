@@ -252,6 +252,8 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
                 cookies = None
         elif '.arcgis.com' in service:
             params[TOKEN] = str(token)
+        
+        # TODO: make sure token is in ID Manager registry
 
     stream = params.get(F) == 'image'
 
@@ -265,15 +267,18 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
     if r.status_code != 200:
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
     else:
-        if ret_json is True and params.get(F) in (JSON, PJSON):
-            _json = r.json()
+        if ret_json:# is True and params.get(F) in (JSON, PJSON):
+            try:
+                _json = r.json()
+            except:
+                return r
             RequestError(_json)
             return munch.munchify(_json)
         else:
             return r
 
 
-def do_proxy_request(proxy, url, params={}, referer=None):
+def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True):
     """Makes request against ArcGIS service through a proxy.  This is designed for a
             proxy page that stores access credentials in the configuration to 
             handle authentication. It is also assumed that the proxy is a standard 
@@ -286,6 +291,7 @@ def do_proxy_request(proxy, url, params={}, referer=None):
         params: Optional query parameters, user is responsible for passing in the
             proper parameters. Defaults to {}.
         referer: Optional referer, defaults to None.
+        ret_json: Option to return as JSON, default is true
     
     Returns:
         The HTTP request.
@@ -858,6 +864,9 @@ class RESTEndpoint(JsonGetter):
         }):
             if key not in kwargs:
                 kwargs[key] = getattr(self, value)
+
+        if 'ret_json' not in kwargs:
+            kwargs['ret_json'] = True
         return do_post(*args, **kwargs)
 
     def refresh(self):
