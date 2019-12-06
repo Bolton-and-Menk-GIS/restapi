@@ -19,7 +19,7 @@ jobs:
         pip install setuptools twine
     - name: Build and publish
       env:
-        TWINE_USERNAME: '@token'
+        TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.pypi_token }}
       run: |
         python setup.py sdist
