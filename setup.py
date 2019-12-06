@@ -9,7 +9,7 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 name = 'bmi-arcgis-restapi'
 
 setup(name=name,
-      version='1.0.1',
+      version='1.0.2',
       description='Package for working with ArcGIS REST API',
       author='Caleb Mackey',
       author_email='calebma@bolton-menk.com',
