@@ -1,7 +1,9 @@
 name: Publish Python distribution to PyPI
 
-on: release
-
+on: 
+  release
+    types: [published]
+  
 jobs:
   build-n-publish:
     name: Publish Python distribution to PyPI
