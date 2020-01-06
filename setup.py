@@ -1,6 +1,7 @@
 from setuptools import find_packages, setup
 #from distutils.core import setup
 import os
+from io import open
 
 this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
@@ -9,7 +10,7 @@ with open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 name = 'bmi-arcgis-restapi'
 
 setup(name=name,
-      version='1.0.2',
+      version='1.0.3',
       description='Package for working with ArcGIS REST API',
       author='Caleb Mackey',
       author_email='calebma@bolton-menk.com',
