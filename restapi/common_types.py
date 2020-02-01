@@ -353,6 +353,56 @@ def featureIterator(obj):
 
 FeatureSet.__iter__ = featureIterator
 
+
+class Attachment(JsonGetter):
+    """Class to handle Attachment object."""
+    def __init__(self, attInfo):
+        self.json = attInfo
+
+    def __repr__(self):
+        if hasattr(self, ID) and hasattr(self, NAME):
+            return '<Attachment ID: {} ({})>'.format(self.id, self.name)
+        else:
+            return '<Attachment> ?'
+
+    def blob(self):
+        """Returns a string of the chunks in the response."""
+        b = ''
+        resp = requests.get(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
+        for chunk in resp.iter_content(1024 * 16):
+            b += chunk
+        return b
+
+    def download(self, out_path, name='', verbose=True):
+        """Downloads the attachment to specified path.
+        
+        Args:
+            out_path: Output path for attachment.
+            name: Optional name for output file.  If left blank, 
+                will be same as attachment.
+            verbose: Optional boolean, if true will print sucessful 
+                download message. Defaults to True.
+        
+        Returns:
+            The path to the downloaded attachment.
+        """
+
+        if not name:
+            out_file = assign_unique_name(os.path.join(out_path, self.name))
+        else:
+            ext = os.path.splitext(self.name)[-1]
+            out_file = os.path.join(out_path, name.split('.')[0] + ext)
+
+        resp = requests.get(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
+        with open(out_file, 'wb') as f:
+            for chunk in resp.iter_content(1024 * 16):
+                f.write(chunk)
+
+        if verbose:
+            print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
+        return out_file
+
+
 class Cursor(FeatureSet):
     """Class to handle Cursor object."""
     json = {}
@@ -978,10 +1028,13 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             Either a GeoJSONFeatureSet or FeatureSet of the server response. 
                 Can also return JSON of server response.
         """
-
         # set fields to full field definition of the layer
         if isinstance(server_response, requests.Response):
             server_response = munchify(server_response.json())
+
+        if PROPERTIES in server_response:
+             return server_response
+
         flds = self.fieldLookup
         if FIELDS in server_response:
             for i,fld in enumerate(server_response.fields):
@@ -1326,7 +1379,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if k not in p.keys():
                 p[k] = v
 
-        return sorted(self.query(where=where, add_params=p)[OBJECT_IDS])[:max_recs]
+        # return sorted(self.query(where=where, add_params=p).get(OBJECT_IDS, []))[:max_recs]
+        resp = self.query(where=where, add_params=p)
+        if PROPERTIES in resp:
+            resp = resp[PROPERTIES]
+        return sorted(resp.get(OBJECT_IDS, [])[:max_recs])
 
     def getCount(self, where='1=1', **kwargs):
         """Returns count of features, can use optional query and **kwargs to filter.
@@ -1338,8 +1395,57 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         return len(self.getOIDs(where,  **kwargs))
 
+    def _parse_attachment_infos(self, response, oid=None, globalId=None):
+        atts = []
+        oid =  oid or response.get(PARENT_OBJECTID)
+        globalId = globalId or response.get(PARENT_GLOBALID)
+        if not oid:
+            warning.warn('No parentObjectId found for attachments')
+            return []
+        if isinstance(response, dict) and ATTACHMENT_INFOS in response:
+            for attInfo in response[ATTACHMENT_INFOS]:
+                att_url = '{}/{}/attachments/{}'.format(self.url, oid, attInfo[ID])
+                attInfo[URL] = att_url
+                attInfo[PARENT_OBJECTID] = oid 
+                attInfo[PARENT_GLOBALID] = globalId
+                if self._proxy:
+                    attInfo[URL_WITH_TOKEN] = '?'.join([self._proxy, att_url])
+                else:
+                    attInfo[URL_WITH_TOKEN] = att_url + ('?token={}'.format(self.token) if self.token else '')
+                
+                atts.append(Attachment(attInfo))
+  
+        return atts
+
+    def query_attachments(self, objectIds=[], definitionExpression=None, **kwargs):
+        if not self.hasAttachments:
+            raise NotImplementedError('This Service does not support attachments.')
+
+        if self.currentVersion < 10.7:
+            raise NotImplementedError('The queryAttachments endpoint is only available on versions 10.7 and above, this service is using {}'.format(self.currentVersion))
+        
+        # allow `where` alias for definitionExpression
+        definitionExpression = definitionExpression or kwargs.get('where') 
+        if not objectIds and not definitionExpression:
+            definitionExpression = '1=1'
+
+        queryParams = {}
+        if objectIds:
+            queryParams[OBJECT_IDS] = ','.join(map(str, objectIds)) if isinstance(objectIds, list) else objectIds
+
+        if definitionExpression:
+            queryParams[DEFINITION_EXPRESSION] = definitionExpression
+
+        queryParams.update(kwargs)
+        url = '{}/queryAttachments'.format(self.url)
+        resp = self.request(url, queryParams)
+        attachments = []
+        for group in resp.get(ATTACHMENT_GROUPS, []):
+            attachments.extend(self._parse_attachment_infos(group))
+        return attachments
+
     def attachments(self, oid, gdbVersion=''):
-        """Queries attachments for an OBJECTDID.
+        """Queries attachments for an OBJECTID.
         
         Args:
             oid: Object ID.
@@ -1351,85 +1457,52 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         Returns:
             Attachments for OID.
         """
-
         if self.hasAttachments:
+            if isinstance(oid, list):
+                if self.currentVersion >= 10.7:
+                    return self.query_attachments(oid)
+                else:
+                    # recursively fetch attachments
+                    attachments = []
+                    for _oid in oid:
+                        attachments.extend(self.attachments(_oid))
+
+                    return attachments
+
             query_url = '{0}/{1}/attachments'.format(self.url, oid)
             r = self.request(query_url, { F: JSON }, ret_json=True)
-
-            add_tok = ''
-            if self.token:
-                add_tok = '?token={}'.format(self.token.token if isinstance(self.token, Token) else self.token)
-
-            if ATTACHMENT_INFOS in r:
-                for attInfo in r[ATTACHMENT_INFOS]:
-                    att_url = '{}/{}'.format(query_url, attInfo[ID])
-                    attInfo[URL] = att_url
-                    if self._proxy:
-                        attInfo[URL_WITH_TOKEN] = '?'.join([self._proxy, att_url])
-                    else:
-                        attInfo[URL_WITH_TOKEN] = att_url + ('?token={}'.format(self.token) if self.token else '')
-
-                keys = []
-                if r[ATTACHMENT_INFOS]:
-                    keys = r[ATTACHMENT_INFOS][0].keys()
-
-                props = list(set(['id', 'name', 'size', 'contentType', 'url', 'urlWithToken'] + list(keys)))
-
-                class Attachment(namedtuple('Attachment', ' '.join(props))):
-                    """Class to handle Attachment object."""
-                    __slots__ = ()
-                    def __new__(cls,  **kwargs):
-                        return super(Attachment, cls).__new__(cls, **kwargs)
-
-                    def __repr__(self):
-                        if hasattr(self, ID) and hasattr(self, NAME):
-                            return '<Attachment ID: {} ({})>'.format(self.id, self.name)
-                        else:
-                            return '<Attachment> ?'
-
-                    def blob(self):
-                        """Returns a string of the chunks in the response."""
-                        b = ''
-                        resp = requests.get(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
-                        for chunk in resp.iter_content(1024 * 16):
-                            b += chunk
-                        return b
-
-                    def download(self, out_path, name='', verbose=True):
-                        """Downloads the attachment to specified path.
-                        
-                        Args:
-                            out_path: Output path for attachment.
-                            name: Optional name for output file.  If left blank, 
-                                will be same as attachment.
-                            verbose: Optional boolean, if true will print sucessful 
-                                download message. Defaults to True.
-                        
-                        Returns:
-                            The path to the downloaded attachment.
-                        """
-
-                        if not name:
-                            out_file = assign_unique_name(os.path.join(out_path, self.name))
-                        else:
-                            ext = os.path.splitext(self.name)[-1]
-                            out_file = os.path.join(out_path, name.split('.')[0] + ext)
-
-                        resp = requests.get(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
-                        with open(out_file, 'wb') as f:
-                            for chunk in resp.iter_content(1024 * 16):
-                                f.write(chunk)
-
-                        if verbose:
-                            print('downloaded attachment "{}" to "{}"'.format(self.name, out_path))
-                        return out_file
-
-                return [Attachment(**a) for a in r[ATTACHMENT_INFOS]]
-
-            return []
+            return self._parse_attachment_infos(r, oid)
 
         else:
             raise NotImplementedError('Layer "{}" does not support attachments!'.format(self.name))
+
+    def download_all_attachments(self, out_folder, objectIds=[], definitionExpression='1=1', namer=None):
+        """will download all attachments, or a subset based on `oids` or `where` params.
+        
+        Args:
+            out_folder ([type]): [description]
+            oids (list, optional): [description]. Defaults to [].
+            where (str, optional): [description]. Defaults to '1=1'.
+            namer (function, optional): [description]. Defaults to None.
+        """
+        from multiprocessing.pool import ThreadPool
+        from functools import partial
+
+        if not callable(namer):
+            namer = lambda att: validate_name('{}_{}'.format(getattr(att, PARENT_OBJECTID), att.name))
+
+        if not objectIds:
+            objectIds = self.getOIDs(definitionExpression)
+        
+        # fetch attachments
+        start = datetime.datetime.now()
+        attachments = self.attachments(objectIds)
+
+        # concurrently download files
+        downloader = lambda att: att.download(out_folder, namer(att), verbose=False)
+        files = ThreadPool(processes=os.cpu_count()*2).map(downloader, attachments)
+        print('Downloaded {} Attachments - elsapsed time: {}'.format(len(files), datetime.datetime.now()-start))
+        return files
 
     def cursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False):
         """Runs Cursor on layer, helper method that calls Cursor Object.

@@ -74,6 +74,11 @@ hazards = restapi.FeatureLayer(url)
 ### now delete the records we added
 ##hazards.deleteFeatures(where=whereClause)
 
+sr = 103719
+lyr = restapi.MapServiceLayer('http://cassweb3.co.cass.mn.us/arcgis/rest/services/Basic_Layers2/MapServer/14')
+out = '\\\\arcserver1\\gis\\CSCO\\_Basemap\\ESRI\\Themes\\Parcels\\2019_11_12\\Parcels.gdb\\Parcels'
+lyr.export_layer(out, outSR=sr, exceed_limit=True)
+
 
 
 

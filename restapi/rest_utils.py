@@ -52,6 +52,9 @@ class RestapiEncoder(json.JSONEncoder):
         except:
             return o.__class__.__name__ #{}
 
+class TokenExpired(Exception):
+    pass
+
 def munch_repr(self):
     """ method override for munch, want to impersonate a pretty printed dict"""
     return json.dumps(self, indent=2, sort_keys=True, ensure_ascii=False, cls=RestapiEncoder)
@@ -82,7 +85,7 @@ class IdentityManager(object):
             url: URL for secured resource.
         
         Raises:
-            RuntimeError: 'Token expired at {}! Please sign in again.'
+            TokenExpired: 'Token expired at {}! Please sign in again.'
         """
 
         if self.tokens:
@@ -92,12 +95,23 @@ class IdentityManager(object):
             #     url = url.split('/admin/')[0] + '/admin'
             # else:
             #     url = url.split('/rest/services')[0] + '/rest/services'
+            to_remove = []
             for registered_url, token in list(self.tokens.items()) + list(self._portal_tokens.items()):
                 if fnmatch.fnmatch(url, registered_url + '*'):
                     if not token.isExpired:
                         return token
                     else:
-                        raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+                        to_remove.append(token)
+
+            if to_remove:
+                for token in to_remove:
+                    if token.domain in self.tokens:
+                        del self.tokens[token.domain]
+                    elif token.domain in self._portal_tokens:
+                        del self._portal_tokens[token.domain]
+
+                msg = 'Token expired at {}! Please sign in again. ({})'
+                raise TokenExpired('\n'.join([msg.format(token.time_expires, token.domain) for token in to_remove]))         
             
         return None
 
@@ -781,30 +795,48 @@ class RESTEndpoint(JsonGetter):
         params = {F: JSON}
         for k,v in six.iteritems(kwargs):
             params[k] = v
+
+        # if username and password used, generate fresh token, even if one already exists
+        if usr and pw:
+            token = generate_token(self.url, usr, pw)
         
         # first try to find token based on domain
+        tokenException = None
         if not token:
             # print('no token passed, but is there one?')
-            token = ID_MANAGER.findToken(url)
+            # first check for existing token
+            try:
+                token = ID_MANAGER.findToken(url)
+            except TokenExpired as e:
+                tokenException = e
+        
+        # if still no token, try proxy as last ditch effort
+        if not token:
+            if not proxy:
+                proxy = ID_MANAGER.findProxy(url)
+                if not proxy and tokenException:
+                    # no token or proxy available, and there is a tokenException.  Throw it now
+                    raise tokenException
+                
             # print('token is now: {}'.format(token))
         self.token = token
         self._cookie = None
         self._proxy = proxy
         self._referer = referer
-        if not self.token and not self._proxy:
-            if usr and pw:
-                self.token = generate_token(self.url, usr, pw)
-            else:
-                self.token = ID_MANAGER.findToken(self.url)
-                if isinstance(self.token, Token) and self.token.isExpired:
-                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
-                elif isinstance(self.token, Token) and not self.token.isExpired:
-                    pass
-                else:
-                    self.token = None
-        else:
-            if isinstance(self.token, Token) and self.token.isExpired and self.token.domain in self.url.lower():
-                raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
+        # if not self.token and not self._proxy:
+        #     if usr and pw:
+        #         self.token = generate_token(self.url, usr, pw)
+        #     else:
+        #         self.token = ID_MANAGER.findToken(self.url)
+        #         if isinstance(self.token, Token) and self.token.isExpired:
+        #             raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
+        #         elif isinstance(self.token, Token) and not self.token.isExpired:
+        #             pass
+        #         else:
+        #             self.token = None
+        # else:
+        #     if isinstance(self.token, Token) and self.token.isExpired and self.token.domain in self.url.lower():
+        #         raise RuntimeError('Token expired at {}! Please sign in again.'.format(self.token.expires))
 
         if self.token:
             if isinstance(self.token, Token) and self.token.domain.lower() in url.lower():
@@ -1043,10 +1075,13 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     def __getitem__(self, key):
         """Supports grabbing feature by index and json keys by name."""
-        if isinstance(key, int):
-            return Feature(self.json.features[key])
-        else:
-            return Feature(self.json.get(key))
+        try:
+            if isinstance(key, int):
+                return Feature(self.json.features[key])
+            else:
+                return Feature(self.json.get(key))
+        except:
+            return self.json.get(key)
 
     def __iter__(self):
         for feature in self.features:
