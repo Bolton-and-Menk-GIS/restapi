@@ -811,7 +811,7 @@ class ArcServer(RESTEndpoint):
         Arg:
             name: Name of folder.
         """
-        return Folder('/'.join([self.ur, name]), token=self.token)
+        return Folder('/'.join([self.url, name]), token=self.token)
 
     def list_services(self, filterer=True):
         """Returns a list of all services."""
