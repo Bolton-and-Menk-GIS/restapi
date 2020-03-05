@@ -12,6 +12,15 @@ import warnings
 from munch import munchify
 from . import projections
 
+try:
+    proxy_requests_path = os.environ['RESTAPI_PROXY_REQUESTS_PATH']
+    proxies_request = {'http':proxy_requests_path, 'https':proxy_requests_path}
+    import functools
+    requests.post = functools.partial(requests.post, proxies=proxies_request)
+    requests.get = functools.partial(requests.get, proxies=proxies_request)    
+except KeyError:
+    pass
+
 import six
 from six.moves import urllib, zip_longest
 
