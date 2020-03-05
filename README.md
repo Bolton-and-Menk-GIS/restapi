@@ -31,6 +31,17 @@ os.environ['RESTAPI_USE_ARCPY'] = 'FALSE'
 import restapi
 ```
 
+You may also need to work behind a proxy (a "real" proxy as in requests module's "proxies" argument, not an arcgis proxy) ; in that case, you should also alter os.environ BEFORE importing restapi)
+
+```py
+import os
+os.environ['RESTAPI_USE_ARCPY'] = 'FALSE'
+os.environ['RESTAPI_PROXY_REQUESTS_PATH'] = "http://my/proxy.com:8080"
+
+# now import restapi
+import restapi
+```
+
 
 
 
