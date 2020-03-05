@@ -28,6 +28,15 @@ from six.moves import urllib
 # disable ssl warnings
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     disable_warnings(warning)
+    
+try:
+    proxy_requests_path = os.environ['RESTAPI_PROXY_REQUESTS_PATH']
+    proxies_request = {'http':proxy_requests_path, 'https':proxy_requests_path}
+    import functools
+    requests.post = functools.partial(requests.post, proxies=proxies_request)
+    requests.get = functools.partial(requests.get, proxies=proxies_request)    
+except KeyError:
+    pass
 
 class RestapiEncoder(json.JSONEncoder):
     """Encoder for restapi objects to make serializeable for JSON."""
