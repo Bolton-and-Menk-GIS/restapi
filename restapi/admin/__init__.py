@@ -24,6 +24,15 @@ BASE_PATTERN = '*:*/arcgis/*admin*'
 AGOL_ADMIN_BASE_PATTERN = 'http*://*/rest/admin/services*'
 VERBOSE = True
 
+try:
+    proxy_requests_path = os.environ['RESTAPI_PROXY_REQUESTS_PATH']
+    proxies_request = {'http':proxy_requests_path, 'https':proxy_requests_path}
+    import functools
+    requests.post = functools.partial(requests.post, proxies=proxies_request)
+    requests.get = functools.partial(requests.get, proxies=proxies_request)    
+except KeyError:
+    pass
+
 # VERBOSE is set to true by default, this will echo the status of all operations
 #  i.e. reporting an administrative change was successful.  To turn this off, simply
 #  change VERBOSE to False.  This can be done like this:
