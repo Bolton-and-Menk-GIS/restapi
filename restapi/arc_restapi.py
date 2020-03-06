@@ -498,7 +498,7 @@ def create_empty_schema(feature_set, out_fc):
 
         # add all fields
         for field in fs.fields:
-            if field.type not in [OID, SHAPE] + SKIP_FIELDS.keys():
+            if field.type not in [OID, SHAPE] + list(SKIP_FIELDS.keys()):
                 if '.' in field.name:
                     if 'shape.' not in field.name.lower():
                         field_name = field.name.split('.')[-1] #for weird SDE fields with periods
