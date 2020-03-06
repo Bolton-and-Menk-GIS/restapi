@@ -1103,7 +1103,7 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
         return bool(len(self))
 
     def __dir__(self):
-        return sorted(list(self.__class__.__dict__.keys()) + self.json.keys())
+        return sorted(list(self.__class__.__dict__.keys()) + list(self.json.keys()))
 
     def __repr__(self):
         return '<{} (count: {})>'.format(self.__class__.__name__, self.count)
