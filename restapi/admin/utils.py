@@ -262,8 +262,8 @@ class ServerAdministrator(AdiminstratorBase):
 
         db_props1 = {k:v for k, v in iter(s.split('=') for s in string1.split(';'))}
         db_props2 = {k:v for k, v in iter(s.split('=') for s in string2.split(';'))}
-        db_info1 = ';'.join(filter(None, [db_props1.get('DATABASE'), db_props1.get('INSTANCE','NULL'), db_pros1.get('VERSION') if match_version else None]))
-        db_info2 = ';'.join(filter(None, [db_props2.get('DATABASE'), db_props2.get('INSTANCE','NULL'), db_pros2.get('VERSION') if match_version else None]))
+        db_info1 = ';'.join(filter(None, [db_props1.get('DATABASE'), db_props1.get('INSTANCE','NULL'), db_props1.get('VERSION') if match_version else None]))
+        db_info2 = ';'.join(filter(None, [db_props2.get('DATABASE'), db_props2.get('INSTANCE','NULL'), db_props2.get('VERSION') if match_version else None]))
         return  db_info1 == db_info2
 
     def find_services_containing(self, ws, fcs=[], stop=False):
