@@ -6,8 +6,6 @@ import json
 
 from six.moves import range
 
-
-
 __all__  = ['ServerAdministrator']
 
 if has_arcpy:
@@ -250,12 +248,13 @@ class ServerAdministrator(AdiminstratorBase):
         self.__started_services = []
 
     @staticmethod
-    def test_connection_string(string1, string2):
+    def test_connection_string(string1, string2, match_version=True):
         """Tests if a database has the same instance and name.
         
         Args:
             string1: One string to test against.
             string2: Other string to test against.
+            match_version (bool): option to make sure the versions match, default is True.
         
         Returns:
             The combined string from string1 and string2 with instance and name.
@@ -263,7 +262,9 @@ class ServerAdministrator(AdiminstratorBase):
 
         db_props1 = {k:v for k, v in iter(s.split('=') for s in string1.split(';'))}
         db_props2 = {k:v for k, v in iter(s.split('=') for s in string2.split(';'))}
-        return ';'.join([db_props1.get('DATABASE'), db_props1.get('INSTANCE','NULL')]) == ';'.join([db_props2.get('DATABASE'), db_props2.get('INSTANCE','NULL')])
+        db_info1 = ';'.join(filter(None, [db_props1.get('DATABASE'), db_props1.get('INSTANCE','NULL'), db_pros1.get('VERSION') if match_version else None]))
+        db_info2 = ';'.join(filter(None, [db_props2.get('DATABASE'), db_props2.get('INSTANCE','NULL'), db_pros2.get('VERSION') if match_version else None]))
+        return  db_info1 == db_info2
 
     def find_services_containing(self, ws, fcs=[], stop=False):
         """Finds services containing an entire workspace and any specific feature classes.
