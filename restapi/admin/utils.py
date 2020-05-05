@@ -248,13 +248,13 @@ class ServerAdministrator(AdiminstratorBase):
         self.__started_services = []
 
     @staticmethod
-    def test_connection_string(string1, string2, match_version=True):
+    def test_connection_string(string1, string2, match_version=False):
         """Tests if a database has the same instance and name.
         
         Args:
             string1: One string to test against.
             string2: Other string to test against.
-            match_version (bool): option to make sure the versions match, default is True.
+            match_version (bool): option to make sure the schema versions match, default is False.
         
         Returns:
             The combined string from string1 and string2 with instance and name.
@@ -266,7 +266,7 @@ class ServerAdministrator(AdiminstratorBase):
         db_info2 = ';'.join(filter(None, [db_props2.get('DATABASE'), db_props2.get('INSTANCE','NULL'), db_props2.get('VERSION') if match_version else None]))
         return  db_info1 == db_info2
 
-    def find_services_containing(self, ws, fcs=[], stop=False):
+    def find_services_containing(self, ws, fcs=[], stop=False, match_version=False):
         """Finds services containing an entire workspace and any specific feature classes.
 
         Args:
@@ -274,6 +274,7 @@ class ServerAdministrator(AdiminstratorBase):
             fcs: List of specific feature classes to search for.
             stop: Optional boolean, stops service once item is found if True.
                 Default is False.
+            match_version (bool): option to only return services where the schema version matches the schema version of the target database, default is False.
         
         Returns:
             The services that were found.
@@ -296,7 +297,7 @@ class ServerAdministrator(AdiminstratorBase):
                     for db in manifest.databases:
 
                         # iterate through all layers to find workspaces/fc's
-                        if self.test_connection_string(con_str, db.onServerConnectionString) or self.test_connection_string(con_str, db.onPremiseConnectionString):
+                        if self.test_connection_string(con_str, db.onServerConnectionString, match_version) or self.test_connection_string(con_str, db.onPremiseConnectionString, match_version):
                             service_map['workspace'].append(MunchEncoder({
                                 'name': service.serviceName,
                                 'service': service
