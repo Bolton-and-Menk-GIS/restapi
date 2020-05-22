@@ -22,7 +22,7 @@ setup(name=name,
                                 'test/testData/*',
                                 'admin/samples/*.py',
                                 'projections/bin/*']},
-      install_requires=['munch', 'requests'],
+      install_requires=['munch', 'requests', 'urllib3'],
       long_description=long_description,
       long_description_content_type='text/markdown',
       classifiers=[
