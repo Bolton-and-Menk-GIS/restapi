@@ -21,13 +21,51 @@ from urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, 
 from urllib3 import disable_warnings
 from . import projections
 from . import enums
+from .globals import RequestClient, DefaultRequestClient
+import warnings
 
 import six
 from six.moves import urllib
+from six.moves.urllib_parse import urlencode
 
 # disable ssl warnings
 for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
     disable_warnings(warning)
+
+# GLOBAL CLIENT
+requestClient = None
+
+def set_request_client(client=None, *args, **kwargs):
+    if not isinstance(client, RequestClient):
+        warning('no request client has been set, using default client')
+        client = DefaultRequestClient(*args, **kwargs)
+    global requestClient
+    requestClient = client
+    requestClient.session.headers.update({ 'User-Agent': USER_AGENT })
+    return requestClient
+
+
+def get_request_client(client=None):
+    if isinstance(client, RequestClient):
+        return client
+
+    if not requestClient:
+        set_request_client()
+    return requestClient
+
+def get_request_method(url, params={}, client=None, method='get'):
+    client = get_request_client(client)
+
+    # validate request method, cannot use GET if total url length is > 2048 characters
+    # force post in this situation
+    if method == 'get':
+        return client.session.get if can_use_get(url, params) else client.session.post
+    
+    return getattr(client.session, method) if hasattr(client.session, method) else client.session.get
+
+def can_use_get(url, params={}):
+    return len('{}?{}'.format(url, urlencode(params))) < 2049
+
 
 class RestapiEncoder(json.JSONEncoder):
     """Encoder for restapi objects to make serializeable for JSON."""
@@ -195,7 +233,7 @@ def tmp_json_file():
         TEMP_DIR = tempfile.mkdtemp()
     return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
-def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, **kwargs):
+def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, client=None, **kwargs):
     """Post Request to REST Endpoint through query string, to post
             request with data in body, use requests.post(url, data:{k : v}).
     
@@ -217,7 +255,6 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
     Returns:
         The post request.
     """
-
     global PROTOCOL
     if PROTOCOL != '':
         service = '{}://{}'.format(PROTOCOL, service.split('://')[-1])
@@ -271,11 +308,34 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
 
     stream = params.get(F) == 'image'
 
+    # mixin default kwargs for requests
+    defaults = {
+        "verify": False,
+        "stream": stream,
+    }
+    for k,v in six.iteritems(defaults):
+        if k not in kwargs:
+            kwargs[k] = v
+    
+    # handle cookies specially to merge
+    kwarg_cookies = kwargs.get('cookies')
+    if isinstance(kwarg_cookies, dict):
+        kwarg_cookies.update(cookies)
+    else:
+        kwargs['cookies'] = cookies
+
     if proxy:
-        r = do_proxy_request(proxy, service, params, referer)
+        # IMPORTANT: this is not a regular proxy, this is the Esri Proxy
+        # see: https://github.com/Esri/resource-proxy
+        r = do_proxy_request(proxy, service, params, referer, request_method=request_method)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
-        r = requests.post(service, params, headers={'User-Agent': USER_AGENT}, cookies=cookies, verify=False, stream=stream)
+        request_method = get_request_method(service, params, client=client, method=kwargs.get('method', 'get'))
+        if request_method.__name__ == 'get':
+            # must use kwargs after url in GET
+            r = request_method(service, params=params, **kwargs)
+        else:
+            r = request_method(service, params, **kwargs)
 
     # make sure return
     if r.status_code != 200:
@@ -292,12 +352,12 @@ def do_post(service, params={F: JSON}, ret_json=True, token='', cookies=None, pr
             return r
 
 
-def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True):
+def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=None, method='get', request_method=None):
     """Makes request against ArcGIS service through a proxy.  This is designed for a
             proxy page that stores access credentials in the configuration to 
             handle authentication. It is also assumed that the proxy is a standard 
             Esri proxy, i.e. retrieved from their repo on GitHub @:
-            https://github.com/Esri/resourceproxy
+            https://github.com/Esri/resource-proxy
     
     Args:
         proxy: Full url to proxy.
@@ -310,7 +370,8 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True):
     Returns:
         The HTTP request.
     """
-
+    if not hasattr(request_method, '__call__'):
+        request_method = get_request_method(client, method)
     frmat = params.get(enums.params.f, enums.params.json)
     if F in params:
         del params[enums.params.f]
@@ -444,7 +505,7 @@ def mil_to_date(mil):
             struct = time.gmtime(mil /1000.0)
             return datetime.datetime.fromtimestamp(time.mktime(struct))
         except Exception as e:
-            print(mil)
+            warnings.warn('bad milliseconds value: {}'.format(mil))
             raise e
 
 def date_to_mil(date=None):
@@ -499,7 +560,7 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
     else:
         infoUrl =  url.split('/rest')[0] + suffix
     # print('infoUrl is: "{}"'.format(infoUrl))
-    infoResp = do_post(infoUrl)
+    infoResp = do_request(infoUrl)
     is_agol = False
     is_portal = enums.agol.urls.sharingRest != url and fnmatch.fnmatch(url, enums.PORTAL_BASE_PATTERN)
     host = six.moves.urllib.parse.urlparse(url).netloc 
@@ -547,15 +608,15 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         params[CLIENT] = REFERER
         params[REFERER] = kwargs.get(REFERER)
 
-    resp = do_post(base, params)
+    resp = do_request(base, params)
     org_resp, portal_resp = None, None
     if is_agol:
         # now call portal sharing
         portal_params = {TOKEN: resp.get(TOKEN)}
-        org_resp = do_post(AGOL_PORTAL_SELF, portal_params)
+        org_resp = do_request(AGOL_PORTAL_SELF, portal_params)
         org_referer = org_resp.get(URL_KEY, '') + ORG_MAPS
         params[REFERER]= org_referer
-        resp = do_post(AGOL_TOKEN_SERVICE, params)
+        resp = do_request(AGOL_TOKEN_SERVICE, params)
         resp['_' + PORTAL_INFO] = org_resp
         # print('PORTAL RESP (AGOL): ', org_resp)
 
@@ -566,14 +627,14 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         # print('portal_base is: "{}"'.format(portalBase))
         portal_url = portalBase + '/rest/portals/self'
         # print('portal self url: "{}"'.format(portal_url))
-        portal_resp = do_post(portal_url, {TOKEN: resp.get(TOKEN)})
+        portal_resp = do_request(portal_url, {TOKEN: resp.get(TOKEN)})
         # print('PORTAL RESP (ENT): ', portal_resp)
         resp['_' + PORTAL_INFO] = portal_resp
         resp[DOMAIN] = get_portal_base(portalBase, root=True)
         
         # get services domain
         serversUrl = portalBase + '/servers'
-        serversResp = do_post(serversUrl, { TOKEN: resp.get(TOKEN) }) 
+        serversResp = do_request(serversUrl, { TOKEN: resp.get(TOKEN) }) 
         resp['servers'] = serversResp.get('servers')
     else:
         resp['_' + PORTAL_INFO] = {}
@@ -659,7 +720,7 @@ def generate_elevated_portal_token(server_url, user_token, **kwargs):
     # first get portal info
     portalBase = get_portal_base(server_url)
     token_url = portalBase + '/rest/generateToken'
-    resp = do_post(token_url, params)
+    resp = do_request(token_url, params)
     resp['_' + PORTAL_INFO] = ID_MANAGER._portal_tokens.get(portalBase, {}).get('_' + PORTAL_INFO)
 
     # set domain and other token props
@@ -764,7 +825,7 @@ class RESTEndpoint(JsonGetter):
     _proxy = None
     _referer = None
 
-    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, client=None, **kwargs):
         """Inits class with login info for service URL.
 
         Args:
@@ -775,8 +836,9 @@ class RESTEndpoint(JsonGetter):
             token: Token to handle security (alternative to usr and pw).
             proxy: Option to use proxy page to handle security, need to provide
                 full path to proxy url.
+            referer: request referrer, may be required when using an ArcGIS Proxy
+            client (RequestClient): the request client
         """
-        
         if PROTOCOL:
             self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
         else:
@@ -786,7 +848,7 @@ class RESTEndpoint(JsonGetter):
         #     self.url = get_portal_base(self.url) + '/rest'       
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             if not fnmatch.fnmatch(self.url, PORTAL_BASE_PATTERN):
-                print('adjusted base url')
+                # print('adjusted base url')
                 _plus_services = self.url + '/arcgis/rest/services'
                 if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
                     self.url = _plus_services
@@ -819,6 +881,8 @@ class RESTEndpoint(JsonGetter):
                     raise tokenException
                 
             # print('token is now: {}'.format(token))
+
+        self.client = get_request_client(client)
         self.token = token
         self._cookie = None
         self._proxy = proxy
@@ -854,7 +918,7 @@ class RESTEndpoint(JsonGetter):
         if isinstance(self.token, Token):
             if self.token.get(IS_AGOL) or self.token.get(IS_PORTAL):
                 params[TOKEN] = str(self.token)
-        self.raw_response = do_post(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy, referer=self._referer)
+        self.raw_response = do_request(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy, referer=self._referer)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
@@ -899,7 +963,8 @@ class RESTEndpoint(JsonGetter):
 
         if 'ret_json' not in kwargs:
             kwargs['ret_json'] = True
-        return do_post(*args, **kwargs)
+        kwargs['client'] = self.client
+        return do_request(*args, **kwargs)
 
     def refresh(self):
         """Refreshes the service."""
@@ -1125,7 +1190,7 @@ class FeatureSet(FeatureSetBase):
         elif isinstance(in_json, dict):
             self.json = munch.munchify(in_json)
         if not all(map(lambda k: k in self.json.keys(), [FIELDS, FEATURES])):
-            print(self.json.keys())
+            # print(self.json.keys())
             raise ValueError('Not a valid Feature Set!')
 
     def extend(self, other):
@@ -1295,7 +1360,7 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
 
 class BaseService(RESTEndpoint, SpatialReferenceMixin):
     """Base class for all services."""
-    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, client=None, **kwargs):
         """Inits class with login info for service.
 
         Args:
@@ -1306,8 +1371,7 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
             proxy: Optional proxy for service. Defaults to None.
             referer: Optional referer from request, defaults to None.
         """
-        
-        super(BaseService, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
+        super(BaseService, self).__init__(url, usr, pw, token, proxy, referer, client=client, **kwargs)
         if NAME not in self.json:
             self.name = self.url.split('/')[-2]
         self.name = self.name.split('/')[-1]
@@ -1518,7 +1582,7 @@ class GPTaskResponse(JsonGetter):
 
                 if self.isAsync:
                     url = '/'.join([self.jobUrl, self.results.get(paramName).get(PARAM_URL)])
-                    result = GPResult(do_post(url, { F: JSON })).value
+                    result = GPResult(do_request(url, { F: JSON })).value
             
             elif isinstance(self.results, list):
                 if not paramName:
