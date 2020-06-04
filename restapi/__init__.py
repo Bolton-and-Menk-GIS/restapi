@@ -22,7 +22,8 @@ __all__ = ['MapServiceLayer',  'ImageService', 'Geocoder', 'FeatureService', 'Fe
            'exportFeatureSet', 'exportReplica', 'exportFeaturesWithAttachments', 'Geometry', 'GeometryCollection',
            'GeocodeService', 'GPService', 'GPTask', 'do_post', 'MapService', 'ArcServer', 'Cursor', 'FeatureSet',
            'generate_token', 'mil_to_date', 'date_to_mil', 'guessWKID', 'validate_name', 'exportGeometryCollection',
-           'GeometryService', 'GeometryCollection', 'getFeatureExtent', 'JsonReplica', 'SQLiteReplica', 'force_open_source'] + \
+           'GeometryService', 'GeometryCollection', 'getFeatureExtent', 'JsonReplica', 'SQLiteReplica', 'force_open_source',
+           'requestClient', 'set_request_client', 'get_request_client', 'get_request_method'] + \
            [d for d in dir(_strings) if not d.startswith('__')]
 
 # package info

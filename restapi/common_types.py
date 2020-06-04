@@ -748,8 +748,8 @@ class ArcServer(RESTEndpoint):
         service_cache: List of service cache.
     """
 
-    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None):
-        super(ArcServer, self).__init__(url, usr, pw, token, proxy, referer)
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, client=None):
+        super(ArcServer, self).__init__(url, usr, pw, token, proxy, referer, client=client)
         self.service_cache = []
 
     def getService(self, name_or_wildcard):
@@ -934,7 +934,7 @@ class Portal(RESTEndpoint):
     """
     _elevated_token = None
 
-    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, **kwargs):
+    def __init__(self, url, usr='', pw='', token='', proxy=None, referer=None, client=None, **kwargs):
         """Gets login credentials for portal.
 
         Args:
@@ -947,7 +947,7 @@ class Portal(RESTEndpoint):
         """
 
         url = get_portal_base(url) + '/rest/portals/self'
-        super(Portal, self).__init__(url, usr, pw, token, proxy, referer, **kwargs)
+        super(Portal, self).__init__(url, usr, pw, token, proxy, referer, client=client, **kwargs)
         service_url = self.json.get('helperServices', {}).get('printTask', {}).get('url', '').split('/Utilities')[0]
 
     @property
@@ -2237,7 +2237,7 @@ class FeatureService(MapService):
 
 class FeatureLayer(MapServiceLayer):
     """Class to handle Feature Service Layer."""
-    def __init__(self, url='', usr='', pw='', token='', proxy=None, referer=None):
+    def __init__(self, url='', usr='', pw='', token='', proxy=None, referer=None, client=None):
         """Inits class with url and login credentials.
 
         Args:
@@ -2252,7 +2252,7 @@ class FeatureLayer(MapServiceLayer):
                 is ignored if no proxy is specified. Defaults to None.
         """
 
-        super(FeatureLayer, self).__init__(url, usr, pw, token, proxy, referer)
+        super(FeatureLayer, self).__init__(url, usr, pw, token, proxy, referer, client=client)
 
         # store list of EditResult() objects to track changes
         self.editResults = []
@@ -3154,7 +3154,7 @@ class GeometryService(RESTEndpoint):
     linear_units = sorted(projections.linearUnits.keys())
     _default_url = 'https://utility.arcgisonline.com/ArcGIS/rest/services/Geometry/GeometryServer'
 
-    def __init__(self, url=None, usr=None, pw=None, token=None, proxy=None, referer=None):
+    def __init__(self, url=None, usr=None, pw=None, token=None, proxy=None, referer=None, client=None):
         """Inits class with login info for arcgis geometry service.
 
         Args:
@@ -3169,7 +3169,7 @@ class GeometryService(RESTEndpoint):
         if not url:
             # use default arcgis online Geometry Service
             url = self._default_url
-        super(GeometryService, self).__init__(url, usr, pw, token, proxy, referer)
+        super(GeometryService, self).__init__(url, usr, pw, token, proxy, referer, client=client)
 
     @staticmethod
     def getLinearUnits():

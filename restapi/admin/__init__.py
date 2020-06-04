@@ -8,7 +8,8 @@ import datetime
 import json
 from collections import namedtuple
 from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, \
-    generate_token, ID_MANAGER, do_post, SpatialReferenceMixin, parse_url, get_portal_base
+    generate_token, ID_MANAGER, do_post, SpatialReferenceMixin, parse_url, get_portal_base, requestClient, \
+    get_request_method, get_request_client
 from ..decorator import decorator
 import munch
 from .._strings import *
@@ -61,7 +62,7 @@ class AdminRESTEndpoint(JsonGetter):
         url: URL for image service.
         token: URL token.
     """
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', client=None):
         """Inits class with credentials.
 
         Args:
@@ -81,6 +82,7 @@ class AdminRESTEndpoint(JsonGetter):
                     and 'localhost' not in url.lower() else url.rstrip('/')
         
         self.token = token
+        self.client = get_request_client(client)
 
         # check for portal stuff first!
         parsed = parse_url(url)
@@ -88,7 +90,7 @@ class AdminRESTEndpoint(JsonGetter):
             portalBase = get_portal_base(url)
             self.url = portalBase
             if not isinstance(token, Token):
-                infoResp = do_post(portalBase + '/rest/info')
+                infoResp = do_request(portalBase + '/rest/info')
                 tokUrl = infoResp.get(enums.auth.info, {}).get(enums.auth.tokenServicesUrl)
                 self.check_for_token(tokUrl, usr, pw, token)
 
@@ -146,7 +148,7 @@ class AdminRESTEndpoint(JsonGetter):
         """Wrapper for request to automatically pass in credentials."""
         if 'token' not in kwargs:
             kwargs['token'] = self.token
-        return do_post(*args, **kwargs)
+        return do_request(*args, **kwargs)
 
     def refresh(self):
         """Refreshes the service properties."""
