@@ -539,7 +539,7 @@ def fix_encoding(s):
         return s.encode('ascii', 'ignore').decode('ascii')
     return s
 
-def generate_token(url, user, pw, expiration=60, **kwargs):
+def generate_token(url, user, pw, expiration=60, client=None, **kwargs):
     """Generates a token to handle ArcGIS Server Security, this is
             different from generating a token from the admin side. Meant
             for external use.
@@ -550,6 +550,7 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         pw: Password credentials for ArcGIS Server.
         expiration: Optional arg for time (in minutes) for token lifetime.
             Max is 100. Defaults to 60.
+        client (RequestClient): the request client
 
     Returns:
         The token for security.
@@ -566,7 +567,7 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
     else:
         infoUrl =  url.split('/rest')[0] + suffix
     # print('infoUrl is: "{}"'.format(infoUrl))
-    infoResp = do_request(infoUrl)
+    infoResp = do_request(infoUrl, client=client)
     is_agol = False
     is_portal = enums.agol.urls.sharingRest != url and fnmatch.fnmatch(url, enums.PORTAL_BASE_PATTERN)
     host = six.moves.urllib.parse.urlparse(url).netloc
@@ -614,15 +615,15 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         params[CLIENT] = REFERER
         params[REFERER] = kwargs.get(REFERER)
 
-    resp = do_request(base, params, method='post')
+    resp = do_request(base, params, method='post', client=client)
     org_resp, portal_resp = None, None
     if is_agol:
         # now call portal sharing
         portal_params = {TOKEN: resp.get(TOKEN)}
-        org_resp = do_request(AGOL_PORTAL_SELF, portal_params)
+        org_resp = do_request(AGOL_PORTAL_SELF, portal_params, client=client)
         org_referer = org_resp.get(URL_KEY, '') + ORG_MAPS
         params[REFERER]= org_referer
-        resp = do_request(AGOL_TOKEN_SERVICE, params)
+        resp = do_request(AGOL_TOKEN_SERVICE, params, client=client)
         resp['_' + PORTAL_INFO] = org_resp
         # print('PORTAL RESP (AGOL): ', org_resp)
 
@@ -633,14 +634,14 @@ def generate_token(url, user, pw, expiration=60, **kwargs):
         # print('portal_base is: "{}"'.format(portalBase))
         portal_url = portalBase + '/rest/portals/self'
         # print('portal self url: "{}"'.format(portal_url))
-        portal_resp = do_request(portal_url, {TOKEN: resp.get(TOKEN)})
+        portal_resp = do_request(portal_url, {TOKEN: resp.get(TOKEN)}, client=client)
         # print('PORTAL RESP (ENT): ', portal_resp)
         resp['_' + PORTAL_INFO] = portal_resp
         resp[DOMAIN] = get_portal_base(portalBase, root=True)
 
         # get services domain
         serversUrl = portalBase + '/servers'
-        serversResp = do_request(serversUrl, { TOKEN: resp.get(TOKEN) })
+        serversResp = do_request(serversUrl, { TOKEN: resp.get(TOKEN)}, client=client)
         resp['servers'] = serversResp.get('servers')
     else:
         resp['_' + PORTAL_INFO] = {}
@@ -703,12 +704,14 @@ def get_portal_base(url, root=False):
     else:
         return url if url.endswith('/sharing') else url.split('/sharing')[0] +  '/sharing'
 
-def generate_elevated_portal_token(server_url, user_token, **kwargs):
+def generate_elevated_portal_token(server_url, user_token, client=None, **kwargs):
     """Generates an elevated portal token.
 
     Args:
         server_url: URL for the server.
         user_token: User token.
+        client: Option to specify a custom restapi.RequestClient session object
+            to perform the request.
 
     Returns:
         The elevated portal token.
@@ -726,7 +729,7 @@ def generate_elevated_portal_token(server_url, user_token, **kwargs):
     # first get portal info
     portalBase = get_portal_base(server_url)
     token_url = portalBase + '/rest/generateToken'
-    resp = do_request(token_url, params)
+    resp = do_request(token_url, params, client=client)
     resp['_' + PORTAL_INFO] = ID_MANAGER._portal_tokens.get(portalBase, {}).get('_' + PORTAL_INFO)
 
     # set domain and other token props
@@ -866,7 +869,7 @@ class RESTEndpoint(JsonGetter):
 
         # if username and password used, generate fresh token, even if one already exists
         if usr and pw:
-            token = generate_token(self.url, usr, pw)
+            token = generate_token(self.url, usr, pw, client=client)
 
         # first try to find token based on domain
         tokenException = None
@@ -924,7 +927,9 @@ class RESTEndpoint(JsonGetter):
         if isinstance(self.token, Token):
             if self.token.get(IS_AGOL) or self.token.get(IS_PORTAL):
                 params[TOKEN] = str(self.token)
-        self.raw_response = do_request(self.url, params, ret_json=False, token=self.token, cookies=self._cookie, proxy=self._proxy, referer=self._referer)
+        self.raw_response = do_request(self.url, params, ret_json=False,
+            token=self.token, cookies=self._cookie, proxy=self._proxy,
+            referer=self._referer, client=self.client)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
@@ -1376,6 +1381,8 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
             token: Token for service. Defaults to ''.
             proxy: Optional proxy for service. Defaults to None.
             referer: Optional referer from request, defaults to None.
+            client: Option to specify a custom restapi.RequestClient session object
+                to perform the request.
         """
         super(BaseService, self).__init__(url, usr, pw, token, proxy, referer, client=client, **kwargs)
         if NAME not in self.json:
