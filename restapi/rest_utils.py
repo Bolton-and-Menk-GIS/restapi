@@ -313,6 +313,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
 
     # mixin default kwargs for requests
     defaults = {
+        # TODO: remove verify default, breaking change
         "verify": False,
         "stream": stream,
     }
@@ -330,7 +331,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
     if proxy:
         # IMPORTANT: this is not a regular proxy, this is the Esri Proxy
         # see: https://github.com/Esri/resource-proxy
-        r = do_proxy_request(proxy, service, params, referer, request_method=request_method, client=client)
+        r = do_proxy_request(proxy, service, params, referer, client=client)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
         request_method = get_request_method(service, params, client=client, method=kwargs.get('method', 'get'))
@@ -356,7 +357,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
             return r
 
 
-def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=None, method='get', request_method=None):
+def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=None, method='post', request_method=None):
     """Makes request against ArcGIS service through a proxy.  This is designed for a
             proxy page that stores access credentials in the configuration to
             handle authentication. It is also assumed that the proxy is a standard
@@ -376,20 +377,19 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=
     Returns:
         The HTTP request.
     """
-    if not hasattr(request_method, '__call__'):
-        request_method = get_request_method(client, method)
     frmat = params.get(enums.params.f, enums.params.json)
-    if F in params:
-        del params[enums.params.f]
+    params.pop(F, None)
 
-    #p = '&'.join('{}={}'.format(k,v) for k,v in six.iteritems(params))
-
-    # probably a better way to do this...
     headers = {'User-Agent': USER_AGENT}
+    proxied_rquest = requests.Request('POST', url, params={F: frmat})
+    proxied_url = '{}?{}'.format(proxy, proxied_rquest.prepare().url)
+    if not hasattr(request_method, '__call__'):
+        request_method = get_request_method(proxied_url, method=method, client=client)
     if referer:
         headers[enums.headers.referer] = referer
-    #return requests.post('{}?{}?f={}&{}'.format(proxy, url, frmat, p).rstrip('&'), verify=False, headers=headers)
-    return requests.post('{}?{}?f={}'.format(proxy, url, frmat).rstrip('&'), params, verify=False, headers=headers)
+    # TODO: enabled cert verification, breaking change
+    return request_method(proxied_url, params, verify=False, headers=headers)
+#    return requests.post('{}?{}?f={}'.format(proxy, url, frmat).rstrip('&'), params, verify=False, headers=headers)
 
 def guess_proxy_url(domain):
     """Grade school level hack to see if there is a standard esri proxy available
