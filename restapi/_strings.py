@@ -406,7 +406,10 @@ PORTAL_BASE_PATTERN = 'http*://*/sharing/rest*'
 PORTAL_SERVICES_PATTERN = 'http*://*/sharing/servers/*/rest/services/*'
 VERSION = '1.0.5'
 PACKAGE_NAME = 'restapi'
-USER_AGENT = '{} (Python)'.format(PACKAGE_NAME)
+USER_AGENT = '{}/{} (Python)'.format(PACKAGE_NAME, VERSION)
+GET = 'GET'
+POST = 'POST'
+
 PROTOCOL = ''
 
 # WKID json files

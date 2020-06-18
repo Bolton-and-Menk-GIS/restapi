@@ -36,6 +36,7 @@ __all__ = ['ArcServerAdmin', 'Service', 'Folder', 'Cluster', 'do_request',
            'generate_token', 'VERBOSE', 'mil_to_date', 'date_to_mil',
            'AGOLAdmin', 'AGOLFeatureService', 'AGOLFeatureLayer', 'AGOLMapService']
 
+
 @decorator
 def passthrough(f, *args, **kwargs):
     """Decorator to print results of function/method and returns json object.
@@ -157,6 +158,7 @@ class AdminRESTEndpoint(JsonGetter):
         """Refreshes the service properties."""
         self.__init__(self.url, token=self.token)
 
+
 class BaseDirectory(AdminRESTEndpoint):
     """Class to handle objects in service directory.
 
@@ -188,12 +190,12 @@ class BaseDirectory(AdminRESTEndpoint):
         Returns:
             A list of the added permissions.
         """
-
+        method = POST
         add_url = self._permissionsURL + '/add'
         added_permissions = []
         if principal:
             params = {PRINCIPAL: principal, IS_ALLOWED: isAllowed}
-            r = self.request(add_url, params)
+            r = self.request(add_url, params, method=method)
 
             for k,v in six.iteritems(params):
                 r[k] = v
@@ -203,10 +205,10 @@ class BaseDirectory(AdminRESTEndpoint):
             params = {PRINCIPAL: ESRI_EVERYONE, IS_ALLOWED: FALSE}
 
             if private:
-                r = self.request(add_url, params)
+                r = self.request(add_url, params, method=method)
             else:
                 params[IS_ALLOWED] = TRUE
-                r = self.request(add_url, params)
+                r = self.request(add_url, params, method=method)
 
             for k,v in six.iteritems(params):
                 r[k] = v
@@ -240,6 +242,7 @@ class BaseDirectory(AdminRESTEndpoint):
         """Returns a report for resource."""
         return [Report(r) for r in self.request(self.url + '/report')['reports']]
 
+
 class BaseResource(JsonGetter):
     """Base resource class.
 
@@ -257,6 +260,7 @@ class BaseResource(JsonGetter):
         self.json = munch.munchify(in_json)
         super(BaseResource, self).__init__()
 
+
 class EditableResource(JsonGetter):
     """Class that handles editable resources."""
     def __getitem__(self, name):
@@ -273,12 +277,14 @@ class EditableResource(JsonGetter):
             # it is in the json definition
             if name in self.json:
                 return self.json[name]
+            elif name =='client':
+                pass
             else:
                 raise AttributeError(name)
 
     def __setattr__(self, name, value):
         """Properly sets attributes for class as well as json abstraction."""
-        # make sure our value is a Bunch if dict
+        # make sure our value is a Munch if dict
         if isinstance(value, (dict, list)) and name != 'response':
             value = munch.munchify(value)
         try:
@@ -289,6 +295,8 @@ class EditableResource(JsonGetter):
             # set in json definition
             if name in self.json:
                 self.json[name] = value
+            elif name == 'client':
+                pass
             else:
                raise AttributeError(name)
 
@@ -324,7 +332,7 @@ class DataItem(BaseResource):
         """
 
         query_url = self.url + '/machines/{}/makePrimary'.format(machineName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     def validateDataStore(self, machineName):
         """Ensures that the data store is valid.
@@ -334,7 +342,8 @@ class DataItem(BaseResource):
         """
 
         query_url = self.url + '/machines/{}/validate'.format(machineName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
+
 
 class Item(AdminRESTEndpoint):
     """This resource represents an item that has been uploaded to the server. Various
@@ -370,13 +379,13 @@ class PrimarySiteAdministrator(AdminRESTEndpoint):
     def disable(self):
         """Disables the primary site administartor account."""
         query_url = self.url + '/disable'
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def enable(self):
         """Enables the primary site administartor account."""
         query_url = self.url + '/enable'
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def update(self, username, password):
@@ -392,7 +401,7 @@ class PrimarySiteAdministrator(AdminRESTEndpoint):
         params = {'username': username,
                   'password': password}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def __bool__(self):
         """Returns True if PSA is enabled."""
@@ -420,7 +429,7 @@ class RoleStore(AdminRESTEndpoint):
             'description': description or rolename,
         }
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def getRoles(self, startIndex='', pageSize=1000):
         """This operation gives you a pageable view of roles in the role store.
@@ -437,7 +446,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'startIndex': startIndex,
                   'pageSize': pageSize}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def searchRoles(self, filter='', maxCount=''):
         """Searches the role store.
@@ -451,7 +460,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'filter': filter,
                   'maxCount': maxCount}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def removeRole(self, rolename):
@@ -462,7 +471,7 @@ class RoleStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/remove'
-        return self.request({'rolename':rolename})
+        return self.request({'rolename':rolename}, method=POST)
 
     @passthrough
     def updateRole(self, rolename, description=''):
@@ -478,7 +487,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'description': description}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def getRolesForUser(self, username, filter='', maxCount=100):
@@ -495,7 +504,7 @@ class RoleStore(AdminRESTEndpoint):
                   'filter': filter,
                   'maxCount': maxCount}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def getUsersWithinRole(self, rolename, filter='', maxCount=100):
@@ -512,7 +521,7 @@ class RoleStore(AdminRESTEndpoint):
                   'filter': filter,
                   'maxCount': maxCount}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def addUsersToRole(self, rolename, users):
@@ -531,7 +540,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'users': users}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def removeUsersFromRole(self, rolename, users):
@@ -550,7 +559,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'users': users}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def assignPrivilege(self, rolename, privilege='ACCESS'):
@@ -567,7 +576,7 @@ class RoleStore(AdminRESTEndpoint):
         params = {'rolename': rolename,
                   'privilege': privilege.upper()}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def getPrivilegeForRole(self, rolename):
@@ -578,7 +587,7 @@ class RoleStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/getPrivilege'
-        return self.request(query_url, {'rolename':rolename})
+        return self.request(query_url, {'rolename':rolename}, method=POST)
 
     @passthrough
     def getRolesByPrivilege(self, privilege):
@@ -589,7 +598,7 @@ class RoleStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/getRolesByPrivilege'
-        return self.request(query_url, {'privilege': privilege.upper()})
+        return self.request(query_url, {'privilege': privilege.upper()}, method=POST)
 
     def __iter__(self):
         """Makes iterable."""
@@ -619,7 +628,7 @@ class UserStore(AdminRESTEndpoint):
                   'description': description,
                   'email': email}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def getUsers(self, startIndex='', pageSize=''):
@@ -635,7 +644,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'startIndex': startIndex,
                   'pageSize': pageSize}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def searchUsers(self, filter='', maxCount=''):
         """Searches the user store, returns User objects.
@@ -650,7 +659,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'filter': filter,
                   'maxCount': maxCount}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def removeUser(self, username):
@@ -661,7 +670,7 @@ class UserStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/remove'
-        return self.request(query_url, {'username':username})
+        return self.request(query_url, {'username':username}, method=POST)
 
     @passthrough
     def updateUser(self, username, password, fullname='', description='', email=''):
@@ -689,7 +698,7 @@ class UserStore(AdminRESTEndpoint):
             if v:
                 params[k] = v
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def assignRoles(self, username, roles):
@@ -707,7 +716,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'username': username,
                   'roles': roles}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def removeRoles(self, username, rolenames):
@@ -727,7 +736,7 @@ class UserStore(AdminRESTEndpoint):
         params = {'username': username,
                   'roles': roles}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def getPrivilegeForUser(self, username):
@@ -739,7 +748,7 @@ class UserStore(AdminRESTEndpoint):
 
         query_url = self.url + '/getPrivilege'
         params = {'username': username}
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def __iter__(self):
         """Makes iterable."""
@@ -783,7 +792,7 @@ class DataStore(AdminRESTEndpoint):
 
         if self.validateItem(item):
             query_url = self.url + '/registerItem'
-            return self.request(query_url, params={'item': item})
+            return self.request(query_url, params={'item': item}, method=POST)
 
         return None
 
@@ -797,7 +806,7 @@ class DataStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/unregisterItem'
-        return self.request(query_url, {'itemPath': itemPath, 'force': force})
+        return self.request(query_url, {'itemPath': itemPath, 'force': force}, method=POST)
 
     def findItems(self, parentPath, ancestorPath='', types='', id=''):
         """Searches through items registered in data store.
@@ -835,7 +844,7 @@ class DataStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/validateDataItem'
-        r = self.request(query_url, {'item': item})
+        r = self.request(query_url, {'item': item}, method=POST)
         if 'status' in r and r['status'] == 'success':
             return True
         else:
@@ -849,7 +858,7 @@ class DataStore(AdminRESTEndpoint):
                 with the data store.
         """
 
-        return self.request(self.url + '/validateAllDataItems')
+        return self.request(self.url + '/validateAllDataItems', method=POST)
 
     def computeRefCount(self, path):
         """Returns the total number of references to a given data item that exists
@@ -878,7 +887,7 @@ class DataStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/items/{}/machines/{}/start'.format(dataItem, machineName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def stopMachine(self, dataItem, machineName):
@@ -890,7 +899,7 @@ class DataStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/items/{}/machines/{}/stop'.format(dataItem, machineName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def removeMachine(self, dataItem, machineName):
@@ -902,7 +911,7 @@ class DataStore(AdminRESTEndpoint):
             machineName: Name of machine to validate data store against.
         """
         query_url = self.url + '/items/{}/machines/{}/remove'.format(dataItem, machineName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def makePrimary(self, dataItem, machineName):
@@ -914,7 +923,7 @@ class DataStore(AdminRESTEndpoint):
             machineName: Name of machine to make primary.
         """
         query_url = self.url + '/items/{}/machines/{}/makePrimary'.format(dataItem, machineName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     def validateDataStore(self, dataItem, machineName):
         """Ensures that the data store is valid.
@@ -925,7 +934,7 @@ class DataStore(AdminRESTEndpoint):
         """
 
         query_url = self.url + '/items/{}/machines/{}/validate'.format(dataItem, machineName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def updateDatastoreConfig(self, datastoreConfig={}):
@@ -941,7 +950,7 @@ class DataStore(AdminRESTEndpoint):
         query_url = self.url + '/config/update'
         if not datastoreConfig:
             datastoreConfig = '{"blockDataCopy":"true"}'
-        return self.request(query_url, {'datastoreConfig': datastoreConfig})
+        return self.request(query_url, {'datastoreConfig': datastoreConfig}, method=POST)
 
     def __iter__(self):
         """Makes iterable."""
@@ -967,12 +976,12 @@ class Cluster(AdminRESTEndpoint):
     @passthrough
     def start(self):
         """Starts the cluster."""
-        return self.request(self.url + '/start')
+        return self.request(self.url + '/start', method=POST)
 
     @passthrough
     def stop(self):
         """Stops the cluster"""
-        return self.request(self.url + '/stop')
+        return self.request(self.url + '/stop', method=POST)
 
     @passthrough
     def delete(self):
@@ -981,7 +990,7 @@ class Cluster(AdminRESTEndpoint):
                 services in cluster are stopped.
         """
 
-        return self.request(self.url + '/delete')
+        return self.request(self.url + '/delete', method=POST)
 
     @passthrough
     def editProtocol(self, clusterProtocol):
@@ -1005,7 +1014,7 @@ class Cluster(AdminRESTEndpoint):
         query_url = self.url + '/editProtocol'
         params = {'clusterProtocol': clusterProtocol}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def addMachines(self, machineNames):
@@ -1023,7 +1032,7 @@ class Cluster(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return self.request(query_url, {'machineNames': machineNames})
+        return self.request(query_url, {'machineNames': machineNames}, method=POST)
 
     @passthrough
     def removeMachines(self, machineNames):
@@ -1040,7 +1049,7 @@ class Cluster(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return self.request(query_url, {'machineNames': machineNames})
+        return self.request(query_url, {'machineNames': machineNames}, method=POST)
 
 
 class Folder(BaseDirectory):
@@ -1064,7 +1073,7 @@ class Folder(BaseDirectory):
     def delete(self):
         """Deletes the folder."""
         query_url = self.url + '/deleteFolder'
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def edit(self, description, webEncrypted):
@@ -1078,7 +1087,7 @@ class Folder(BaseDirectory):
 
         query_url = self.url + '/editFolder'
         params = {'description': description, 'webEncrypted': webEncrypted}
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def __getitem__(self, i):
         """Gets service by index"""
@@ -1098,9 +1107,9 @@ class Folder(BaseDirectory):
         return bool(len(self))
 
 class Service(BaseDirectory, EditableResource):
-    """Class to handle inernal ArcGIS Service instance all service properties
-            are accessed through the service's json property.  To get full list print()
-            Service.json or Service.print_info().
+    """Class to handle internal ArcGIS Service instance all service properties
+            are accessed through the service's json property.  To get full list
+            print() Service.json or Service.print_info().
 
     Attributes:
         fullName: List of full URL name.
@@ -1116,7 +1125,7 @@ class Service(BaseDirectory, EditableResource):
     serviceName = None
     json = {}
 
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', client=None):
         """Initializes with json definition plus additional attributes.
 
         Args:
@@ -1126,7 +1135,7 @@ class Service(BaseDirectory, EditableResource):
             token: Token for URL login.
         """
 
-        super(Service, self).__init__(url, usr, pw, token)
+        super(Service, self).__init__(url, usr, pw, token, client=client)
         self.fullName = self.url.split('/')[-1]
         self.serviceName = self.fullName.split('.')[0]
 
@@ -1228,7 +1237,7 @@ class Service(BaseDirectory, EditableResource):
         """Starts the service."""
         r = {}
         if self.configuredState.lower() == 'stopped':
-            r = self.request(self.url + '/start')
+            r = self.request(self.url + '/start', method=POST)
             if 'success' in r:
                 print('started: {}'.format(self.fullName))
             self.refresh()
@@ -1241,7 +1250,7 @@ class Service(BaseDirectory, EditableResource):
         """Stops the service."""
         r = {}
         if self.configuredState.lower() == 'started':
-            r = self.request(self.url + '/stop')
+            r = self.request(self.url + '/stop', method=POST)
             if 'success' in r:
                 print('stoppedd: {}'.format(self.fullName))
             self.refresh()
@@ -1278,13 +1287,13 @@ class Service(BaseDirectory, EditableResource):
         for k,v in six.iteritems(kwargs):
             serviceJSON[k] = v
         params = {'service': serviceJSON}
-        r = self.request(self.url + '/edit', params)
+        r = self.request(self.url + '/edit', params, method=POST)
         self.refresh()
 
     @passthrough
     def delete(self):
         """Deletes the service, proceed with caution."""
-        r = self.request(self.url + '/delete')
+        r = self.request(self.url + '/delete', method=POST)
         self.response = None
         self.url = None
         return r
@@ -1325,7 +1334,7 @@ class Service(BaseDirectory, EditableResource):
                   'token': self.token.token if isinstance(self.token, Token) else self.token,
                   'f': 'json'}
 
-        return requests.post(query_url, params, files=files, verify=False).json()
+        return self.request(query_url, params, files=files, verify=False, method=POST).json()
 
     @passthrough
     def uploadItemInfo(self, folder, file):
@@ -1338,13 +1347,13 @@ class Service(BaseDirectory, EditableResource):
         """
 
         query_url = self.url + '/iteminfo/upload'
-        return self.request(query_url, {'folder': folder, 'file':file})
+        return self.request(query_url, {'folder': folder, 'file':file}, method=POST)
 
     @passthrough
     def deleteItemInformation(self):
         """Deletes information about the service, configuration is not changed."""
         query_url = self.url + '/iteminfo/delete'
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     def manifest(self):
         """Gets service manifest. This  documents the data and other resources
@@ -1527,7 +1536,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'machineNames': machineNames,
                   'topClusterPort': topCluserPort}
 
-        return self.request(self._clusterURL + '/create', params)
+        return self.request(self._clusterURL + '/create', params, method=POST)
 
     def getAvailableMachines(self):
         """Lists all server machines that don't participate in a cluster and are
@@ -1546,7 +1555,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         self._clusterURL + '/{}/start'.format(clusterName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def stopCluster(self, clusterName):
@@ -1557,7 +1566,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         self._clusterURL + '/{}/stop'.format(clusterName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def editProtocol(self, clusterName, clusterProtocol):
@@ -1582,7 +1591,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         query_url = self._clusterURL + '/{}/editProtocol'.format(clusterName)
         params = {'clusterProtocol': clusterProtocol}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def deleteCluster(self, clusterName):
@@ -1593,7 +1602,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         query_url = self._clusterURL + '/{}/delete'.format(clusterName)
-        self.request(query_url, {'clusterName': clusterName})
+        self.request(query_url, {'clusterName': clusterName}, method=POST)
 
     def getMachinesInCluster(self, clusterName):
         """Returns a list all server machines participating in a cluster.
@@ -1628,7 +1637,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return self.request(query_url, {'machineNames': machineNames})
+        return self.request(query_url, {'machineNames': machineNames}, method=POST)
 
     @passthrough
     def removeMachinesFromCluster(self, clusterName, machineNames):
@@ -1646,7 +1655,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if isinstance(machineNames, (list, tuple)):
             machineNames = ','.join(machineNames)
 
-        return self.request(query_url, {'machineNames': machineNames})
+        return self.request(query_url, {'machineNames': machineNames}, method=POST)
 
     #----------------------------------------------------------------------
     # data store.  To use all data store methods connect to data store
@@ -1874,7 +1883,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'maxLogFileAge': maxLogFileAge,
                   'maxErrorReportsCount': maxErrorReportsCount}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def queryLogs(self, startTime='', endTime='', sinceLastStarted=False, level='WARNING', filter=None, pageSize=1000):
         """Queries all log reports accross an entire site.
@@ -1987,12 +1996,12 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 Default is All.
         """
 
-        return self.request(self._logsURL + 'countErrorReports')
+        return self.request(self._logsURL + 'countErrorReports', method=POST)
 
     @passthrough
     def cleanLogs(self):
         """Cleans all log reports. Proceed with caution, cannot be undone!"""
-        return self.request(self._logsURL + '/clean')
+        return self.request(self._logsURL + '/clean', method=POST)
     #----------------------------------------------------------------------
     # SECURITY
 
@@ -2310,7 +2319,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         params = {'securityConfig': json.dumps(securityConfig)
                     if isinstance(securityConfig, dict) else securityConfig}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def updateIdentityStore(self, userStoreConfig, roleStoreConfig):
@@ -2360,7 +2369,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'roleStoreConfig': json.dumps(roleStoreConfig)
                     if isinstance(roleStoreConfig, dict) else roleStoreConfig}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def testIdentityStore(self, userStoreConfig, roleStoreConfig):
@@ -2395,7 +2404,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'roleStoreConfig': json.dumps(roleStoreConfig)
                     if isinstance(roleStoreConfig, dict) else roleStoreConfig}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     # TOKENS -----------------------------------------
     @passthrough
@@ -2429,20 +2438,20 @@ class ArcServerAdmin(AdminRESTEndpoint):
         params = {'securityConfig': json.dumps(tokenManagerConfig)
                     if isinstance(tokenManagerConfig, dict) else tokenManagerConfig}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     # PRIMARY SITE ADMINISTRATOR ------------------------------
     @passthrough
     def disablePSA(self):
         """Disables the primary site administrator account."""
         query_url = self._securityURL + '/psa/disable'
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def enablePSA(self):
         """Enables the primary site administrator account."""
         query_url = self._securityURL + '/psa/enable'
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def updatePSA(self, username, password):
@@ -2460,7 +2469,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         params = {'username': username,
                   'password': password}
 
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     #----------------------------------------------------------------------
     # services
@@ -2519,7 +2528,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         else:
             service_url = self.get_service_url(service_name_or_wildcard, False)
         if service_url:
-            return Service(service_url)
+            return Service(service_url, client=self.client)
         else:
             print('No Service found matching: "{}"'.format(service_name_or_wildcard))
             return None
@@ -2568,7 +2577,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         added_permissions = []
         if principal:
             params = {PRINCIPAL: principal, IS_ALLOWED: isAllowed}
-            r = self.request(add_url, params)
+            r = self.request(add_url, params, method=POST)
             for k,v in six.iteritems(params):
                 r[k] = v
             params.append(r)
@@ -2577,10 +2586,10 @@ class ArcServerAdmin(AdminRESTEndpoint):
             params = {PRINCIPAL: ESRI_EVERYONE, IS_ALLOWED: FALSE}
 
             if private:
-                r = self.request(add_url, params)
+                r = self.request(add_url, params, method=POST)
             else:
                 params[IS_ALLOWED] = TRUE
-                r = self.request(add_url, params)
+                r = self.request(add_url, params, method=POST)
 
             for k,v in six.iteritems(params):
                 r[k] = v
@@ -2623,7 +2632,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         query_url = self._permissionsURL + '/clean'
-        return self.request(query_url, {'principal': principal})
+        return self.request(query_url, {'principal': principal}, method=POST)
 
     @passthrough
     def createFolder(self, folderName, description=''):
@@ -2637,7 +2646,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         query_url = self._servicesURL + '/createFolder'
         params = {'folderName': folderName, 'description': description}
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def deleteFolder(self, folderName):
@@ -2647,7 +2656,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         query_url = self._servicesURL + '{}/deleteFolder'.format(folderName)
-        return self.request(query_url)
+        return self.request(query_url, method=POST)
 
     @passthrough
     def editFolder(self, folderName, description, webEncrypted):
@@ -2662,7 +2671,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
         query_url = self._servicesURL + '/{}/editFolder'.format(folderName)
         params = {'description': description, 'webEncrypted': webEncrypted}
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     def extensions(self):
         """Returns list of custom server object extensions that are registered with the server."""
@@ -2679,7 +2688,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         query_url = self._extensionsURL + '/register'
-        return self.request(query_url, {'id': id})
+        return self.request(query_url, {'id': id}, method=POST)
 
     @passthrough
     def unregisterExtension(self, extensionFileName):
@@ -2690,7 +2699,8 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         query_url = self._extensionsURL + '/unregister'
-        return self.request(query_url, {'extensionFileName': extensionFileName})
+        return self.request(query_url, {'extensionFileName': extensionFileName},
+            method=POST)
 
     @passthrough
     def updateExtension(self, id):
@@ -2699,7 +2709,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         id: itemID of the uploaded .SOE file.
         """
 
-        return self.request(self._extensionsURL + '/update', {'id': id})
+        return self.request(self._extensionsURL + '/update', {'id': id}, method=POST)
 
     @passthrough
     def federate(self):
@@ -2707,7 +2717,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 make them available for portal.
         """
 
-        return self.request(self._servicesURL + '/federate')
+        return self.request(self._servicesURL + '/federate', method=POST)
 
     @passthrough
     def unfederate(self):
@@ -2715,7 +2725,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 from Portal.
         """
 
-        return self.request(self._servicesURL + '/unfederate')
+        return self.request(self._servicesURL + '/unfederate', method=POST)
 
     @passthrough
     def startServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
@@ -2784,7 +2794,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             return RequestError({'error': 'no services specified!'})
 
         params = {'services': json.dumps(servicesAsJSON) if isinstance(servicesAsJSON, dict) else servicesAsJSON}
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def stopServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
@@ -2853,7 +2863,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             return RequestError({'error': 'no services specified!'})
 
         params = {'services': json.dumps(servicesAsJSON) if isinstance(servicesAsJSON, dict) else servicesAsJSON}
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def restartServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
@@ -2979,7 +2989,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                   'configStoreConnection': configStoreConnection,
                   'directories': directories,
                   'cluster': cluster}
-        return self.request(query_url, params)
+        return self.request(query_url, params, method=POST)
 
     @passthrough
     def deleteSite(self, f=JSON):
@@ -2990,7 +3000,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             f: Format for response (html|json). Default is JSON.
         """
 
-        return self.request(self._adminURL + '/deleteSite', {F: f})
+        return self.request(self._adminURL + '/deleteSite', {F: f}, method=POST)
 
     @passthrough
     def exportSite(self, location=None, f=JSON):
@@ -3010,7 +3020,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             LOCATION: location,
             F: f
         }
-        return self.request(url, params)
+        return self.request(url, params, method=POST)
 
     def generate_token(self, usr, pw, expiration=60):
         """Returns a token to handle ArcGIS Server Security, this is
@@ -3025,7 +3035,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """
 
         global generate_token
-        return generate_token(usr, pw, expiration)
+        return generate_token(usr, pw, expiration, client=self.client)
 
     def importSite(self,  location=None, f=JSON):
         """This operation imports a site configuration into the currently
@@ -3044,7 +3054,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             LOCATION: location,
             F: f
         }
-        return self.request(url, params)
+        return self.request(url, params, method=POST)
 
     def joinSite(self, adminURL, username, password, f):
         """This is used to connect a server machine to an existing site. This is
@@ -3069,7 +3079,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             PASSWORD: password,
             F: f
         }
-        return self.request(url, params)
+        return self.request(url, params, method=POST)
 
     def publicKey(self, f=JSON):
         """Returns the public key of the server that can be used by a client
@@ -3125,17 +3135,21 @@ class AGOLAdminInitializer(AdminRESTEndpoint):
 
         if '/admin/' not in url.lower():
             url = url.split('/rest/')[0] + '/rest/admin/' + url.split('/rest/')[-1]
-        super(AGOLAdminInitializer, self).__init__(url, usr, pw, token)
+        super(AGOLAdminInitializer, self).__init__(url, usr, pw, token, client)
+
 
 class Portal(AdminRESTEndpoint):
 
     def getServers(self):
         servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
-        serversResp = requests.get(servers_url, {TOKEN: self.token.token, F: JSON}, verify=False).json()
+        request_method = get_request_method(servers_url, {TOKEN: self.token.token, F: JSON})
+        # TODO: verify True
+        serversResp = request_method(servers_url, {TOKEN: self.token.token, F: JSON}, client=self.client, verify=False).json()
         return [ArcServerAdmin(s.get('adminUrl') + '/admin/services', token=self.token) for s in serversResp.get('servers', [])]
 
     def __repr__(self):
         return '<{}:Admin: "{}">'.format(self.__class__.__name__, self.name)
+
 
 class AGOLAdmin(AGOLAdminInitializer):
     """Class to handle AGOL Hosted Services Admin capabilities."""
@@ -3320,7 +3334,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
 
     def reload(self):
         """Reloads the service to catch any changes."""
-        self.__init__(self.url, token=self.token)
+        self.__init__(self.url, token=self.token, client=self.client)
 
     def status(self):
         """Returns the status on service (whether it is stopped or started)."""
@@ -3437,7 +3451,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
             ASYNC: runAsync
         }
 
-        return self.request(url, params)
+        return self.request(url, params, method=POST)
 
     def __repr__(self):
         return '<{}: "{}">'.format(self.__class__.__name__, self.name)
