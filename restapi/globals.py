@@ -8,7 +8,7 @@ class RequestClient(object):
         self.session = session
 
 class DefaultRequestClient(RequestClient):
-    """singleton for a DefaultRequestClien, should only be initialized once"""
+    """singleton for a DefaultRequestClient, should only be initialized once"""
     _instance = None
     session = None
 

@@ -432,7 +432,7 @@ from restapi import admin
 ### Connecting to a Portal
 ```py
 url = 'https://domain.gis.com/portal/home'
-portal = restapi.admin.Portal(url, 'username', 'password')
+portal = admin.Portal(url, 'username', 'password')
 
 # get servers
 servers = portal.servers
