@@ -723,3 +723,43 @@ The printing of these messages can be shut off by changing the global "VERBOSE" 
 ```py
 admin.VERBOSE = False 
 ```
+
+
+## Advanced Usage
+
+From version XXX, it is possible to use a custom `requests.Session()` instance. This instance can be defined globally for all requests made by `restapi`, or it can be passed on each function call as a `restapi.RequestClient()` object. This can be useful if different parameters are needed to access different servers.
+
+Use this functionality to access servers behind HTTP or SOCKS proxies, to disable certificate validation or use custom CA certificates, or if additional authentication is needed. Refer to the [requests.Session()](https://requests.readthedocs.io/en/master/user/advanced/#session-objects) documentation for details
+
+```py
+# Create a restapi.RequestClient() object.
+custom_session = requests.Session()
+custom_client = restapi.RequestClient(custom_session)
+
+# Customize the client
+proxies = {
+ “http”: “http://10.10.10.10:8000”,
+ “https”: “http://10.10.10.10:8000”,
+}
+custom_client.session.proxies = proxies
+custom_client.session.headers['Source-Client'] = 'Custom'
+
+# Use the client for an individual call
+rest_url = 'https://gis.ngdc.noaa.gov/arcgis/rest/services'
+arcserver = restapi.ArcServer(rest_url, client=custom_client)
+
+# Set a different client as client as restapi's default
+global_session = requests.Session()
+global_client = restapi.RequestClient(global_session)
+custom_client.session.headers['Source-Client'] = 'Global'
+restapi.set_request_client(global_client)
+
+# Now any call made by restapi will use the custom client
+arcserver = restapi.ArcServer(rest_url)
+
+# The global client can also be accessed directly
+restapi.requestClient.headers['Another-Header'] = 'Header is here'
+
+```
+
+Any session objects which extend `requests.Session()` should be supported, for example, [pypac.PACSession()](https://pypi.org/project/pypac/).
