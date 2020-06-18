@@ -137,7 +137,6 @@ class AdminRESTEndpoint(JsonGetter):
     def check_for_token(self, url, usr=None, pw=None, token=None):
         if not self.token:
             if usr and pw:
-                print(self.client.session.headers)
                 self.token = generate_token(url, usr, pw, client=self.client)
             else:
                 self.token = ID_MANAGER.findToken(self.url)
