@@ -34,24 +34,40 @@ for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarni
 
 # GLOBAL CLIENT
 requestClient = None
+STANDARD_HEADERS = {
+        'User-Agent': USER_AGENT,
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate',
+    }
+
 
 def set_request_client(client=None, *args, **kwargs):
     if not isinstance(client, RequestClient):
         warning('no request client has been set, using default client')
         client = DefaultRequestClient(*args, **kwargs)
+    client = add_standard_headers(client)
     global requestClient
     requestClient = client
-    requestClient.session.headers.update({ 'User-Agent': USER_AGENT })
     return requestClient
 
 
 def get_request_client(client=None):
     if isinstance(client, RequestClient):
-        return client
-
+        return add_standard_headers(client)
     if not requestClient:
         set_request_client()
     return requestClient
+
+
+def add_standard_headers(client):
+    if isinstance(client, DefaultRequestClient):
+        client.session.headers.update(STANDARD_HEADERS)
+    else:
+        for k, v in STANDARD_HEADERS.items():
+            if not k in client.session.headers:
+                client.session.headers[k] = v
+    return client
+
 
 def get_request_method(url, params={}, client=None, method='get'):
     client = get_request_client(client)
@@ -852,12 +868,8 @@ class RESTEndpoint(JsonGetter):
             self.url = PROTOCOL + '://' + url.split('://')[-1].rstrip('/') if not url.startswith(PROTOCOL) else url.rstrip('/')
         else:
             self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
-        # print('checking url: ', url, fnmatch.fnmatch(url, PORTAL_BASE_PATTERN + '/*'))
-        # if not fnmatch.fnmatch(self.url, PORTAL_SERVICES_PATTERN) and fnmatch.fnmatch(self.url, PORTAL_BASE_PATTERN + '/*'):
-        #     self.url = get_portal_base(self.url) + '/rest'
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             if not fnmatch.fnmatch(self.url, PORTAL_BASE_PATTERN):
-                # print('adjusted base url')
                 _plus_services = self.url + '/arcgis/rest/services'
                 if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
                     self.url = _plus_services
@@ -874,7 +886,6 @@ class RESTEndpoint(JsonGetter):
         # first try to find token based on domain
         tokenException = None
         if not token:
-            # print('no token passed, but is there one?')
             # first check for existing token
             try:
                 token = ID_MANAGER.findToken(url)
