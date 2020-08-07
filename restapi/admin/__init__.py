@@ -127,9 +127,8 @@ class AdminRESTEndpoint(JsonGetter):
         if self.url.endswith('/sharing'):
             resource_url = self.url + '/rest/portals/self'
 
-        # TODO: verify certs, breaking change
         request_method = get_request_method(resource_url, params, client=self.client)
-        self.raw_response = request_method(resource_url, params=params, verify=False)
+        self.raw_response = request_method(resource_url, params=params)
         self.elapsed = self.raw_response.elapsed
         self.response = self.raw_response.json()
         self.json = munch.munchify(self.response)
@@ -1333,7 +1332,7 @@ class Service(BaseDirectory, EditableResource):
                   'token': self.token.token if isinstance(self.token, Token) else self.token,
                   'f': 'json'}
 
-        return self.request(query_url, params, files=files, verify=False, method=POST).json()
+        return self.request(query_url, params, files=files, method=POST).json()
 
     @passthrough
     def uploadItemInfo(self, folder, file):
@@ -3143,7 +3142,7 @@ class Portal(AdminRESTEndpoint):
         servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
         request_method = get_request_method(servers_url, {TOKEN: self.token.token, F: JSON})
         # TODO: verify True
-        serversResp = request_method(servers_url, {TOKEN: self.token.token, F: JSON}, client=self.client, verify=False).json()
+        serversResp = request_method(servers_url, {TOKEN: self.token.token, F: JSON}, client=self.client).json()
         return [ArcServerAdmin(s.get('adminUrl') + '/admin/services', token=self.token) for s in serversResp.get('servers', [])]
 
     def __repr__(self):

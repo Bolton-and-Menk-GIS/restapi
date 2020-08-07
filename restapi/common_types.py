@@ -371,7 +371,7 @@ class Attachment(JsonGetter):
     def blob(self):
         """Returns a string of the chunks in the response."""
         b = ''
-        resp = self.request(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
+        resp = self.request(getattr(self, URL_WITH_TOKEN), stream=True)
         for chunk in resp.iter_content(1024 * 16):
             b += chunk
         return b
@@ -396,7 +396,7 @@ class Attachment(JsonGetter):
             ext = os.path.splitext(self.name)[-1]
             out_file = os.path.join(out_path, name.split('.')[0] + ext)
 
-        resp = self.request(getattr(self, URL_WITH_TOKEN), stream=True, verify=False)
+        resp = self.request(getattr(self, URL_WITH_TOKEN), stream=True)
         with open(out_file, 'wb') as f:
             for chunk in resp.iter_content(1024 * 16):
                 f.write(chunk)
@@ -958,7 +958,7 @@ class Portal(RESTEndpoint):
     @property
     def servers(self):
         servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
-        serversResp = self.request(servers_url, {TOKEN: self.token.token, F: JSON}, verify=False).json()
+        serversResp = self.request(servers_url, {TOKEN: self.token.token, F: JSON}).json()
         return [ArcServer(s.get('url') + '/rest/services', token=self.token) for s in serversResp.get('servers', [])]
 
 
@@ -2169,7 +2169,7 @@ class FeatureService(MapService):
             rep_url = st.get(URL_UPPER)
 
         if rep_url.endswith('.geodatabase'):
-            resp = self.request(rep_url, stream=True, verify=False)
+            resp = self.request(rep_url, stream=True)
             fileName = rep_url.split('/')[-1]
             db = os.path.join(TEMP_DIR, fileName)
             with open(db, 'wb') as f:
@@ -2179,7 +2179,7 @@ class FeatureService(MapService):
             return SQLiteReplica(db)
 
         elif rep_url.endswith('.json'):
-            return JsonReplica(self.request(self.url, verify=False).json())
+            return JsonReplica(self.request(self.url).json())
 
         return None
 
@@ -3027,7 +3027,7 @@ class FeatureLayer(MapServiceLayer):
                 params[TOKEN] = str(self.token)
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, verify=False, method=POST).json(), oid)
+            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST).json(), oid)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
@@ -3063,7 +3063,7 @@ class FeatureLayer(MapServiceLayer):
                 params[GDB_VERSION] = gdbVersion
             for k,v in six.iteritems(kwargs):
                 params[k] = v
-            return self.__edit_handler(self.request(att_url, params, cookies=self._cookie, verify=False, method=POST).json(), oid)
+            return self.__edit_handler(self.request(att_url, params, cookies=self._cookie, method=POST).json(), oid)
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
@@ -3105,7 +3105,7 @@ class FeatureLayer(MapServiceLayer):
                 params[TOKEN] = str(self.token)
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, verify=False, method=POST).json(), oid)
+            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST).json(), oid)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))

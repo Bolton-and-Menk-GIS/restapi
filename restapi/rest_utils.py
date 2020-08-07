@@ -329,8 +329,6 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
 
     # mixin default kwargs for requests
     defaults = {
-        # TODO: remove verify default, breaking change
-        "verify": False,
         "stream": stream,
     }
     for k,v in six.iteritems(defaults):
@@ -403,9 +401,8 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=
         request_method = get_request_method(proxied_url, method=method, client=client)
     if referer:
         headers[enums.headers.referer] = referer
-    # TODO: enabled cert verification, breaking change
-    return request_method(proxied_url, params, verify=False, headers=headers)
-#    return requests.post('{}?{}?f={}'.format(proxy, url, frmat).rstrip('&'), params, verify=False, headers=headers)
+    return request_method(proxied_url, params, headers=headers)
+
 
 def guess_proxy_url(domain):
     """Grade school level hack to see if there is a standard esri proxy available
