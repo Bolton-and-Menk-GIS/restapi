@@ -1222,6 +1222,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                         server_response = resp
                     else:
                         server_response[FEATURES] += resp[FEATURES]
+                else:
+                    server_response = self.request(query_url, params)
 
             else:
                 if isinstance(records, int) and str(self.currentVersion) >= '10.3':
