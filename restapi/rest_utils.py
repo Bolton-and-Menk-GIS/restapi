@@ -77,7 +77,7 @@ def get_request_method(url, params={}, client=None, method='get'):
     if method == 'get':
         return client.session.get if can_use_get(url, params) else client.session.post
 
-    return getattr(client.session, method) if hasattr(client.session, method) else client.session.get
+    return getattr(client.session, method.lower()) if hasattr(client.session, method.lower()) else client.session.get
 
 def can_use_get(url, params={}):
     return len('{}?{}'.format(url, urlencode(params))) < 2049
