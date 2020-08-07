@@ -727,7 +727,9 @@ admin.VERBOSE = False
 
 ## Advanced Usage
 
-From version XXX, it is possible to use a custom `requests.Session()` instance. This instance can be defined globally for all requests made by `restapi`, or it can be passed on each function call as a `restapi.RequestClient()` object. This can be useful if different parameters are needed to access different servers.
+### RequestClient
+
+From version 2.0, it is possible to use a custom `requests.Session()` instance. This instance can be defined globally for all requests made by `restapi`, or it can be passed on each function call as a `restapi.RequestClient()` object. This can be useful if different parameters are needed to access different servers.
 
 Use this functionality to access servers behind HTTP or SOCKS proxies, to disable certificate validation or use custom CA certificates, or if additional authentication is needed. Refer to the [requests.Session()](https://requests.readthedocs.io/en/master/user/advanced/#session-objects) documentation for details
 
