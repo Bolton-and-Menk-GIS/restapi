@@ -33,8 +33,26 @@ os.environ['RESTAPI_USE_ARCPY'] = 'FALSE'
 import restapi
 ```
 
+## requests.exceptions.SSLError
+If you are seeing `requests.exceptions.SSLError` exceptions in `restapi` >= 2.0, this is probaly due to a change in handling servers without valid SSL certificates. Because many ArcGIS Server instances are accessed using SSL with a self-signed certificate, or through a MITM proxy like Fiddler, `restapi` < 2.0 defaulted to ignoring SSL errors by setting the `request` client's `verify` option to `False`. The new default behavior is to enable certificate verification. If you are receiving this error, you are probably accessing your server with a self-signed certificate, or through a MITM proxy. If that is not the case, you should investigate why you are seeing SSL errors, as there would likely be an issue with the server configuration, or some other security issues.
 
+To mimic the previous behavior in the newer versions of `restapi`, there are 2 options - disable certificate verification (less secure), or [build a custom CA bundle ](https://requests.readthedocs.io/en/stable/user/advanced/#ssl-cert-verification) which includes any self-signed certificates needed to access your server (more secure). Both of these can be done using the new [restapi.RequestClient()](#requestclient) feature.
 
+````py
+import restapi
+import requests
+session = requests.Session()
+session = restapi.RequestClient(session)
+restapi.set_default_client(session)
+
+# Disable verification
+session.verify = False
+
+# -or-
+
+# Use custom CA bundle
+session.verify = '/path/to/certfile'
+````
 
 ## Connecting to an ArcGIS Server
 One of the first things you might do is to connect to a services directory (or catalog):
