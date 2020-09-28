@@ -636,7 +636,7 @@ def generate_token(url, user, pw, expiration=60, client=None, **kwargs):
         org_resp = do_request(AGOL_PORTAL_SELF, portal_params, client=client)
         org_referer = org_resp.get(URL_KEY, '') + ORG_MAPS
         params[REFERER]= org_referer
-        resp = do_request(AGOL_TOKEN_SERVICE, params, client=client)
+        resp = do_request(AGOL_TOKEN_SERVICE, params, client=client, method='post')
         resp['_' + PORTAL_INFO] = org_resp
         # print('PORTAL RESP (AGOL): ', org_resp)
 
