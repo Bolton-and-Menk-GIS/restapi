@@ -684,7 +684,7 @@ def generate_token(url, user, pw, expiration=60, client=None, **kwargs):
                 # print('setting portal token: https://services2.arcgis.com/{}/arcgis/rest/services'.format(org_id))
                 token_copy = munch.munchify({})
                 token_copy.update(token.json)
-                serv_url =  'https://services2.arcgis.com/{}/arcgis/rest/services'.format(org_id)
+                serv_url = infoUrl.replace('/info', '/services')
                 token_copy.domain = serv_url
                 ID_MANAGER.tokens[serv_url] = Token(token_copy)
 
