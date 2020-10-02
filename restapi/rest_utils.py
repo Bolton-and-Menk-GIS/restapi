@@ -45,6 +45,7 @@ def set_request_client(client=None, *args, **kwargs):
     if not isinstance(client, RequestClient):
         warning('no request client has been set, using default client')
         client = DefaultRequestClient(*args, **kwargs)
+        client.session.verify = False if os.getenv('RESTAPI_VERIFY_CERT') == 'FALSE' else True
     client = add_standard_headers(client)
     global requestClient
     requestClient = client
