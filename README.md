@@ -42,17 +42,23 @@ To mimic the previous behavior in the newer versions of `restapi`, there are 2 o
 import restapi
 import requests
 session = requests.Session()
-session = restapi.RequestClient(session)
-restapi.set_default_client(session)
+client = restapi.RequestClient(session)
+restapi.set_default_client(client)
 
 # Disable verification
-session.verify = False
+client.session.verify = False
 
 # -or-
 
 # Use custom CA bundle
-session.verify = '/path/to/certfile'
+client.session.verify = '/path/to/certfile'
 ````
+Since `verify = False` is a commonly used setting when dealing with ArcGIS Server instances, it's also possible to use an environment variable. The variable must be set before `restapi` is imported.
+````py
+os.environ['RESTAPI_VERIFY_CERT'] = 'FALSE'
+import restapi
+````
+
 
 ## Connecting to an ArcGIS Server
 One of the first things you might do is to connect to a services directory (or catalog):
@@ -773,7 +779,7 @@ arcserver = restapi.ArcServer(rest_url, client=custom_client)
 # Set a different client as client as restapi's default
 global_session = requests.Session()
 global_client = restapi.RequestClient(global_session)
-custom_client.session.headers['Source-Client'] = 'Global'
+global_client.session.headers['Source-Client'] = 'Global'
 restapi.set_request_client(global_client)
 
 # Now any call made by restapi will use the custom client
