@@ -266,6 +266,10 @@ class Shape(object):
         # create empty shape
         shape = Shape()
         # set shapeType
+        # If no type assume Point with x and y keys
+        if not "type" in geoj:
+            geoj["type"] = "Point"
+            geoj['coordinates'] = [geoj['x'], geoj['y']]
         geojType = geoj["type"] if geoj else "Null"
         if geojType == "Null":
             shapeType = NULL
