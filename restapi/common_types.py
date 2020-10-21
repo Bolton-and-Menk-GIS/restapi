@@ -1583,7 +1583,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     if self.query(returnCountOnly=True).count > self.maxRecordCount:
                         doesExceed = True
                         out_fc = r'in_memory\restapi_chunk_{}'.format(os.path.splitext(os.path.basename(orig))[0])
-                for fs in self.query_in_chunks(where, fields, params, **kwargs):
+                for fs in self.query_in_chunks(where, fields, params, f=DEFAULT_REQUEST_FORMAT, **kwargs):
                     exportFeatureSet(fs, out_fc, include_domains=False)
 
                 if not isShp and include_domains:
