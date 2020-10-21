@@ -43,7 +43,7 @@ import restapi
 import requests
 session = requests.Session()
 client = restapi.RequestClient(session)
-restapi.set_default_client(client)
+restapi.set_request_client(client)
 
 # Disable verification
 client.session.verify = False
