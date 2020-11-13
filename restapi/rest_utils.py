@@ -983,6 +983,8 @@ class RESTEndpoint(JsonGetter):
 
         if 'ret_json' not in kwargs:
             kwargs['ret_json'] = True
+        if kwargs.get('stream'):
+            kwargs['ret_json'] = False
         kwargs['client'] = self.client
         return do_request(*args, **kwargs)
 
