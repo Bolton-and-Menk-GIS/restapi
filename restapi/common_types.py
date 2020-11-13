@@ -1407,7 +1407,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         oid =  oid or response.get(PARENT_OBJECTID)
         globalId = globalId or response.get(PARENT_GLOBALID)
         if not oid:
-            warning.warn('No parentObjectId found for attachments')
+            warnings.warn('No parentObjectId found for attachments')
             return []
         if isinstance(response, dict) and ATTACHMENT_INFOS in response:
             for attInfo in response[ATTACHMENT_INFOS]:
