@@ -3121,7 +3121,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
 
 class AGOLAdminInitializer(AdminRESTEndpoint):
     """Class that handles initalizing AGOL Admin."""
-    def __init__(self, url, usr='', pw='', token=''):
+    def __init__(self, url, usr='', pw='', token='', client=None):
         """Inits class with login info.
 
          Args:
@@ -3211,7 +3211,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
             # ASYNC: runAsync
         }
 
-        result = self.request(url, params)
+        result = self.request(url, params, method='post')
         self.refresh()
         self.reload()
         return result
