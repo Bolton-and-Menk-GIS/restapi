@@ -343,6 +343,11 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
     else:
         kwargs['cookies'] = cookies
 
+    # if using stream, we probably want attachment, need to disable format
+    if kwargs.get('stream'):
+        if params[F]:
+            del params[F]
+
     if proxy:
         # IMPORTANT: this is not a regular proxy, this is the Esri Proxy
         # see: https://github.com/Esri/resource-proxy
@@ -983,8 +988,7 @@ class RESTEndpoint(JsonGetter):
 
         if 'ret_json' not in kwargs:
             kwargs['ret_json'] = True
-        if kwargs.get('stream'):
-            kwargs['ret_json'] = False
+
         kwargs['client'] = self.client
         return do_request(*args, **kwargs)
 
