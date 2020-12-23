@@ -3142,7 +3142,7 @@ class Portal(AdminRESTEndpoint):
         servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
         request_method = get_request_method(servers_url, {TOKEN: self.token.token, F: JSON}, client=self.client)
         # TODO: verify True
-        serversResp = request_method(servers_url, {TOKEN: self.token.token, F: JSON}).json()
+        serversResp = request_method(servers_url, params={TOKEN: self.token.token, F: JSON}).json()
         return [ArcServerAdmin(s.get('adminUrl') + '/admin/services', token=self.token) for s in serversResp.get('servers', [])]
 
     def __repr__(self):

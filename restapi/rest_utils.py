@@ -250,7 +250,7 @@ def tmp_json_file():
         TEMP_DIR = tempfile.mkdtemp()
     return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
-def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, client=None, **kwargs):
+def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, client=None, method='get', **kwargs):
     """Post Request to REST Endpoint through query string, to post
             request with data in body, use requests.post(url, data:{k : v}).
 
@@ -354,8 +354,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
         r = do_proxy_request(proxy, service, params, referer, client=client)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
-        request_method = get_request_method(service, params, client=client, method=kwargs.get('method', 'get'))
-        kwargs.pop('method', None)
+        request_method = get_request_method(service, params, client=client, method=method)
         if request_method.__name__ == 'get':
             # must use kwargs after url in GET
             r = request_method(service, params=params, **kwargs)
@@ -407,6 +406,11 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=
         request_method = get_request_method(proxied_url, method=method, client=client)
     if referer:
         headers[enums.headers.referer] = referer
+    
+    if request_method.__name__ == 'get':
+        # must use kwargs after url in GET
+        return request_method(proxied_url, params=params, headers=headers)
+    
     return request_method(proxied_url, params, headers=headers)
 
 
