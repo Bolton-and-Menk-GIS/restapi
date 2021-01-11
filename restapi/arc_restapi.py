@@ -22,7 +22,7 @@ def find_ws_type(path):
     """Determines output workspace (feature class if not FileSystem).
         returns a tuple of workspace path and type.
 
-    Arg:
+    Args:
         path: Path for workspace.
     """
 
@@ -57,7 +57,7 @@ class Geometry(BaseGeometry):
     def __init__(self, geometry, **kwargs):
         """Converts geometry input to restapi.Geometry object.
 
-        Arg:
+        Args:
             geometry: Input geometry.  Can be arcpy.Geometry(), shapefile/feature
                 class, or JSON.
 
@@ -381,7 +381,7 @@ class GeocodeHandler(object):
     def __init__(self, geocodeResult):
         """Geocode response object handler
 
-        Arg:
+        Args:
             geocodeResult: GeocodeResult object.
         """
 

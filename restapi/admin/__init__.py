@@ -41,7 +41,7 @@ __all__ = ['ArcServerAdmin', 'Service', 'Folder', 'Cluster', 'do_request',
 def passthrough(f, *args, **kwargs):
     """Decorator to print results of function/method and returns json object.
 
-    Arg:
+    Args:
         f: Function/method.
 
     Set the global VERBOSE property to false if you do not want results of
@@ -251,7 +251,7 @@ class BaseResource(JsonGetter):
     def __init__(self, in_json):
         """inits class with json object.
 
-        Arg:
+        Args:
             in_json: Input JSON object.
         """
 
@@ -322,7 +322,7 @@ class DataItem(BaseResource):
         """Promotes a standby machine to the primary data store machine. The
                 existing primary machine is downgraded to a standby machine
 
-        Arg:
+        Args:
             machineName: Name of machine to make primary.
 
         Returns:
@@ -335,7 +335,7 @@ class DataItem(BaseResource):
     def validateDataStore(self, machineName):
         """Ensures that the data store is valid.
 
-        Arg:
+        Args:
             machineName: Name of machine to validate data store against.
         """
 
@@ -464,7 +464,7 @@ class RoleStore(AdminRESTEndpoint):
     def removeRole(self, rolename):
         """Removes a role from the role store.
 
-        Arg:
+        Args:
             rolename : Name of role.
         """
 
@@ -580,7 +580,7 @@ class RoleStore(AdminRESTEndpoint):
     def getPrivilegeForRole(self, rolename):
         """Gets the privilege associated with a role.
 
-        Arg:
+        Args:
             rolename: Name of role.
         """
 
@@ -591,7 +591,7 @@ class RoleStore(AdminRESTEndpoint):
     def getRolesByPrivilege(self, privilege):
         """Returns the privilege associated with a user.
 
-        Arg:
+        Args:
             privilege: Name of privilege (ADMINISTER | PUBLISH).
         """
 
@@ -663,7 +663,7 @@ class UserStore(AdminRESTEndpoint):
     def removeUser(self, username):
         """Removes a user from the user store.
 
-        Arg:
+        Args:
             username: Name of user to remove.
         """
 
@@ -740,7 +740,7 @@ class UserStore(AdminRESTEndpoint):
     def getPrivilegeForUser(self, username):
         """Gets the privilege associated with a role.
 
-        Arg:
+        Args:
             username: Name of user.
         """
 
@@ -773,7 +773,7 @@ class DataStore(AdminRESTEndpoint):
     def registerItem(self, item):
         """Registers an item with the data store.
 
-        Arg:
+        Args:
             item: JSON representation of new data store item to register.
 
         Example:
@@ -834,7 +834,7 @@ class DataStore(AdminRESTEndpoint):
     def validateItem(self, item):
         """Validates a data store item.
 
-        Arg:
+        Args:
             item: JSON representation of new data store item to validate.
 
         Returns:
@@ -863,7 +863,7 @@ class DataStore(AdminRESTEndpoint):
                 on the server. Can be used to determine if a data resource can
                 be safely deleted or taken down for maintenance.
 
-        Arg:
+        Args:
             path: Path to resource on server (DataItem.path).
         """
 
@@ -939,7 +939,7 @@ class DataStore(AdminRESTEndpoint):
         """Updates data store configuration. Can use this to allow or block
                 automatic copying of data to server at publish time.
 
-        Arg:
+        Args:
             datastoreConfig: Optional JSON object representing datastoreConfiguration.
                 If none supplied, it will default to disabling copying data locally
                 to the server. Defaults to {}.
@@ -1002,7 +1002,7 @@ class Cluster(AdminRESTEndpoint):
         ArcGIS Server supports the TCP clustering protocols where server machines communicate
         with each other over a TCP channel (port).
 
-        Arg:
+        Args:
             clusterProtocol: JSON object representing the cluster protocol TCP port.
 
         Example:
@@ -1019,7 +1019,7 @@ class Cluster(AdminRESTEndpoint):
         """Adds machines to cluster. Machines need to be registered with the site
         before they can be added.
 
-        Arg:
+        Args:
             machineNames: List or comma-separated list of machine names.
 
         Examples:
@@ -1036,7 +1036,7 @@ class Cluster(AdminRESTEndpoint):
     def removeMachines(self, machineNames):
         """Removes machine names from cluster.
 
-        Arg:
+        Args:
             machineNames: List or comma-separated list of machine names.
 
         Examples:
@@ -1202,7 +1202,7 @@ class Service(BaseDirectory, EditableResource):
         """Disables an extension, this operation is not available through REST API
                 out of the box.
 
-        Arg:
+        Args:
             extensions: Name of extension(s) to disable.  Valid options are:
 
             NAServer|MobileServer|KmlServer|WFSServer|SchematicsServer|FeatureServer|WCSServer|WMSServer
@@ -1369,7 +1369,7 @@ class Service(BaseDirectory, EditableResource):
     def getExtension(self, extension):
         """Returns an extension by name.
 
-        Arg:
+        Args:
             extension: Name of extension (not case sensitive).
         """
 
@@ -1483,7 +1483,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def cluster(self, clusterName):
         """Returns a Cluster object.
 
-        Arg:
+        Args:
             clusterName: Name of cluster to connect to.
         """
 
@@ -1548,7 +1548,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def startCluster(self, clusterName):
         """Starts a cluster.
 
-        Arg:
+        Args:
             clusterName: Name of cluster to start.
         """
 
@@ -1559,7 +1559,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def stopCluster(self, clusterName):
         """Stops a cluster.
 
-        Arg:
+        Args:
             clusterName: Name of cluster to stop.
         """
 
@@ -1595,7 +1595,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def deleteCluster(self, clusterName):
         """Deletes a cluster.
 
-        Arg:
+        Args:
             clusterName: Cluster to be deleted.
         """
 
@@ -1605,7 +1605,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def getMachinesInCluster(self, clusterName):
         """Returns a list all server machines participating in a cluster.
 
-        Arg:
+        Args:
             clusterName: Name of cluster.
         """
 
@@ -1615,7 +1615,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def getServicesInCluster(self, clusterName):
         """Gets a list of all services in a cluster.
 
-        Arg:
+        Args:
             clusterName: Name of cluster to search for services.
         """
 
@@ -1678,7 +1678,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def registerDataItem(self, item):
         """Registers an item with the data store.
 
-        Arg:
+        Args:
             item: JSON representation of new data store item to register.
 
         Example:
@@ -1698,7 +1698,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def unregisterDataItem(self, itemPath):
         """Unregisters an item with the data store.
 
-        Arg:
+        Args:
             itemPath: Path to data item to unregister (DataItem.path).
         """
 
@@ -1719,7 +1719,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def validateDataItem(self, item):
         """Validates a data store item.
 
-        Arg:
+        Args:
             item: JSON representation of new data store item to validate.
         """
 
@@ -1739,7 +1739,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 exists on the server. Can be used to determine if a data resource
                 can be  safely deleted or taken down for maintenance.
 
-        Arg:
+        Args:
             path: Path to resource on server (DataItem.path).
         """
 
@@ -1810,7 +1810,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """Updates data store configuration. Can use this to allow or block
                 automatic copying of data to server at publish time.
 
-        Arg:
+        Args:
             datastoreConfig: Optional JSON object representing
                 datastoreConfiguration. If none supplied, it will default to
                 disabling copying data locally to the server.
@@ -1952,7 +1952,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
             def __init__(self, resp):
                 """Inits class with JSON response.
 
-                Arg:
+                Args:
                     resp: JSON for log reports request
                 """
 
@@ -2045,7 +2045,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def removeUser(self, username):
         """Removes a user from the user store.
 
-        Arg:
+        Args:
             username: Name of user to remove.
         """
 
@@ -2092,7 +2092,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def getPrivilegeForUser(self, username):
         """Gets the privilege associated with a role.
 
-        Arg:
+        Args:
             username: Name of user.
         """
 
@@ -2151,7 +2151,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def addRole(self, rolename, description='', **kwargs):
         """Adds a role to the role store.
 
-        Arg:
+        Args:
             rolename: Name of role to add.
             description: Optional description for new role.
         """
@@ -2206,7 +2206,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def getRolesForUser(self, username, filter='', maxCount=10):
         """Returns the roles associated with a user.
 
-        Arg:
+        Args:
             username: Name of user.
             filter: Optional filter.
             maxCount: Optional maximum count of roles to return. Defaults to 10.
@@ -2265,7 +2265,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def getPrivilegeForRole(self, rolename):
         """Returns the privilege associated with a role.
 
-        Arg:
+        Args:
             rolename: Name of role.
         """
 
@@ -2275,7 +2275,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def getRolesByPrivilege(self, privilege):
         """Returns the roles associated with a privlege.
 
-        Arg:
+        Args:
             privilege: Name of privilege (ADMINISTER | PUBLISH).
         """
 
@@ -2299,7 +2299,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 in the site. If the authentication tier is GIS_SERVER, then the
                 ArcGIS token service is started on all server machines.
 
-        Arg:
+        Args:
             securityConfig: JSON object for security configuration.
 
         Example:
@@ -2417,7 +2417,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def updateTokenConfig(self, tokenManagerConfig):
         """Updates the token configuration.
 
-        Arg:
+        Args:
             tokenManagerConfig: JSON object for token configuration.
 
         Example:
@@ -2516,7 +2516,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def service(self, service_name_or_wildcard):
         """Returns a restapi.admin.Service() object.
 
-        Arg:
+        Args:
             service_name_or_wildcard: Name of service or wildcard.
         """
 
@@ -2534,7 +2534,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def getPermissions(self, resource):
         """Returns permissions for folder or service.
 
-        Arg:
+        Args:
             resource: Name of folder or folder/service.
 
         resource example:
@@ -2625,7 +2625,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """Cleans all permissions assigned to role (principal). Useful when a
                 role has been deleted.
 
-        Arg:
+        Args:
             principal: Name of role to delete permisssions.
         """
 
@@ -2681,7 +2681,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 uploaded to the server using the restapi.admin.Service.uploadDataItem()
                 method.
 
-        Arg:
+        Args:
             id: itemID of the uploaded .SOE file.
         """
 
@@ -2692,7 +2692,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def unregisterExtension(self, extensionFileName):
         """Unregisters a server object extension.
 
-        Arg:
+        Args:
             extensionFileName: Name of .SOE file to unregister.
         """
 
@@ -2798,7 +2798,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
     def stopServices(self, servicesAsJSON={}, folderName='', serviceName='', type=''):
         """Stops service or all services in a folder.
 
-        Arg:
+        Args:
             servicesAsJSON: Optional list of services as JSON (example below).
 
         *the following arguments are options to run on an individual folder
@@ -2994,7 +2994,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         """Deletes the site configuration and releases all server resources. Warning,
                 this is an unrecoverable operation, use with caution.
 
-        Arg:
+        Args:
             f: Format for response (html|json). Default is JSON.
         """
 
@@ -3041,7 +3041,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 configurations. Warning, this operation is computationally
                 expensive and can take a long time to complete.
 
-        Arg:
+        Args:
             location: A file path to an exported configuration or an ID
                 referencing the stored configuration on the server.
             f: Optional format for response (html|json). Defaults to JSON.
@@ -3087,7 +3087,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                 required to send to the server an additional flag encrypted with
                 value set to true.
 
-        Arg:
+        Args:
             f: Format for response, if json it is wrapped in a Munch object.
                 (html|json). Defaults to JSON.
         """
@@ -3181,7 +3181,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         """Clears the lastEditDate within json, will throw an error if updating
         a service JSON definition if this value is not an empty string/null.
 
-        Arg:
+        Args:
             in_json: Input JSON.
 
         Returns:
@@ -3368,7 +3368,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
     def createNewDateFieldDefinition(name, alias='', autoUpdate=False):
         """Creates a json definition for a new date field.
 
-        Args
+        Args:
             name: Name of new date field.
             alias: Optional field name for alias.
             autoUpdate: Optional boolean to automatically populate the field

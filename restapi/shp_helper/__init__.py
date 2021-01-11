@@ -113,7 +113,7 @@ class ShpWriter(object):
     def save(self, path=''):
         """Saves the file in the given path.
 
-        Arg:
+        Args:
             path: The path to be saved.
         """
         self.w.close()
@@ -136,7 +136,7 @@ class ShpEditor(object):
     def __init__(self, path):
         """Inits class with shapefile information.
         
-        Arg:
+        Args:
             path: Path for shapefile.
         """
         
@@ -286,7 +286,7 @@ class ShpEditor(object):
     def delete(self, index):
         """Deletes a record/row at an index.
 
-        Arg:
+        Args:
             index: Index to delete record/row.
 
         Raises:
@@ -309,7 +309,7 @@ class ShpEditor(object):
         """Saves the shapefile.  By default will save over existing
                 shapefile.  If you want to save a copy, specify a path.
 
-        Arg:
+        Args:
             path: Optional path to save a new copy of the shapefile.
         """
 
