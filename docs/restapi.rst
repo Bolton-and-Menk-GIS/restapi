@@ -7,9 +7,6 @@ Subpackages
 .. toctree::
 
    restapi.admin
-   restapi.decorator
-   restapi.munch
-   restapi.shapefile
 
 Submodules
 ----------
@@ -53,15 +50,6 @@ restapi.shp\_helper module
    :members:
    :undoc-members:
    :show-inheritance:
-
-restapi.six module
-------------------
-
-.. automodule:: restapi.six
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 
 Module contents
 ---------------

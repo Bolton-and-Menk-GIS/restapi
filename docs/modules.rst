@@ -5,4 +5,3 @@ restapi
    :maxdepth: 4
 
    restapi
-   setup

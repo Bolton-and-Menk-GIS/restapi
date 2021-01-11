@@ -4,8 +4,12 @@ pushd %~dp0
 
 REM Command file for Sphinx documentation
 
+REM C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\Scripts
+echo f | xcopy /f /y ..\README.md README.md
+REM echo f | xcopy /f /y css/overrides.css 
+
 if "%SPHINXBUILD%" == "" (
-	set SPHINXBUILD=set SPHINXBUILD="C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\Scripts\sphinx-build.exe"
+	set SPHINXBUILD=set SPHINXBUILD="\\arcserver1\GIS\_Resources\ESRI\Python\Staging\VirtualEnvs\py_36_x64\Scripts\sphinx-build.exe"
 )
 set SOURCEDIR=.
 set BUILDDIR=_build
