@@ -8,8 +8,9 @@ Esri currently provides the [ArcGIS API for Python](https://developers.arcgis.co
 [Release History](ReleaseNotes.md)
 
 ## Installation
-`restapi` is supported on Python 2.7 and 3.x. It can be found on [Github](https://github.com/Bolton-and-Menk-GIS/restapi) and [PyPi](https://pypi.org/project/bmi-arcgis-restapi/). To install using pip:  
-````py
+`restapi` is supported on Python 2.7 and 3.x. It can be found on [Github](https://github.com/Bolton-and-Menk-GIS/restapi) and [PyPi](https://pypi.org/project/bmi-arcgis-restapi/). To install using pip: 
+
+````sh
 pip install bmi-arcgis-restapi
 ````
 
@@ -64,42 +65,87 @@ import restapi
 One of the first things you might do is to connect to a services directory (or catalog):
 
 
-Connect to external services
-
 ````py
-# connect NOAA ArcGIS Server Instance
-rest_url = 'https://gis.ngdc.noaa.gov/arcgis/rest/services'
+import restapi
 
-# no authentication is required, so no username and password are supplied
+# connect to esri's sample server 6
+rest_url = 'https://sampleserver6.arcgisonline.com/arcgis/rest/services'
+
+# connect to restapi.ArcServer instance 
 ags = restapi.ArcServer(rest_url)
-
-# get folder and service properties
-print('Number of folders: {}'.format(len(ags.folders)))
-print('Number of services: {}'.format(len(ags.services)))
-
-# walk thru directories
-for root, folders, services in ags.walk():
-    print(root)
-    print(folders)
-    print(services)
-    print('\n')
 ````
 
-Connecting to a map service from within the ArcServer object
+
+```py
+>>> # get folder and service properties
+>>> print('Number of folders: {}'.format(len(ags.folders)))
+>>> print('Number of services: {}\n'.format(len(ags.services)))
+>>> 
+>>> # walk thru directories
+>>> for root, services in ags.walk():
+>>>     print('Folder: "{}"'.format(root))
+>>>     print('Services: {}\n'.format(services))
+
+Number of folders: 13
+Number of services: 60
+
+Folder: "https://sampleserver6.arcgisonline.com/arcgis/rest/services"
+Services: ['911CallsHotspot/GPServer', '911CallsHotspot/MapServer', 'Census/MapServer', 'CharlotteLAS/ImageServer', 'CommercialDamageAssessment/FeatureServer', 'CommercialDamageAssessment/MapServer', 'CommunityAddressing/FeatureServer', 'CommunityAddressing/MapServer', '<...>', 'Water_Network/MapServer', 'Wildfire/FeatureServer', 'Wildfire/MapServer', 'WindTurbines/MapServer', 'World_Street_Map/MapServer', 'WorldTimeZones/MapServer']
+
+Folder: "AGP"
+Services: ['AGP/Census/MapServer', 'AGP/Hurricanes/MapServer', 'AGP/USA/MapServer', 'AGP/WindTurbines/MapServer']
+
+Folder: "Elevation"
+Services: ['Elevation/earthquakedemoelevation/ImageServer', 'Elevation/ESRI_Elevation_World/GPServer', 'Elevation/GlacierBay/MapServer', 'Elevation/MtBaldy_Elevation/ImageServer', 'Elevation/WorldElevations/MapServer']
+
+# ..etc
+```
+
+#### Connecting to a child service
+
+from an `ArcServer` instance, you can connect to any service within that instance by providing a child path or wildcard search match.
+
 ````py
-# access "ahps_gauges" service (stream gauges)
-gauges = ags.getService('ahps_gauges')
-print(gauges.url) #print(MapService url
+# connect to a specific service
+# using just the service name (at the root)
+usa = ags.getService('USA') #/USA/MapServer -> restapi.common_types.MapService
 
-# print(layer names
-print(gauges.list_layers())
+# using the relative path to a service in a folder
+census = ags.getService('AGP/Census') #/AGP/Census/MapServer -> restapi.common_types.MapService
 
-# access "observed river stages" layer
-lyr = gauges.layer('observed_river_stages') #not case sensitive, also supports wildcard search (*)
+# can also just use the service name, but be weary of possible duplicates
+infastructure = ags.getService('Infrastructure') #/Energy/Infrastructure/FeatureServer -> restapi.common_types.FeatureService
 
-# list fields from col layer
-print(lyr.list_fields())
+# using a wildcard search
+covid_cases = ags.getService('*Covid19Cases*') #/NYTimes_Covid19Cases_USCounties/MapServer -> restapi.common_types.MapService
 ````
+
+#### Accessing layers from a `MapService`
+
+check outputs:
+
+```py
+>>> for service in [usa, census, infastructure, covid_cases]:
+>>>     print('name: "{}"'.format(service.name))
+>>>     print('repr: "{}"'.format(repr(service)))
+>>>     print('url: {}\n'.format(service.url))
+
+name: "USA"
+repr: "<MapService: USA/MapServer>"
+url: https://sampleserver6.arcgisonline.com/arcgis/rest/services/USA/MapServer
+
+name: "Census"
+repr: "<MapService: AGP/Census/MapServer>"
+url: https://sampleserver6.arcgisonline.com/arcgis/rest/services/AGP/Census/MapServer
+
+name: "Infrastructure"
+repr: "<FeatureService: Energy/Infrastructure/FeatureServer>"
+url: https://sampleserver6.arcgisonline.com/arcgis/rest/services/Energy/Infrastructure/FeatureServer
+
+name: "NYTimes_Covid19Cases_USCounties"
+repr: "<MapService: NYTimes_Covid19Cases_USCounties/MapServer>"
+url: https://sampleserver6.arcgisonline.com/arcgis/rest/services/NYTimes_Covid19Cases_USCounties/MapServer
+```
 
 You can also query the layer and get back arcpy.da Cursor like access
 
