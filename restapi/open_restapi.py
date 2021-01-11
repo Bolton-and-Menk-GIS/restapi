@@ -142,7 +142,7 @@ def partHandler(shape):
     """Builds multipart features if necessary, returns parts
             as a list.
 
-    Arg:
+    Args:
         shape: shapefile.Shape() object.
     """
 
@@ -186,7 +186,7 @@ def partHandler(shape):
 def find_ws_type(path):
     """Returns a workspace for shapefile.
     
-    Arg:
+    Args:
         path: The path for the workspace.
     """
 
@@ -203,7 +203,7 @@ class Geometry(BaseGeometry):
     def __init__(self, geometry, **kwargs):
         """Converts geometry input to restapi.Geometry object.
 
-        Arg:
+        Args:
             geometry: Input geometry.  Can be arcpy.Geometry(), shapefile/feature
                 class, or JSON.
         """
@@ -346,7 +346,7 @@ class Geometry(BaseGeometry):
     def envelopeAsJSON(self, roundCoordinates=False):
         """Returns an envelope geometry object as JSON.
         
-        Arg:
+        Args:
             roundCoordinates: Optional boolean that determines if the coordinates 
                 are rounded, defaults to False.
         """
@@ -504,7 +504,7 @@ class GeocodeHandler(object):
     def __init__(self, geocodeResult):
         """Geocode response object handler.
 
-        Arg:
+        Args:
             geocodeResult: GeocodeResult object.
         """
 

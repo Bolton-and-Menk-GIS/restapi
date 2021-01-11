@@ -35,7 +35,7 @@ except Exception as e:
     warnings.warn('No Arcpy found, some limitations in functionality may apply.')
     # global DEFAULT_REQUEST_FORMAT
     DEFAULT_REQUEST_FORMAT = GEOJSON
-    DEFAULT_FEATURESET_CLASS = GeoJSONFeatureSet
+    DEFAULT_FEATURESET_CLASS = FeatureCollection
     from .open_restapi import *
     has_arcpy = False
     class Callable(object):
@@ -108,7 +108,7 @@ def getFeatureExtent(in_features):
     """Gets the extent for a FeatureSet() or GeometryCollection(), must be convertible
     to a GeometryCollection().
 
-    Arg:
+    Args:
         in_features: Input features (Feature|FeatureSet|GeometryCollection|json).
 
     Returns:
@@ -127,7 +127,7 @@ def getFeatureExtent(in_features):
 def unqualify_fields(fs):
     """Removes fully qualified field names from a feature set.
 
-    Arg:
+    Args:
         fs: restapi.FeatureSet() object or JSON.
     """
 
@@ -265,7 +265,7 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
         from . import shp_helper
         out_fc = validate_name(out_fc)
         # validate features input (should be list or dict, preferably list)
-        if not isinstance(feature_set, (FeatureSet, GeoJSONFeatureSet)):
+        if not isinstance(feature_set, (FeatureSet, FeatureCollection)):
             feature_set = FeatureSet(feature_set)
 
         # make new shapefile
@@ -406,39 +406,89 @@ class Attachment(JsonGetter):
         return out_file
 
 
-class Cursor(FeatureSet):
-    """Class to handle Cursor object."""
+class Row(object):
+    """Class to handle Row object.
+
+    Attributes:
+        feature: A feature JSON object.
+        spatialReference: A spatial reference.
+    """
+    def __init__(self, cursor, feature, spatialReference=None):
+        """Row object for Cursor.
+
+        Args:
+            feature: Features JSON object.
+            spatialReference: A spatial reference.
+        """
+        self.cursor = cursor
+        self.feature = Feature(feature) if not isinstance(feature, Feature) else feature
+        self.spatialReference = spatialReference or self.cursor.spatialReference
+
+    def get(self, field):
+        """Gets/returns an attribute by field name.
+
+        Args:
+            field: Name of field for which to get the value.
+        """
+
+        return self.feature.get(field)
+
+    @property
+    def geometry(self):
+        """Returns a restapi Geometry() object."""
+        if GEOMETRY in self.feature.json:
+            gd = {k: v for k,v in six.iteritems(self.feature.geometry)}
+            if self.cursor.type == ESRI_JSON_FORMAT:
+                if SPATIAL_REFERENCE not in gd and self.spatialReference:
+                    gd[SPATIAL_REFERENCE] = self.spatialReference
+            return Geometry(gd)
+        return None
+
+    @property
+    def oid(self):
+        """Returns the OID for row."""
+        if self.cursor.OIDFieldName:
+            return self.get(self.cursor.OIDFieldName)
+        return None
+
+    @property
+    def values(self):
+        """Returns values as tuple."""
+        # fix date format in milliseconds to datetime.datetime()
+        vals = []
+        for field in self.cursor.field_names:
+            if field in self.cursor.date_fields and self.get(field):
+                vals.append(mil_to_date(self.get(field)))
+            elif field in self.cursor.long_fields and self.get(field):
+                vals.append(int(self.get(field)))
+            else:
+                if field == OID_TOKEN:
+                    vals.append(self.oid)
+                elif field == SHAPE_TOKEN:
+                    if self.geometry:
+                        vals.append(self.geometry.asShape())
+                    else:
+                        vals.append(None) #null Geometry
+                else:
+                    vals.append(self.get(field))
+
+        return tuple(vals)
+
+    def __getitem__(self, i):
+        """Allows for getting a field value by index.
+
+        Args:
+            i: Index to get value from.
+        """
+
+        return self.values[i]
+
+
+class Cursor(object):
     json = {}
     fieldOrder = []
     field_names = []
-
-    class BaseRow(object):
-        """Class to handle Row object.
-
-        Attributes:
-            feature: A feature JSON object.
-            spatialReference: A spatial reference.
-        """
-        def __init__(self, feature, spatialReference):
-            """Row object for Cursor.
-
-            Args:
-                feature: Features JSON object.
-                spatialReference: A spatial reference.
-            """
-
-            self.feature = Feature(feature) if not isinstance(feature, Feature) else feature
-            self.spatialReference = spatialReference
-
-        def get(self, field):
-            """Gets/returns an attribute by field name.
-
-            Arg:
-                field: Name of field for which to get the value.
-            """
-
-            return self.feature.attributes.get(field)
-
+    
     def __init__(self, feature_set, fieldOrder=[]):
         """Cursor object for a feature set.
 
@@ -450,66 +500,27 @@ class Cursor(FeatureSet):
                 Defaults to [].
         """
 
-        if isinstance(feature_set, FeatureSet):
-            feature_set = feature_set.json
-        super(Cursor, self).__init__(feature_set)
+        if not isinstance(feature_set, FeatureSetBase):
+            if feature_set.get(TYPE) == FEATURE_COLLECTION:
+                feature_set = FeatureCollection(feature_set)
+            else:
+                feature_set = FeatureSet(feature_set)
+                
+        self.featureSet = feature_set
+        self.type = self.featureSet._format
         self.fieldOrder = self.__validateOrderBy(fieldOrder)
 
-        cursor = self
-        class Row(cursor.BaseRow):
-            """Class to handle Row object."""
+    @property
+    def features(self):
+        return self.featureSet.features
 
-            @property
-            def geometry(self):
-                """Returns a restapi Geometry() object."""
-                if GEOMETRY in self.feature.json:
-                    gd = {k: v for k,v in six.iteritems(self.feature.geometry)}
-                    if SPATIAL_REFERENCE not in gd:
-                        gd[SPATIAL_REFERENCE] = cursor.spatialReference
-                    return Geometry(gd)
-                return None
+    @property
+    def fields(self):
+        return self.featureSet.fields
 
-            @property
-            def oid(self):
-                """Returns the OID for row."""
-                if cursor.OIDFieldName:
-                    return self.get(cursor.OIDFieldName)
-                return None
-
-            @property
-            def values(self):
-                """Returns values as tuple."""
-                # fix date format in milliseconds to datetime.datetime()
-                vals = []
-                for field in cursor.field_names:
-                    if field in cursor.date_fields and self.get(field):
-                        vals.append(mil_to_date(self.get(field)))
-                    elif field in cursor.long_fields and self.get(field):
-                        vals.append(int(self.get(field)))
-                    else:
-                        if field == OID_TOKEN:
-                            vals.append(self.oid)
-                        elif field == SHAPE_TOKEN:
-                            if self.geometry:
-                                vals.append(self.geometry.asShape())
-                            else:
-                                vals.append(None) #null Geometry
-                        else:
-                            vals.append(self.get(field))
-
-                return tuple(vals)
-
-            def __getitem__(self, i):
-                """Allows for getting a field value by index.
-
-                Arg:
-                    i: Index to get value from.
-                """
-
-                return self.values[i]
-
-        # expose Row object
-        self.__Row = Row
+    @property
+    def spatialReference(self):
+        return self.featureSet.spatialReference
 
     @property
     def date_fields(self):
@@ -532,12 +543,16 @@ class Cursor(FeatureSet):
         names = []
         for f in self.fieldOrder:
             if f == OID_TOKEN and self.OIDFieldName:
-                names.append(self.OIDFieldName)
-            elif f == SHAPE_TOKEN and self.ShapeFieldName:
-                names.append(self.ShapeFieldName)
+                names.append(self.featureSet.OIDFieldName)
+            # elif f == SHAPE_TOKEN and self.featureSet.ShapeFieldName:
+            #     names.append(self.featureSet.ShapeFieldName)
             else:
                 names.append(f)
         return names
+
+    def _createRow(self, feature, spatialReference=None):
+        """Creates a row based off of the feature and spatial reference."""
+        return Row(self, feature, spatialReference or self.spatialReference)
 
     def get_rows(self):
         """Returns row objects."""
@@ -553,45 +568,11 @@ class Cursor(FeatureSet):
         """Returns row object at index."""
         return self._createRow(self.features[index], self.spatialReference)
 
-    def _toJson(self, row):
-        """Casts row to JSON."""
-        if isinstance(row, (list, tuple)):
-            ft = {ATTRIBUTES: {}}
-            for i,f in enumerate(self.field_names):
-                if f != self.ShapeFieldName and f.upper() != SHAPE_TOKEN:
-                    val = row[i]
-                    if f in self.date_fields:
-                        ft[ATTRIBUTES][f] = date_to_mil(val) if isinstance(val, datetime.datetime) else val
-                    elif f in self.long_fields:
-                        ft[ATTRIBUTES][f] = int(val) if val is not None else val
-                    else:
-                        ft[ATTRIBUTES][f] = val
-                else:
-                    geom = row[i]
-                    if isinstance(geom, Geometry):
-                        ft[GEOMETRY] = {k:v for k,v in six.iteritems(geom.json) if k != SPATIAL_REFERENCE}
-                    else:
-                        ft[GEOMETRY] = {k:v for k,v in six.iteritems(Geometry(geom).json) if k != SPATIAL_REFERENCE}
-            return Feature(ft)
-        elif isinstance(row, self.BaseRow):
-            return row.feature
-        elif isinstance(row, Feature):
-            return row
-        elif isinstance(row, dict):
-            return Feature(row)
-
-    def __iter__(self):
-        """Returns Cursor.rows()."""
-        return self.rows()
-
-    def _createRow(self, feature, spatialReference):
-        """Creates a row based off of the feature and spatial reference."""
-        return self.__Row(feature, spatialReference)
 
     def __validateOrderBy(self, fields):
         """Fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@").
 
-        Arg:
+        Args:
             fields: List or comma delimited field list.
 
         Returns:
@@ -605,16 +586,24 @@ class Cursor(FeatureSet):
         for i,f in enumerate(fields):
             if '@' in f:
                 fields[i] = f.upper()
-            if hasattr(self, 'ShapeFieldName') and f == self.ShapeFieldName:
+            if hasattr(self, 'ShapeFieldName') and f == self.featureSet.ShapeFieldName:
                 fields[i] = SHAPE_TOKEN
-            if hasattr(self, 'OIDFieldName') and f == self.OIDFieldName:
+            if hasattr(self, 'OIDFieldName') and f == self.featureSet.OIDFieldName:
                 fields[i] = OID_TOKEN
 
         return fields
 
+    def __iter__(self):
+        """Returns Cursor.rows()."""
+        return self.rows()
+
+    def __len__(self):
+        return len(self.features)
+
     def __repr__(self):
         return object.__repr__(self)
 
+    
 class JsonReplica(JsonGetter):
     """Represents a JSON replica.
 
@@ -637,7 +626,7 @@ class SQLiteReplica(sqlite3.Connection):
                 print(con.list_tables())
                 # do other stuff
 
-        Arg:
+        Args:
             path: Full path to .geodatabase file (SQLite database).
         """
 
@@ -650,7 +639,7 @@ class SQLiteReplica(sqlite3.Connection):
         """Executes an SQL query.  This method must be used via a "with" statement
         to ensure the cursor connection is closed.
 
-        Arg:
+        Args:
             sql: SQL statement to use.
 
         >>> with restapi.SQLiteReplica(r'C:\Temp\test.geodatabase') as db:
@@ -669,7 +658,7 @@ class SQLiteReplica(sqlite3.Connection):
     def list_tables(self, filter_esri=True):
         """Returns a list of tables found within sqlite table.
 
-        Arg:
+        Args:
             filter_esri -- Optional boolean, filters out all the esri specific
                 tables (GDB_*, ST_*), default is True. If False, all tables will be listed.
         """
@@ -692,7 +681,7 @@ class SQLiteReplica(sqlite3.Connection):
         0           id          integer     99                      1
         1           name                    0                       0
 
-        Arg:
+        Args:
             table_name: Name of table to get field list from.
         """
 
@@ -705,7 +694,7 @@ class SQLiteReplica(sqlite3.Connection):
             closed before running this operation!  If there are open cursors,
             this can lock down the database.
 
-        Arg:
+        Args:
             out_gdb_path: Full path to new file geodatabase.
                 (ex: r"C:\Temp\replica.gdb").
         """
@@ -757,7 +746,7 @@ class ArcServer(RESTEndpoint):
         """Method to return Service Object (MapService, FeatureService, GPService, etc).
         This method supports wildcards.
 
-        Arg:
+        Args:
             name_or_wildcard: Service name or wildcard used to grab service name.
                 (ex: "moun_webmap_rest/mapserver" or "*moun*mapserver")
 
@@ -811,7 +800,7 @@ class ArcServer(RESTEndpoint):
     def folder(self, name):
         """Returns a restapi.Folder() object.
 
-        Arg:
+        Args:
             name: Name of folder.
         """
         return Folder('/'.join([self.url, name]), token=self.token)
@@ -823,7 +812,7 @@ class ArcServer(RESTEndpoint):
     def iter_services(self, token='', filterer=True):
         """Returns a generator for all services
 
-        Arg:
+        Args:
             token: Optional token to handle security (only required if security is enabled).
         """
         self.service_cache = []
@@ -879,17 +868,17 @@ class ArcServer(RESTEndpoint):
 
     def walk(self):
         """Method to walk through ArcGIS REST Services. ArcGIS Server only
-            supports single folder heiarchy, meaning that there cannot be
-            subdirectories within folders.
+        supports single folder heiarchy, meaning that there cannot be
+        subdirectories within folders.
 
         Will return tuple of the root folder and services from the topdown.
         (root, services) example:
 
-        ags = restapi.ArcServer(url, username, password)
-        for root, folders, services in ags.walk():
-            print(root)
-            print(services)
-            print('\n\n')
+        >>> ags = restapi.ArcServer(url, username, password)
+        >>> # walk thru directories
+        >>> for root, services in ags.walk():
+        >>>     print('Folder: "{}"'.format(root))
+        >>>     print('Services: {}\n'.format(services))
         """
         self.service_cache = []
         services = []
@@ -913,7 +902,7 @@ class ArcServer(RESTEndpoint):
 
     def __iter__(self):
         """Returns an generator for services."""
-        return self.list_services()
+        return self.iter_services()
 
     def __len__(self):
         """Returns number of services."""
@@ -993,7 +982,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         """Fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
                 method used for cursors.
 
-        Arg:
+        Args:
             fields: List or comma delimited field list.
 
         Returns:
@@ -1028,7 +1017,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             records: Optional arg for records. Defaults to None.
 
         Returns:
-            Either a GeoJSONFeatureSet or FeatureSet of the server response.
+            Either a FeatureCollection or FeatureSet of the server response.
                 Can also return JSON of server response.
         """
         # set fields to full field definition of the layer
@@ -1058,25 +1047,22 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         if all(map(lambda k: k in server_response, [FIELDS, FEATURES])):
             if records:
                 server_response[FEATURES] = server_response[FEATURES][:records]
-            return GeoJSONFeatureSet(server_response) if server_response.get(TYPE) == FEATURE_COLLECTION else FeatureSet(server_response)
+            return FeatureCollection(server_response) if server_response.get(TYPE) == FEATURE_COLLECTION else FeatureSet(server_response)
         else:
             if records:
                 if isinstance(server_response, list):
                     return server_response[:records]
             return server_response
 
-    def _validate_params(self, where='1=1', fields='*', add_params={}, f=JSON, **kwargs):
+    def _validate_params(self, **kwargs):
         """Queries layer and gets response as JSON.
 
         Args:
             fields: Optional arg for fields to return. Default is "*" to
                 return all fields.
-            where: Optional where clause. Defaults to '1=1'.
-            add_params: Optional extra parameters to add to query string passed
-                as dict. Defaults to {}.
+            where: Optional where clause. Defaults to '1=1'
             f: Optional return format, default is JSON.  (html|json|kmz)
-            kwargs: Optional extra parameters to add to query string passed as
-                key word arguments, will override add_params***.
+            kwargs: Optional extra parameters to add to query string passed askeyword arguments.
 
         # default params for all queries
         params = {'returnGeometry' : 'true', 'outFields' : fields,
@@ -1084,19 +1070,20 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         """
 
         # default params
-        params = {RETURN_GEOMETRY : TRUE, WHERE: where, F : f}
+        params = {
+            RETURN_GEOMETRY : TRUE, 
+            WHERE: '1=1', 
+            FIELDS: '*',
+            F : JSON
+        }
 
-        for k,v in six.iteritems(add_params):
-            params[k] = v
-
-        for k,v in six.iteritems(kwargs):
-            params[k] = v
+        params.update(kwargs)
 
         if RESULT_RECORD_COUNT in params and self.compatible_with_version('10.3'):
             params[RESULT_RECORD_COUNT] = min([int(params[RESULT_RECORD_COUNT]), self.get(MAX_RECORD_COUNT)])
 
         # check for tokens (only shape and oid)
-        fields = self._fix_fields(fields)
+        fields = self._fix_fields(params.get('fields', '*'))
         # print('FIX FIELDS OUTPUT: ', fields)
         params[OUT_FIELDS] = fields
 
@@ -1115,14 +1102,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             del params[RETURN_GEOMETRY]
         return params
 
-    def iter_queries(self, where='1=1', add_params={}, max_recs=None, chunk_size=None, **kwargs):
+    def iter_queries(self, where='1=1', max_recs=None, chunk_size=None, **kwargs):
         """Generator to form where clauses to query all records.  Will iterate
                 through "chunks" of OID's until all records have been returned
                 (grouped by maxRecordCount).
 
         *Thanks to Wayne Whitley for the brilliant idea to use izip_longest()
-
-
 
         Args:
             where: Optional where clause for OID selection.
@@ -1130,21 +1115,18 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 queries for OID fetch. Defaults to None.
             chunk_size: Optional size of chunks for each iteration of query
                 iterator. Defaults to None.
-            add_params: Optional dictionary with any additional params you want
-                to add (can also use **kwargs). Defaults to {}.
         """
 
-        if isinstance(add_params, dict):
-            add_params[RETURN_IDS_ONLY] = TRUE
+        kwargs[RETURN_IDS_ONLY] = TRUE
 
         # get oids
-        resp = self.query(where=where, add_params=add_params)
+        resp = self.query(where=where, **kwargs)
         oids = sorted(resp.get(OBJECT_IDS, []))[:max_recs]
         oid_name = resp.get(OID_FIELD_NAME, OBJECTID)
         print('total records: {0}'.format(len(oids)))
 
         # set returnIdsOnly to False
-        add_params[RETURN_IDS_ONLY] = FALSE
+        kwargs[RETURN_IDS_ONLY] = FALSE
 
         # iterate through groups to form queries
         # overwrite max_recs here with transfer limit from service
@@ -1160,13 +1142,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
 
 
-    def query(self, where='1=1', fields='*', add_params={}, records=None, exceed_limit=False, fetch_in_chunks=False, f=DEFAULT_REQUEST_FORMAT, kmz='', **kwargs):
+    def query(self, where='1=1', fields='*', records=None, exceed_limit=False, fetch_in_chunks=False, f=DEFAULT_REQUEST_FORMAT, kmz='', **kwargs):
         """Queries layer and gets response as JSON.
 
         Args:
             fields: Optional fields to return. Default is "*" to return all fields.
             where: Optional where clause. Defaults to '1:1'.
-            add_params: Extra parameters to add to query string passed as dict.
             records: Number of records to return.  Default is None to return all
                 records within bounds of max record count unless exceed_limit is True.
             exceed_limit: Option to get all records in layer.  This option may be time consuming
@@ -1179,8 +1160,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             f: Return format, default is JSON.  (html|json|kmz)
             kmz: Optional full path to output kmz file.  Only used if output
                 format is "kmz". Defaults to ''.
-            kwargs: Optional extra parameters to add to query string passed as key word arguments,
-                will override add_params***.
+            kwargs: Optional extra parameters to add to query string passed as key word arguments
 
         # default params for all queries
         params: {'returnGeometry' : 'true', 'outFields' : fields,
@@ -1191,7 +1171,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         """
         query_url = self.url + '/query'
 
-        params = self._validate_params(where, fields, add_params, f, **kwargs)
+        params = self._validate_params(where=where, fields=fields, f=f, **kwargs)
 
         # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
@@ -1233,18 +1213,16 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
             return self._format_server_response(server_response, records)
 
-    def query_in_chunks(self, where='1=1', fields='*', add_params={}, records=None, **kwargs):
+    def query_in_chunks(self, where='1=1', fields='*', records=None, **kwargs):
         """Queries a layer in chunks and returns a generator.
 
         Args:
             fields: Optional fields to return. Default is "*" to return all fields.
             where: Optional where clause. Defaults to '1=1'.
-            add_params: Optional extra parameters to add to query string passed as dict.
             records: Optional number of records to return.  Default is None to
                 return all. Records within bounds of max record count unless
                 exceed_limit is True.
-            kwargs: Optional extra parameters to add to query string passed as key word arguments,
-                will override add_params***.
+            kwargs: Optional extra parameters to add to query string passed as keyword arguments.
 
         # default params for all queries
         params: {'returnGeometry' : 'true', 'outFields' : fields,
@@ -1253,7 +1231,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         query_url = self.url + '/query'
 
-        params = self._validate_params(where, fields, add_params, **kwargs)
+        params = self._validate_params(where=where, fields=fields, **kwargs)
         for where2 in self.iter_queries(where, params, max_recs=records):
             sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
             params[WHERE] = sql
@@ -1301,7 +1279,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             params[k] = v
         return RelatedRecords(self.request(query_url, params))
 
-    def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, add_params={}, **kwargs):
+    def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, **kwargs):
         """Selects features by location of a geometry, returns a feature set.
 
         Args:
@@ -1313,8 +1291,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 when performing the query operation. Defaults to ESRI_INTERSECT.
             distance: Optional distance for search. Defaults to 0.
             units: Optional units for distance, only used if distance > 0.
-            add_params: Optional dict containing any other options that will be
-                added to the query. Defaults to {}.
             kwargs: Optional keyword args to add to the query.
 
         Spatial Relationships:
@@ -1340,18 +1316,13 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             params[DISTANCE] = distance
             params[UNITS] = units
 
-        # add additional params
-        for k,v in six.iteritems(add_params):
-            if k not in params:
-                params[k] = v
-
         # add kwargs
         for k,v in six.iteritems(kwargs):
             if k not in params:
                 params[k] = v
 
 
-        return DEFAULT_FEATURESET_CLASS(self.query(add_params=params))
+        return DEFAULT_FEATURESET_CLASS(self.query(**params))
 
 
     def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
@@ -1365,7 +1336,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             where: Optional where clause, defaults to '1=1'.
             params: Optional dictionary of parameters for query, Defaults to {}.
         """
-        return query(self.url, flds, where=where, add_params=params, ret_form='kmz', token=self.token, kmz=out_kmz)
+        return query(self.url, flds, where=where, ret_form='kmz', token=self.token, kmz=out_kmz, **params)
 
     def getOIDs(self, where='1=1', max_recs=None, **kwargs):
         """Returns a list of OIDs from feature layer.
@@ -1387,7 +1358,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 p[k] = v
 
         # return sorted(self.query(where=where, add_params=p).get(OBJECT_IDS, []))[:max_recs]
-        resp = self.query(where=where, add_params=p)
+        resp = self.query(where=where, **p)
         if PROPERTIES in resp:
             resp = resp[PROPERTIES]
         return sorted(resp.get(OBJECT_IDS, [])[:max_recs])
@@ -1512,14 +1483,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         print('Downloaded {} Attachments - elsapsed time: {}'.format(len(files), datetime.datetime.now()-start))
         return files
 
-    def cursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False):
+    def cursor(self, fields='*', where='1=1', records=None, exceed_limit=False, **kwargs):
         """Runs Cursor on layer, helper method that calls Cursor Object.
 
         Args:
             fields: Optional fields to return. Default is "*" to return all fields.
             where: Optional where clause. Defaults to '1=1'.
-            add_params: Optional extra parameters to add to query string passed
-                as dict. Defaults to {}.
             records: Optional number of records to return.  Default is None to
                 return all. records within bounds of max record count unless
                 exceed_limit is True.
@@ -1531,7 +1500,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         cur_fields = self._fix_fields(fields)
 
-        fs = self.query(where, cur_fields, add_params, records, exceed_limit)
+        fs = self.query(where, cur_fields, records, exceed_limit, **kwargs)
         return Cursor(fs, fields)
 
     def export_layer(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None,
@@ -1729,12 +1698,10 @@ class MapService(BaseService):
         return None
 
     def get_layer_url(self, name, grp_lyr=False):
-        """Returns the fully qualified path to a layer url by pattern match on name,
-                will return the first match.
+        """Returns the fully qualified path to a layer url by pattern match on name, will return the first match.
         Args:
-            name: Name of layer from which to grab ID.
-            grp_lyr: Optional boolean, default is false, does not return layer
-                ID for group layers. Set to true to search for group layers too.
+            name (str): Name of layer from which to grab ID.
+            grp_lyr (bool, optional): Optional boolean, default is false, does not return layer ID for group layers. Set to true to search for group layers too.
         """
 
         return '/'.join([self.url, str(self.getLayerIdByName(name,grp_lyr))])
@@ -1750,7 +1717,7 @@ class MapService(BaseService):
     def getNameFromId(self, lyrID):
         """Method to get layer name from ID.
 
-        Arg:
+        Args:
             lyrID: ID of layer for which to get name.
 
         Returns:
@@ -1844,7 +1811,7 @@ class MapService(BaseService):
     def layer(self, name_or_id, **kwargs):
         """Method to return a layer object with advanced properties by name.
 
-        Arg:
+        Args:
             name_or_id: Layer name (supports wildcard syntax*) or id
                 (must be of type <int>).
         """
@@ -1862,7 +1829,7 @@ class MapService(BaseService):
     def table(self, name_or_id):
         """Method to return a layer object with advanced properties by name.
 
-        Arg:
+        Args:
             name_or_id: Table name (supports wildcard syntax*) or id (must be of type <int>).
         """
         if isinstance(name_or_id, int):
@@ -1875,7 +1842,7 @@ class MapService(BaseService):
         else:
             print('Table "{0}" not found!'.format(name_or_id))
 
-    def cursor(self, layer_name, fields='*', where='1=1', records=None, add_params={}, exceed_limit=False):
+    def cursor(self, layer_name, fields='*', where='1=1', records=None, exceed_limit=False, **kwargs):
         """Cursor object to handle queries to rest endpoints.
 
         Args:
@@ -1885,8 +1852,6 @@ class MapService(BaseService):
             where: Optional where clause for cursor, '1=1'.
             records: Optional number of records to return
                 (within bounds of max record count). Defaults to None.
-            add_params: Optional boolean to add additional search parameters.
-                Defaults to {}.
             exceed_limit: Optional boolean to get all records in layer.
                 Defaults to False. This option may be time consuming because the
                 ArcGIS REST API uses default maxRecordCount of 1000, so queries
@@ -1894,17 +1859,16 @@ class MapService(BaseService):
         """
 
         lyr = self.layer(layer_name)
-        return lyr.cursor(fields, where, add_params, records, exceed_limit)
+        return lyr.cursor(fields, where, records, exceed_limit, **kwargs)
 
     def export_layer(self, layer_name,  out_fc, fields='*', where='1=1',
-                    records=None, params={}, exceed_limit=False, sr=None):
+                    records=None, exceed_limit=False, sr=None, **kwargs):
         """Method to export a feature class from a service layer.
 
         Args:
             layer_name: Name of map service layer to export to fc.
             out_fc: Full path to output feature class.
             where: Optional where clause. Defaults to '1=1'.
-            params: Optional dictionary of parameters for query. Defaults to {}.
             fields: Optional list of fields for fc. If none specified, all fields
                 are returned. Supports fields in list [] or comma separated string
                 "field1,field2,..". Defaults to '*'.
@@ -1917,9 +1881,9 @@ class MapService(BaseService):
         """
 
         lyr = self.layer(layer_name)
-        lyr.layer_to_fc(out_fc, fields, where,records, params, exceed_limit, sr)
+        lyr.layer_to_fc(out_fc, fields, where,records, exceed_limit, sr, **kwargs)
 
-    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
+    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', **kwargs):
         """Method to create kmz from query.
 
         Args:
@@ -1934,7 +1898,7 @@ class MapService(BaseService):
         """
 
         lyr = self.layer(layer_name)
-        lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
+        lyr.layer_to_kmz(flds, where, kmz=out_kmz, **kwargs)
 
     def clip(self, layer_name, poly, output, fields='*', out_sr='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
@@ -2000,7 +1964,7 @@ class FeatureService(MapService):
     def layer(self, name_or_id):
         """Method to return a layer object with advanced properties by name.
 
-        Arg:
+        Args:
             name: Layer name (supports wildcard syntax*) or layer id (int).
         """
 
@@ -2149,7 +2113,7 @@ class FeatureService(MapService):
                 two valid file name extensions are ".json" (restapi.JsonReplica)
                 or ".geodatabase" (restapi.SQLiteReplica).
 
-        Arg:
+        Args:
             rep_url : url or JSON object that contains url to replica file on server.
 
         If the file is sqlite, it is highly recommended to use a with statement to
@@ -2187,7 +2151,7 @@ class FeatureService(MapService):
     def replicaInfo(self, replicaID):
         """Gets replica information.
 
-        Arg:
+        Args:
             replicaID: ID of replica.
 
         Returns:
@@ -2215,7 +2179,7 @@ class FeatureService(MapService):
         and here for key word argument parameters:
             http://resources.arcgis.com/en/help/arcgis-rest-api/index.html#/Synchronize_Replica/02r3000000vv000000/
 
-        Arg:
+        Args:
             replicaID: ID of replica.
         """
 
@@ -2231,7 +2195,7 @@ class FeatureService(MapService):
     def unRegisterReplica(self, replicaID):
         """Unregisters a replica on the feature service.
 
-        Arg:
+        Args:
             replicaID: The ID of the replica registered with the service.
         """
 
@@ -2261,7 +2225,7 @@ class FeatureLayer(MapServiceLayer):
         # store list of EditResult() objects to track changes
         self.editResults = []
 
-    def updateCursor(self, fields='*', where='1=1', add_params={}, records=None, exceed_limit=False, auto_save=True, useGlobalIds=False, **kwargs):
+    def updateCursor(self, fields='*', where='1=1', records=None, exceed_limit=False, auto_save=True, useGlobalIds=False, **kwargs):
         """Updates features in layer using a cursor, the applyEdits() method is
                 automatically called when used in a "with" statement and auto_save is True.
 
@@ -2269,8 +2233,6 @@ class FeatureLayer(MapServiceLayer):
             fields: Optional fields to return. Default is "*" to return all
                 fields.
             where: Optional where clause, defaults to '1=1'.
-            add_params: Optional extra parameters to add to query string passed
-                as dict. Defaults to {}.
             records: Optional number of records to return.  Default is None to return all
                 records within bounds of max record count unless exceed_limit is True.
             exceed_limit: option to get all records in layer. This option may be time consuming
@@ -2360,7 +2322,7 @@ class FeatureLayer(MapServiceLayer):
             def _find_by_oid(self, oid):
                 """Gets a feature by its OID.
 
-                Arg:
+                Args:
                     oid: Object ID.
                 """
                 for ft in iter(self.features):
@@ -2370,7 +2332,7 @@ class FeatureLayer(MapServiceLayer):
             def _find_index_by_oid(self, oid):
                 """Gets the index of a Feature by it's OID.
 
-                Arg:
+                Args:
                     oid: Object ID.
                 """
                 return self._feature_lookup_by_oid.get(oid, {}).get('index')
@@ -2399,7 +2361,7 @@ class FeatureLayer(MapServiceLayer):
             def _find_by_globalid(self, globalid):
                 """Returns a feature by its GlobalId.
 
-                Arg:
+                Args:
                     globalid: The Global ID.
                 """
                 for ft in iter(self.features):
@@ -2409,7 +2371,7 @@ class FeatureLayer(MapServiceLayer):
             def _find_index_by_globalid(self, globalid):
                 """Returns the index of a Feature by it's GlobalId.
 
-                Arg:
+                Args:
                     globalid: The Global ID.
                 """
                 for i, ft in enumerate(self.features):
@@ -2447,7 +2409,7 @@ class FeatureLayer(MapServiceLayer):
             def _get_oid(self, row):
                 """Returns the oid of a row.
 
-                Arg:
+                Args:
                     row: The row to find the oid of.
                 """
 
@@ -2578,7 +2540,7 @@ class FeatureLayer(MapServiceLayer):
                         context of a "with" statement, edits are automatically
                         applied on __exit__.
 
-                Arg:
+                Args:
                     row: List/tuple/Feature/Row that has been updated.
                 """
 
@@ -2594,7 +2556,7 @@ class FeatureLayer(MapServiceLayer):
             def deleteRow(self, row):
                 """Deletes the row.
 
-                Arg:
+                Args:
                     row: List/tuple/Feature/Row that has been updated.
                 """
 
@@ -2620,8 +2582,7 @@ class FeatureLayer(MapServiceLayer):
                     raise RuntimeError('Missing OID or GlobalId Field in Data!')
 
         cur_fields = self._fix_fields(fields)
-        add_params[F] = JSON
-        fs = self.query(where, cur_fields, add_params, records, exceed_limit)
+        fs = self.query(where, cur_fields, records, exceed_limit, **kwargs)
         return UpdateCursor(fs, fields)
 
     def insertCursor(self, fields=[], template_name=None, auto_save=True):
@@ -2768,7 +2729,7 @@ class FeatureLayer(MapServiceLayer):
     def get_template(self, name=None):
         """Returns a template by name.
 
-        Arg:
+        Args:
             name: Optional arg for name of template. Defaults to None.
         """
         type_names = [t.get(NAME) for t in self.json.get(TYPES, [])]
@@ -2791,14 +2752,24 @@ class FeatureLayer(MapServiceLayer):
             rollbackOnFailure: Optional boolean that determines if feature is
                 rolled back if method fails. Defaults to True.
 
-        ex:
-        adds = [{"geometry":
-                     {"x":-10350208.415443439,
-                      "y":5663994.806146532,
-                      "spatialReference":
-                          {"wkid":102100}},
-                 "attributes":
-                     {"Utility_Type":2,"Five_Yr_Plan":"No","Rating":None,"Inspection_Date":1429885595000}}]
+        >>> adds = [
+            {
+                "geometry": {
+                    "x": -10350208.415443439,
+                    "y": 5663994.806146532,
+                    "spatialReference": {
+                        "wkid": 102100
+                    }
+                },
+                "attributes": {
+                    "Utility_Type": 2,
+                    "Five_Yr_Plan": "No",
+                    "Rating": null,
+                    "Inspection_Date": 1429885595000
+                }
+            }
+        ]
+        >>> results = featureService.addFeatures(adds)
         """
 
         add_url = self.url + '/addFeatures'
@@ -2822,9 +2793,9 @@ class FeatureLayer(MapServiceLayer):
             rollbackOnFailure: Optional boolean, specifies if the edits should be
                 applied only if all submitted edits succeed
 
-        # example syntax
-        updates = [{"geometry":
-            {"x"::10350208.415443439,
+        >>> # example syntax
+        >>> updates = [{"geometry":
+            {"x":10350208.415443439,
             "y":5663994.806146532,
             "spatialReference":
             {"wkid":102100}},
@@ -2860,9 +2831,9 @@ class FeatureLayer(MapServiceLayer):
             rollbackOnFailure: Optional specify if the edits should be applied
                 only if all submitted edits succeed. Defaults to True.
 
-        oids format example:
-            oids = [1, 2, 3] # list
-            oids = "1, 2, 4" # as string
+        >>> # oids format example:
+        >>> oids = [1, 2, 3] # list
+        >>> oids = "1, 2,4" # as string
         """
 
         if not geometryType:
@@ -2920,34 +2891,39 @@ class FeatureLayer(MapServiceLayer):
                 method of the REST API, see
                 http://resources.arcgis.com/en/help/arcgis:restapi/index.html#/Apply_Edits_Feature_Service_Layer/02r3000000r6000000/
 
-            attachments example (supported only in 10.4 and above):
-            {
-            "adds": [{
-            "globalId": "{55E85F98:FBDD4129:9F0B848DD40BD911}",
-            "parentGlobalId": "{02041AEF:41744d81:8A98D7AC5B9F4C2F}",
-            "contentType": "image/pjpeg",
-            "name": "Pothole.jpg",
-            "uploadId": "{DD1D0A30:CD6E4ad7:A516C2468FD95E5E}"
-            },
-            {
-            "globalId": "{3373EE9A:461941B7:918BDB54575465BB}",
-            "parentGlobalId": "{6FA4AA68:76D84856:971DB91468FCF7B7}",
-            "contentType": "image/pjpeg",
-            "name": "Debree.jpg",
-            "data": "<base 64 encoded data>"
+            >>> #attachments example (supported only in 10.4 and above):
+            >>> attachments = {
+                "adds": [
+                    {
+                        "globalId": "{55E85F98:FBDD4129:9F0B848DD40BD911}",
+                        "parentGlobalId": "{02041AEF:41744d81:8A98D7AC5B9F4C2F}",
+                        "contentType": "image/pjpeg",
+                        "name": "Pothole.jpg",
+                        "uploadId": "{DD1D0A30:CD6E4ad7:A516C2468FD95E5E}"
+                    },
+                    {
+                        "globalId": "{3373EE9A:461941B7:918BDB54575465BB}",
+                        "parentGlobalId": "{6FA4AA68:76D84856:971DB91468FCF7B7}",
+                        "contentType": "image/pjpeg",
+                        "name": "Debree.jpg",
+                        "data": "<base 64 encoded data>"
+                    }
+                ],
+                "updates": [
+                    {
+                        "globalId": "{8FDD9AEF:E05E440A:94261D7F301E1EBA}",
+                        "contentType": "image/pjpeg",
+                        "name": "IllegalParking.jpg",
+                        "uploadId": "{57860BE4:3B8544DD:A0E7BE252AC79061}"
+                    }
+                ],
+                "deletes": [
+                    "{95059311:741C4596:88EFC437C50F7C00}",
+                    " {18F43B1C:27544D05:BCB0C4643C331C29}"
+                ]
             }
-            ],
-            "updates": [{
-            "globalId": "{8FDD9AEF:E05E440A:94261D7F301E1EBA}",
-            "contentType": "image/pjpeg",
-            "name": "IllegalParking.jpg",
-            "uploadId": "{57860BE4:3B8544DD:A0E7BE252AC79061}"
-            }],
-            "deletes": [
-            "{95059311:741C4596:88EFC437C50F7C00}",
-            " {18F43B1C:27544D05:BCB0C4643C331C29}"
-            ]
-            }
+
+        >>> featureService.applyEdits(attachments=attachments)
         """
 
         edits_url = self.url + '/applyEdits'
@@ -3184,7 +3160,7 @@ class GeometryService(RESTEndpoint):
     def getLinearUnitWKID(unit_name):
         """Returns a well known ID from a unit name.
 
-        Arg:
+        Args:
             unit_name: Name of unit to fetch WKID for. It is safe to use this as
                 a filter to ensure a valid WKID is extracted.  if a WKID is passed in,
                 that same value is returned.  This argument is expecting a string
@@ -3310,13 +3286,11 @@ class GeometryService(RESTEndpoint):
         return Geometry(self.request(url, params), spatialReference=sr)
 
     def findTransformations(self, inSR, outSR, extentOfInterest='', numOfResults=1):
-        """Finds and returns the most applicable transformation based on inSR and
-                outSR.
+        """Finds and returns the most applicable transformation based on inSR and outSR.
 
         Args:
             inSR: Input Spatial Reference (wkid).
             outSR: Output Spatial Reference (wkid).
-            Args:*
             extentOfInterest: Optional bounding box of the area of interest
                 specified as a JSON envelope. If provided, the extent of
                 interest is used to return the most applicable geographic
@@ -3327,35 +3301,36 @@ class GeometryService(RESTEndpoint):
                 default value is 1. If numOfResults has a value of 1, all applicable
                 transformations are returned.
 
-        return looks like this:
-            [
-              {
+        >>> transformations = geometryService.findTransformations(4267, 4326, numOfResults=3)
+        >>> print(transformations)  
+        [
+            {
                 "wkid": 15851,
                 "latestWkid": 15851,
                 "name": "NAD_1927_To_WGS_1984_79_CONUS"
-              },
-              {
+            },
+            {
                 "wkid": 8072,
                 "latestWkid": 1172,
                 "name": "NAD_1927_To_WGS_1984_3"
-              },
-              {
+            },
+            {
                 "geoTransforms": [
-                  {
-                    "wkid": 108001,
-                    "latestWkid": 1241,
-                    "transformForward": true,
-                    "name": "NAD_1927_To_NAD_1983_NADCON"
-                  },
-                  {
-                    "wkid": 108190,
-                    "latestWkid": 108190,
-                    "transformForward": false,
-                    "name": "WGS_1984_(ITRF00)_To_NAD_1983"
-                  }
+                    {
+                        "wkid": 108001,
+                        "latestWkid": 1241,
+                        "transformForward": true,
+                        "name": "NAD_1927_To_NAD_1983_NADCON"
+                    },
+                    {
+                        "wkid": 108190,
+                        "latestWkid": 108190,
+                        "transformForward": false,
+                        "name": "WGS_1984_(ITRF00)_To_NAD_1983"
+                    }
                 ]
-              }
-            ]
+            }
+        ]
         """
 
         params = {IN_SR: inSR,
@@ -3406,7 +3381,7 @@ class ImageService(BaseService):
         """Method to adjust bounding box for image clipping to maintain
                 cell size.
 
-        Arg:
+        Args:
             boundingBox: Bounding box string (comma separated).
         """
 
@@ -3418,42 +3393,40 @@ class ImageService(BaseService):
     def pointIdentify(self, geometry=None, **kwargs):
         """Method to get pixel value from x,y coordinates or JSON point object.
 
-        Arg:
+        Args:
             geometry: Input restapi.Geometry() object or point as json. Defaults to None.
-
-        Recognized key word arguments:
             x: x coordinate
             y: y coordinate
             inSR: Input spatial reference.  Should be supplied if spatial
                 reference is different from the Image Service's projection.
 
-        geometry example:
-            geometry = {"x":3.0,"y":5.0,"spatialReference":{"wkid":102100}}
+        >>> # point identify
+        >>> point = {"x":3.0,"y":5.0,"spatialReference":{"wkid":102100}}
+        >>> res = imageService.pointIdentify(point)
+        >>> # or use kwargs
+        >>> res = imageService.pointIdentify(x=3.0, y=5.0, inSR=102100)
+
+        Raises:
+            ValueError: 'Not a valid input for "geometry" parameter!'
 
         Returns:
             Pixel value.
         """
         IDurl = self.url + '/identify'
 
-##        if geometry is not None:
-##            if not isinstance(geometry, Geometry):
-##                geometry = Geometry(geometry)
-##
-##        elif GEOMETRY in kwargs:
-##            g = Geometry(kwargs[GEOMETRY])
-##
-##        elif X in kwargs and Y in kwargs:
-##            g = {X: kwargs[X], Y: kwargs[Y]}
-##            if SR in kwargs:
-##                g[SPATIAL_REFERENCE] = {WKID: kwargs[SR]}
-##            elif SPATIAL_REFERENCE in kwargs:
-##                g[SPATIAL_REFERENCE] = {WKID: kwargs[SPATIAL_REFERENCE]}
-##            else:
-##                g[SPATIAL_REFERENCE] = {WKID: self.getSR()}
-##            geometry = Geometry(g)
-##
-##        else:
-##            raise ValueError('Not a valid input geometry!')
+        if not geometry:
+            if X in kwargs and Y in kwargs:
+                geometry = {X: kwargs[X], Y: kwargs[Y]} 
+                if IN_SR in kwargs:
+                    geometry[SPATIAL_REFERENCE] = { WKID: kwargs.get(IN_SR)}
+                else:
+                    geometry[SPATIAL_REFERENCE] = self.spatialReference
+        
+            else:
+                raise ValueError('Not a valid input for "geometry" parameter!')
+       
+        if not isinstance(geometry, Geometry):
+            geometry = Geometry(geometry)
 
         params = {
             GEOMETRY: geometry.dumps(),
@@ -3646,7 +3619,7 @@ class GPService(BaseService):
     def task(self, name):
         """Returns a GP Task object.
 
-        Arg:
+        Args:
             name: Name of task.
         """
         return GPTask('/'.join([self.url, name]))

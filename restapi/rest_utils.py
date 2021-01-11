@@ -89,7 +89,7 @@ class RestapiEncoder(json.JSONEncoder):
     def default(self, o):
         """Encodes object for JSON.
 
-        Arg:
+        Args:
             o: Object.
         """
         if o == True:
@@ -136,7 +136,7 @@ class IdentityManager(object):
         """Returns a token for a specific domain from token store if one has been
                 generated for the ArcGIS Server resource.
 
-        Arg:
+        Args:
             url: URL for secured resource.
 
         Raises:
@@ -174,7 +174,7 @@ class IdentityManager(object):
         """Returns a proxy url for a specific domain from token store if one has been
                 used to access the ArcGIS Server resource
 
-        Arg:
+        Args:
             url: URL for secured resource.
         """
 
@@ -418,7 +418,7 @@ def guess_proxy_url(domain):
     """Grade school level hack to see if there is a standard esri proxy available
             for a domain.
 
-    Arg:
+    Args:
         domain: URL to domain to check for proxy.
 
     Returns:
@@ -453,12 +453,13 @@ def guess_proxy_url(domain):
 def validate_name(file_name):
     """Validates an output name by removing special characters.
 
-    Arg:
+    Args:
         file_name: The name of the file to be validated.
 
     Returns:
         The path for the file.
     """
+    
 
     import string
     path = os.sep.join(file_name.split(os.sep)[:-1]) #forward slash in name messes up os.path.split()
@@ -472,7 +473,7 @@ def validate_name(file_name):
 def guess_wkid(wkt):
     """Attempts to guess a well-known ID from a well-known text imput (WKT).
 
-    Arg:
+    Args:
         wkt: Well known text spatial reference
 
     Returns:
@@ -493,7 +494,7 @@ def guess_wkid(wkt):
 def assign_unique_name(fl):
     """Assigns a unique file name.
 
-    Arg:
+    Args:
         fl: Path of file.
 
     Returns:
@@ -515,7 +516,7 @@ def mil_to_date(mil):
     """Date items from REST services are reported in milliseconds,
             this function will convert milliseconds to datetime objects.
 
-    Arg:
+    Args:
         mil: Time in milliseconds.
 
     Returns:
@@ -540,7 +541,7 @@ def mil_to_date(mil):
 def date_to_mil(date=None):
     """Converts datetime.datetime() object to milliseconds.
 
-    Arg:
+    Args:
         date: datetime.datetime() object
 
     Returns:
@@ -554,7 +555,7 @@ def date_to_mil(date=None):
 def fix_encoding(s):
     """Fixes unicode by treating as ascii and ignoring errors.
 
-    Arg:
+    Args:
         s: Unicode string.
     """
 
@@ -774,7 +775,7 @@ class NameEncoder(json.JSONEncoder):
     def default(self, o):
         """Encodes object for JSON.
 
-        Arg:
+        Args:
             o: Object.
         """
         return o.__repr__()
@@ -786,7 +787,7 @@ class JsonGetter(object):
     def get(self, name, default=None):
         """Gets an attribute from json.
 
-        Arg:
+        Args:
             name: Name of attribute.
         """
         return self.json.get(name, default)
@@ -958,7 +959,7 @@ class RESTEndpoint(JsonGetter):
                 service is compatible with the version if it is greater than or
                 equal to the input version.
 
-        Arg:
+        Args:
             version: Minimum version compatibility as float (ex: 10.3 or 10.31).
 
         Returns:
@@ -1155,6 +1156,8 @@ class FieldsMixin(object):
 
 class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
     """Base Class for feature set."""
+    _format = None 
+
     @property
     def hasGeometry(self):
         """Returns for if it has geometry."""
@@ -1202,7 +1205,7 @@ class FeatureSet(FeatureSetBase):
     def __init__(self, in_json):
         """Inits Class with input JSON for feature set.
 
-        Arg:
+        Args:
             in_json: Input json response from request.
 
         Raises:
@@ -1226,7 +1229,7 @@ class FeatureSet(FeatureSetBase):
     def extend(self, other):
         """Combines features from another FeatureSet with this one.
 
-        Arg:
+        Args:
             other: Other FeatureSet to combine with this one.
         """
         if not isinstance(other, FeatureSet):
@@ -1256,14 +1259,14 @@ class FeatureSet(FeatureSetBase):
         return FeatureSet(fsd)
 
 
-class GeoJSONFeatureSet(FeatureSetBase):
-    """Class that handles Geo JSON feature set."""
+class FeatureCollection(FeatureSetBase):
+    """Class that handles Geo JSON formatted Feature Set, known as a FeatureCollection."""
     _format = GEOJSON_FORMAT
 
     def __init__(self, in_json):
         """Inits class with JSON as geo feature set.
 
-        Arg:
+        Args:
             in_json: Input json response from request.
         """
 
@@ -1282,12 +1285,12 @@ class GeoJSONFeatureSet(FeatureSetBase):
     def extend(other):
         """Combines features from another FeatureSet with this one.
 
-        Arg:
+        Args:
             other: Other FeatureSet to combine with this one.
         """
 
-        if not isinstance(other, GeoJSONFeatureSet):
-            other = GeoJSONFeatureSet(other)
+        if not isinstance(other, FeatureCollection):
+            other = FeatureCollection(other)
         otherCopy = copy.deepcopy(other)
 
         # get max oid
@@ -1308,7 +1311,7 @@ class GeoJSONFeatureSet(FeatureSetBase):
             if k != FEATURES:
                 fsd[k] = v
         fsd[FEATURES] = []
-        return GeoJSONFeatureSet(fsd)
+        return FeatureCollection(fsd)
 
 
 class Feature(JsonGetter):
@@ -1316,7 +1319,7 @@ class Feature(JsonGetter):
     def __init__(self, feature):
         """Inits the class with a feature.
 
-        Arg:
+        Args:
             feature: Input json for feature.
         """
 
@@ -1327,7 +1330,7 @@ class Feature(JsonGetter):
     def get(self, field, default=None):
         """Returns/gets an attribute from the feature.
 
-        Arg:
+        Args:
             field: Name of field for which to get attribute.
         """
 
@@ -1352,7 +1355,7 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
     def __init__(self, in_json):
         """Inits class with json for query related records.
 
-        Arg:
+        Args:
             in_json: json response for query related records operation.
         """
 
@@ -1367,7 +1370,7 @@ class RelatedRecords(JsonGetter, SpatialReferenceMixin):
     def get_related_records(self, oid):
         """Gets the related records for an object id.
 
-        Arg:
+        Args:
             oid: Object ID for related records.
 
         Returns:
@@ -1408,13 +1411,13 @@ class BaseService(RESTEndpoint, SpatialReferenceMixin):
             self.name = self.url.split('/')[-2]
         self.name = self.name.split('/')[-1]
 
+    @property
+    def servicePath(self):
+        return self.url.split('/rest/services/')[-1]
+
     def __repr__(self):
         """String representation with service name."""
-        try:
-            qualified_name = '/'.join(filter(None, [self.url.split('/services/')[-1].split('/' + self.name)[0], self.name]))
-        except:
-            qualified_name = self.name
-        return '<{}: {}>'.format(self.__class__.__name__, qualified_name)
+        return '<{}: {}>'.format(self.__class__.__name__, self.servicePath)
 
 class OrderedDict2(OrderedDict):
     """Wrapper for OrderedDict."""
@@ -1428,7 +1431,7 @@ class PortalInfo(JsonGetter):
     def __init__(self, response):
         """Inits class with response from server.
 
-        Arg:
+        Args:
             response: The response from server.
         """
 
@@ -1800,10 +1803,9 @@ class GeocodeService(RESTEndpoint):
     """Class to handle Geocode Service."""
 
     def geocodeAddresses(self, recs, outSR=4326, address_field=''):
-        """Geocodes a list of addresses.  If there is a singleLineAddress field
-                present in the geocoding service, the only input required is a
-                list of addresses.  Otherwise, a record set an be passed in for
-                the "recs" parameter.  See formatting example at bottom.
+        """Geocodes a list of addresses.  If there is a singleLineAddress field present in the 
+        geocoding service, the only input required is a list of addresses.  Otherwise, a record 
+        set an be passed in for the "recs" parameter.  See formatting example at bottom.
 
         Args:
             recs: JSON object for fields as record set if no SingleLine field
@@ -1812,9 +1814,8 @@ class GeocodeService(RESTEndpoint):
             outSR: Optional output spatial refrence for geocoded addresses.
             address_field: Name of address field or Single Line address field.
 
-        # recs param examples
-        # preferred option as record set (from esri help docs):
-        recs = {
+        >>> # preferred option as record set (from esri help docs):
+        >>> recs = {
             "records": [
                 {
                     "attributes": {
@@ -1832,8 +1833,8 @@ class GeocodeService(RESTEndpoint):
                 }
             ]
         }
-        # full address list option if singleLineAddressField is present
-        recs = ['100 S Riverfront St, Mankato, MN 56001',..]
+        >>> # full address list option if singleLineAddressField is present
+        >>> recs = ['100 S Riverfront St, Mankato, MN 56001',..]
 
         Raises:
             ValueError: 'Not a valid input for "recs" parameter!'
