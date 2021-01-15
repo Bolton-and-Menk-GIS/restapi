@@ -447,8 +447,8 @@ class Row(object):
     @property
     def oid(self):
         """Returns the OID for row."""
-        if self.cursor.OIDFieldName:
-            return self.get(self.cursor.OIDFieldName)
+        if hasattr(self.cursor.featureSet, 'OIDFieldName'):
+            return self.get(self.cursor.featureSet.OIDFieldName)
         return None
 
     @property
@@ -456,7 +456,7 @@ class Row(object):
         """Returns values as tuple."""
         # fix date format in milliseconds to datetime.datetime()
         vals = []
-        for field in self.cursor.field_names:
+        for field in self.cursor.fieldOrder:
             if field in self.cursor.date_fields and self.get(field):
                 vals.append(mil_to_date(self.get(field)))
             elif field in self.cursor.long_fields and self.get(field):
@@ -489,7 +489,7 @@ class Cursor(object):
     fieldOrder = []
     field_names = []
     
-    def __init__(self, feature_set, fieldOrder=[]):
+    def __init__(self, feature_set, fieldOrder='*'):
         """Cursor object for a feature set.
 
         Args:
@@ -542,10 +542,10 @@ class Cursor(object):
         """Gets and returns the field names for feature set."""
         names = []
         for f in self.fieldOrder:
-            if f == OID_TOKEN and self.OIDFieldName:
+            if f == OID_TOKEN and self.featureSet.OIDFieldName:
                 names.append(self.featureSet.OIDFieldName)
-            # elif f == SHAPE_TOKEN and self.featureSet.ShapeFieldName:
-            #     names.append(self.featureSet.ShapeFieldName)
+            elif f == SHAPE_TOKEN and self.featureSet.ShapeFieldName:
+                names.append(self.featureSet.ShapeFieldName)
             else:
                 names.append(f)
         return names
@@ -586,9 +586,9 @@ class Cursor(object):
         for i,f in enumerate(fields):
             if '@' in f:
                 fields[i] = f.upper()
-            if hasattr(self, 'ShapeFieldName') and f == self.featureSet.ShapeFieldName:
+            if hasattr(self.featureSet, 'ShapeFieldName') and f == self.featureSet.ShapeFieldName:
                 fields[i] = SHAPE_TOKEN
-            if hasattr(self, 'OIDFieldName') and f == self.featureSet.OIDFieldName:
+            if hasattr(self.featureSet, 'OIDFieldName') and f == self.featureSet.OIDFieldName:
                 fields[i] = OID_TOKEN
 
         return fields
