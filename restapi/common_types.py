@@ -23,14 +23,16 @@ __opensource__ = False
 try:
     if not SHOULD_USE_ARCPY:
         raise ImportError
+    print('importing arcpy?')
     import arcpy
     from .arc_restapi import *
     has_arcpy = True
 
 except Exception as e:
-    if not isinstance(e, ImportError):
-        # raise exception if not an import error
-        raise e
+    print('skipping arcpy')
+    # if not isinstance(e, ImportError):
+    #     # raise exception if not an import error
+    #     raise e
     # using global is throwing a warning???
     setattr(sys.modules[PACKAGE_NAME], '__opensource__', True)
     __opensource__ = True
@@ -513,6 +515,13 @@ class Cursor(object):
         self.featureSet = feature_set
         self.type = self.featureSet._format
         self.fieldOrder = self.__validateOrderBy(fieldOrder)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if isinstance(type, Exception):
+            raise type(value)
 
     @property
     def features(self):
