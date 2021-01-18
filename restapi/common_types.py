@@ -17,9 +17,8 @@ from six.moves import urllib, zip_longest
 
 DEFAULT_REQUEST_FORMAT = JSON
 DEFAULT_FEATURESET_CLASS = FeatureSet
-
-__opensource__ = False
 SHOULD_USE_ARCPY = str(os.environ.get('RESTAPI_USE_ARCPY')).upper() not in ('FALSE', '0')
+__opensource__ = False
 
 try:
     if not SHOULD_USE_ARCPY:
@@ -29,7 +28,9 @@ try:
     has_arcpy = True
 
 except Exception as e:
-    print('arcpy import error: ', e)
+    if not isinstance(e, ImportError):
+        # raise exception if not an import error
+        raise e
     # using global is throwing a warning???
     setattr(sys.modules[PACKAGE_NAME], '__opensource__', True)
     __opensource__ = True
