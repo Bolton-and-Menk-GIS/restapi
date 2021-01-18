@@ -19,9 +19,10 @@ DEFAULT_REQUEST_FORMAT = JSON
 DEFAULT_FEATURESET_CLASS = FeatureSet
 
 __opensource__ = False
+SHOULD_USE_ARCPY = str(os.environ.get('RESTAPI_USE_ARCPY')).upper() not in ('FALSE', '0')
 
 try:
-    if str(os.environ.get('RESTAPI_USE_ARCPY')).upper() in ('FALSE', '0'):
+    if not SHOULD_USE_ARCPY:
         raise ImportError
     import arcpy
     from .arc_restapi import *
@@ -32,7 +33,9 @@ except Exception as e:
     # using global is throwing a warning???
     setattr(sys.modules[PACKAGE_NAME], '__opensource__', True)
     __opensource__ = True
-    warnings.warn('No Arcpy found, some limitations in functionality may apply.')
+    if SHOULD_USE_ARCPY:
+        # silence warning if explicitly chosen to skip arcpy import
+        warnings.warn('No Arcpy found, some limitations in functionality may apply.')
     # global DEFAULT_REQUEST_FORMAT
     DEFAULT_REQUEST_FORMAT = GEOJSON
     DEFAULT_FEATURESET_CLASS = FeatureCollection
@@ -1085,7 +1088,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         # check for tokens (only shape and oid)
         fields = self._fix_fields(params.get('fields', '*'))
         # print('FIX FIELDS OUTPUT: ', fields)
-        params[OUT_FIELDS] = fields
+        params[FIELDS] = fields
 
         # geometry validation
         if self.type == FEATURE_LAYER and GEOMETRY in params:
@@ -1142,7 +1145,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
 
 
-    def query(self, where='1=1', fields='*', records=None, exceed_limit=False, fetch_in_chunks=False, f=DEFAULT_REQUEST_FORMAT, kmz='', **kwargs):
+    def query(self, where='1=1', fields='*', records=None, exceed_limit=False, fetch_in_chunks=False, f=DEFAULT_REQUEST_FORMAT, kmz=None, **kwargs):
         """Queries layer and gets response as JSON.
 
         Args:
@@ -1184,7 +1187,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 kmz = validate_name(os.path.join(os.path.expanduser('~'), 'Desktop', '{}.kmz'.format(self.name)))
             with codecs.open(kmz, 'wb') as f:
                 f.write(r.content)
-            print('creating kmz')
 ##            with open(kmz, 'wb') as f:
 ##                shutil.copyfileobj(r.raw, f)
             print('Created: "{0}"'.format(kmz))
@@ -1194,16 +1196,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             server_response = {}
             if exceed_limit:
 
-                for i, where2 in enumerate(self.iter_queries(where, params, max_recs=records)):
+                for i, where2 in enumerate(self.iter_queries(max_recs=records, **params)):
                     sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
                     params[WHERE] = sql
                     resp = self.request(query_url, params)
                     if i < 1:
                         server_response = resp
                     else:
-                        server_response[FEATURES] += resp[FEATURES]
-                else:
-                    server_response = self.request(query_url, params)
+                        server_response[FEATURES].extend(resp[FEATURES])
 
             else:
                 if isinstance(records, int) and str(self.currentVersion) >= '10.3':
@@ -1232,7 +1232,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         query_url = self.url + '/query'
 
         params = self._validate_params(where=where, fields=fields, **kwargs)
-        for where2 in self.iter_queries(where, params, max_recs=records):
+        for where2 in self.iter_queries(max_recs=records, **params):
             sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
             params[WHERE] = sql
             # print('FIELDS: ', params.get('fields'))
@@ -1275,8 +1275,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             OUT_SR: outSR
         }
 
-        for k,v in six.iteritems(kwargs):
-            params[k] = v
+        params.update(kwargs)
         return RelatedRecords(self.request(query_url, params))
 
     def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, **kwargs):
@@ -1306,11 +1305,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         if not inSR:
             inSR = geometry.getSR()
 
-        params = {GEOMETRY: geometry,
-                  GEOMETRY_TYPE: geometryType,
-                  SPATIAL_REL: spatialRel,
-                  IN_SR: inSR,
-            }
+        params = {
+            GEOMETRY: geometry,
+            GEOMETRY_TYPE: geometryType,
+            SPATIAL_REL: spatialRel,
+            IN_SR: inSR,
+         }
 
         if int(distance):
             params[DISTANCE] = distance
@@ -1321,22 +1321,20 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if k not in params:
                 params[k] = v
 
-
         return DEFAULT_FEATURESET_CLASS(self.query(**params))
 
 
-    def layer_to_kmz(self, out_kmz='', flds='*', where='1=1', params={}):
+    def export_kmz(self, out_kmz='', fields='*', where='1=1', **kwargs):
         """Method to create kmz from query.
 
         Args:
             out_kmz: Optional output kmz file path, if none specified will be saved on Desktop. Defaults to ''.
-            flds: Optional list of fields for fc. If none specified, all fields
+            fields: Optional list of fields for fc. If none specified, all fields
                 are returned. Defaults to '*'. Supports fields in list [] or comma
                 separated string "field1,field2,.."
             where: Optional where clause, defaults to '1=1'.
-            params: Optional dictionary of parameters for query, Defaults to {}.
         """
-        return query(self.url, flds, where=where, ret_form='kmz', token=self.token, kmz=out_kmz, **params)
+        return self.query(fields=fields, where=where, f='kmz', token=self.token, kmz=out_kmz, **kwargs)
 
     def getOIDs(self, where='1=1', max_recs=None, **kwargs):
         """Returns a list of OIDs from feature layer.
@@ -1503,14 +1501,13 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         fs = self.query(where, cur_fields, records, exceed_limit, **kwargs)
         return Cursor(fs, fields)
 
-    def export_layer(self, out_fc, fields='*', where='1=1', records=None, params={}, exceed_limit=False, sr=None,
+    def export_layer(self, out_fc, fields='*', where='1=1', records=None, exceed_limit=False, sr=None,
                      include_domains=True, include_attachments=False, qualified_fieldnames=False, **kwargs):
         """Method to export a feature class or shapefile from a service layer.
 
         Args:
             out_fc: Full path to output feature class.
             where: Optional where clause. Defaults to '1=1'.
-            params: Optional dictionary of parameters for query. Defaults to {}.
             fields: Optional list of fields for fc. If none specified, all fields
                 are returned. Defaults to '*'. Supports fields in list [] or comma
                 separated string "field1,field2,..".
@@ -1533,14 +1530,13 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         Returns:
             A feature class or shapefile.
         """
-
         if self.type in (FEATURE_LAYER, TABLE):
 
             # make new feature class
             if not sr:
                 sr = self.getSR()
             else:
-                params[OUT_SR] = sr
+                kwargs[OUT_SR] = sr
 
             if exceed_limit:
 
@@ -1552,7 +1548,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     if self.query(returnCountOnly=True).count > self.maxRecordCount:
                         doesExceed = True
                         out_fc = r'in_memory\restapi_chunk_{}'.format(os.path.splitext(os.path.basename(orig))[0])
-                for fs in self.query_in_chunks(where, fields, params, f=DEFAULT_REQUEST_FORMAT, **kwargs):
+                for fs in self.query_in_chunks(where, fields, f=DEFAULT_REQUEST_FORMAT, **kwargs):
                     exportFeatureSet(fs, out_fc, include_domains=False)
 
                 if not isShp and include_domains:
@@ -1569,7 +1565,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             else:
 
                 # do query to get feature set
-                fs = self.query(where, fields, params, records, exceed_limit, **kwargs)
+                fs = self.query(where, fields, records, exceed_limit, **kwargs)
 
                 # get any domain info
                 f_dict = {f.name: f for f in self.fields}
@@ -1587,7 +1583,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             print('Layer: "{}" is not a Feature Layer!'.format(self.name))
 
 
-    def clip(self, poly, output, fields='*', out_sr='', where='', envelope=False, exceed_limit=True, **kwargs):
+    def clip(self, poly, output, fields='*', outSR='', where='', envelope=False, exceed_limit=True, **kwargs):
         """Method for spatial Query, exports geometry that intersect polygon or
                 envelope features.
 
@@ -1597,7 +1593,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             fields: Optional list of fields for fc. If none specified, all fields are returned.
                 Supports fields in list [] or comma separated string
                 "field1,field2,..". Defaults to '*'.
-            out_sr: Optional output spatial refrence (WKID). Defaults to ''.
+            outSR: Optional output spatial refrence (WKID). Defaults to ''.
             where: Optional where clause. Defaults to ''.
             envelope: Optional boolean, if True, the polygon features bounding
                 box will be used. This option can be used if the feature has
@@ -1614,17 +1610,18 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             geojson = in_geom.dumps()
             geometryType = in_geom.geometryType
 
-        if not out_sr:
-            out_sr = sr
+        if not outSR:
+            outSR = sr
 
-        d = {GEOMETRY_TYPE: geometryType,
+        params = {
+            GEOMETRY_TYPE: geometryType,
              RETURN_GEOMETRY: TRUE,
              GEOMETRY: geojson,
              IN_SR : sr,
-             OUT_SR: out_sr,
+             OUT_SR: outSR,
              SPATIAL_REL: kwargs.get(SPATIAL_REL) or ESRI_INTERSECT
         }
-        return self.export_layer(output, fields, where, params=d, exceed_limit=True, sr=out_sr)
+        return self.export_layer(output, fields, where, exceed_limit=True, **params)
 
     def __repr__(self):
         """String representation with service name."""
@@ -1665,11 +1662,12 @@ class MapServiceTable(MapServiceLayer):
     def select_by_location(self):
         raise NotImplemented('Select By Location not supported for tabular data!')
 
-    def layer_to_kmz(self):
+    def export_kmz(self):
         raise NotImplemented('Tabular Data cannot be converted to KMZ!')
 
 # LEGACY SUPPORT
 MapServiceLayer.layer_to_fc = MapServiceLayer.export_layer
+MapServiceLayer.layer_to_kmz = MapServiceLayer.export_kmz
 
 class MapService(BaseService):
     """Class that handles map services."""
@@ -1883,7 +1881,7 @@ class MapService(BaseService):
         lyr = self.layer(layer_name)
         lyr.layer_to_fc(out_fc, fields, where,records, exceed_limit, sr, **kwargs)
 
-    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', **kwargs):
+    def export_kmz(self, layer_name, out_kmz='', fields='*', where='1=1', **kwargs):
         """Method to create kmz from query.
 
         Args:
@@ -1894,13 +1892,12 @@ class MapService(BaseService):
                 Supports fields in list [] or comma separated string
                 "field1,field2,..". Defaults to '*'.
             where: Optional where clause. Defaults to '1=1'.
-            params: Optional dictionary of parameters for query, defaults to {}.
         """
 
         lyr = self.layer(layer_name)
-        lyr.layer_to_kmz(flds, where, kmz=out_kmz, **kwargs)
+        lyr.export_kmz(fields=fields, where=where, kmz=out_kmz, **kwargs)
 
-    def clip(self, layer_name, poly, output, fields='*', out_sr='', where='', envelope=False):
+    def clip(self, layer_name, poly, output, fields='*', outSR='', where='', envelope=False):
         """Method for spatial Query, exports geometry that intersect polygon or
                 envelope features.
 
@@ -1923,7 +1920,7 @@ class MapService(BaseService):
         """
 
         lyr = self.layer(layer_name)
-        return lyr.clip(poly, output, fields, out_sr, where, envelope)
+        return lyr.clip(poly, output, fields, outSR, where, envelope)
 
     def __iter__(self):
         for lyr in self.layers:
@@ -1978,21 +1975,20 @@ class FeatureService(MapService):
         else:
             print('Layer "{0}" not found!'.format(name_or_id))
 
-    def layer_to_kmz(self, layer_name, out_kmz='', flds='*', where='1=1', params={}):
+    def export_kmz(self, layer_name, out_kmz='', fields='*', where='1=1', **kwargs):
         """Method to create kmz from query.
 
         Args:
             layer_name: Name of map service layer to export to fc.
             out_kmz: Optional output kmz file path, if none specified will be saved on Desktop
-            flds: Optional list of fields for fc. If none specified, all fields
+            fields: Optional list of fields for fc. If none specified, all fields
                 are returned. Supports fields in list [] or comma separated
                 string "field1,field2,..". Default is '*'.
             where: Optional where clause.
-            params: Optional dictionary of parameters for query.
         """
 
         lyr = self.layer(layer_name)
-        lyr.layer_to_kmz(flds, where, params, kmz=out_kmz)
+        return lyr.export_kmz(fields=fields, where=where, kmz=out_kmz, **kwargs)
 
     def createReplica(self, layers, replicaName, geometry='', geometryType='', inSR='', replicaSR='', dataFormat='json', returnReplicaObject=True, **kwargs):
         """Queries attachments, returns a JSON object.
