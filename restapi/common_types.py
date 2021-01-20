@@ -11,6 +11,7 @@ import sys
 import warnings
 from munch import munchify
 from . import projections
+from .conversion import is_feature_set, is_feature_collection
 
 import six
 from six.moves import urllib, zip_longest
@@ -1038,7 +1039,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             server_response = munchify(server_response.json())
 
         if PROPERTIES in server_response:
-             return server_response
+             return FeatureCollection(server_response)
 
         flds = self.fieldLookup
         if FIELDS in server_response:
@@ -1057,9 +1058,10 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         if FIELDS not in server_response:
             server_response[FIELDS] = getattr(self, FIELDS)
 
-        if all(map(lambda k: k in server_response, [FIELDS, FEATURES])):
+        if is_feature_set(server_response) or is_feature_collection(server_response):
             if records:
                 server_response[FEATURES] = server_response[FEATURES][:records]
+
             return FeatureCollection(server_response) if server_response.get(TYPE) == FEATURE_COLLECTION else FeatureSet(server_response)
         else:
             if records:
@@ -1222,6 +1224,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 server_response = self.request(query_url, params)
 
             return self._format_server_response(server_response, records)
+            # srv = self._format_server_response(server_response, records)
+            # print(srv)
+            # return srv
 
     def query_in_chunks(self, where='1=1', fields='*', records=None, **kwargs):
         """Queries a layer in chunks and returns a generator.
@@ -1288,7 +1293,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         params.update(kwargs)
         return RelatedRecords(self.request(query_url, params))
 
-    def select_by_location(self, geometry, geometryType='', inSR='', spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, **kwargs):
+    def select_by_location(self, geometry, geometryType=None, inSR=None, spatialRel=ESRI_INTERSECT, distance=0, units=ESRI_METER, outSR=None, envelope=False, exceed_limit=True, **kwargs):
         """Selects features by location of a geometry, returns a feature set.
 
         Args:
@@ -1310,17 +1315,30 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             esriSRUnit_Meter | esriSRUnit_StatuteMile | esriSRUnit_Foot | esriSRUnit_Kilometer | esriSRUnit_NauticalMile | esriSRUnit_USNauticalMile
         """
         geometry = Geometry(geometry)
+        sr = geometry.getSR()
+        if envelope:
+            geometry = geometry.envelopeAsJSON()
+            geometryType = ESRI_ENVELOPE
         if not geometryType:
             geometryType = geometry.geometryType
-        if not inSR:
-            inSR = geometry.getSR()
 
         params = {
             GEOMETRY: geometry,
             GEOMETRY_TYPE: geometryType,
             SPATIAL_REL: spatialRel,
-            IN_SR: inSR,
          }
+        
+        if sr:
+            if not inSR:
+                inSR = sr
+                
+            # if not outSR:
+            #     outSR = sr
+
+        if inSR:
+            params[IN_SR]= inSR
+        if outSR:
+            params[OUT_SR] = outSR
 
         if int(distance):
             params[DISTANCE] = distance
@@ -1331,7 +1349,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if k not in params:
                 params[k] = v
 
-        return DEFAULT_FEATURESET_CLASS(self.query(**params))
+        params['exceed_limit'] = exceed_limit
+
+        return self.query(**params)
 
 
     def export_kmz(self, out_kmz='', fields='*', where='1=1', **kwargs):
@@ -1356,9 +1376,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             **kwargs: Optional key word arguments to further limit query (i.e. add geometry interesect).
         """
 
-        p = {RETURN_IDS_ONLY:TRUE,
-             RETURN_GEOMETRY: FALSE,
-             OUT_FIELDS: ''}
+        p = {
+            RETURN_IDS_ONLY:TRUE,
+            RETURN_GEOMETRY: FALSE,
+            OUT_FIELDS: '*'
+        }
 
         # add kwargs if specified
         for k,v in six.iteritems(kwargs):
@@ -1379,7 +1401,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             kwargs: Optional keyword arguments for query operation.
         """
 
-        return len(self.getOIDs(where,  **kwargs))
+        return len(self.getOIDs(where, **kwargs))
 
     def _parse_attachment_infos(self, response, oid=None, globalId=None):
         atts = []
@@ -1463,14 +1485,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         else:
             raise NotImplementedError('Layer "{}" does not support attachments!'.format(self.name))
 
-    def download_all_attachments(self, out_folder, objectIds=[], definitionExpression='1=1', namer=None):
+    def download_all_attachments(self, out_folder, objectIds=[], where='1=1', namer=None):
         """will download all attachments, or a subset based on `oids` or `where` params.
 
         Args:
-            out_folder ([type]): [description]
-            oids (list, optional): [description]. Defaults to [].
-            where (str, optional): [description]. Defaults to '1=1'.
-            namer (function, optional): [description]. Defaults to None.
+            out_folder (str): the output folder path
+            oids (list, optional): list of objectids. Defaults to [].
+            where (str, optional): where clause for fecthing attachments. Defaults to '1=1'.
+            namer (function, optional): a function that takes a restapi.Attachment argument to return a filename for each attachment as string. Defaults to None.
         """
         from multiprocessing.pool import ThreadPool
         from functools import partial
@@ -1479,7 +1501,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             namer = lambda att: validate_name('{}_{}'.format(getattr(att, PARENT_OBJECTID), att.name))
 
         if not objectIds:
-            objectIds = self.getOIDs(definitionExpression)
+            objectIds = self.getOIDs(where)
 
         # fetch attachments
         start = datetime.datetime.now()
@@ -1625,11 +1647,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         params = {
             GEOMETRY_TYPE: geometryType,
-             RETURN_GEOMETRY: TRUE,
-             GEOMETRY: geojson,
-             IN_SR : sr,
-             OUT_SR: outSR,
-             SPATIAL_REL: kwargs.get(SPATIAL_REL) or ESRI_INTERSECT
+            RETURN_GEOMETRY: TRUE,
+            GEOMETRY: geojson,
+            IN_SR : sr,
+            OUT_SR: outSR,
+            SPATIAL_REL: kwargs.get(SPATIAL_REL) or ESRI_INTERSECT
         }
         return self.export_layer(output, fields, where, exceed_limit=True, **params)
 
@@ -1889,7 +1911,7 @@ class MapService(BaseService):
         """
 
         lyr = self.layer(layer_name)
-        lyr.layer_to_fc(out_fc, fields, where,records, exceed_limit, sr, **kwargs)
+        lyr.export_layer(out_fc, fields, where,records, exceed_limit, sr, **kwargs)
 
     def export_kmz(self, layer_name, out_kmz='', fields='*', where='1=1', **kwargs):
         """Method to create kmz from query.
