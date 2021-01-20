@@ -9,6 +9,7 @@ import json
 import sys
 from collections import OrderedDict
 from .rest_utils import *
+from .conversion import is_arcgis, arcgis_to_geojson
 shapefile =  shp_helper.shapefile
 
 from . import projections
@@ -317,6 +318,10 @@ class Geometry(BaseGeometry):
             else:
                 self.geometryType = NULL_GEOMETRY
         self.json = munch.munchify(self.json)
+    
+    @property
+    def _native_format(self):
+        return arcgis_to_geojson(self.json) if is_arcgis(self.json) else self.json
 
     @property
     def spatialReference(self):
@@ -366,7 +371,7 @@ class Geometry(BaseGeometry):
 
     def asShape(self):
         """Returns geometry as shapefile.Shape() object."""
-        return shapefile.Shape._from_geojson(self.json)
+        return shapefile.Shape._from_geojson(self._native_format)
 #         shp = shapefile.Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
 #         if self.geometryType != ESRI_POINT:
 #             shp.points = self.json[JSON_CODE[self.geometryType]]

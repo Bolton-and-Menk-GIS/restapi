@@ -6,6 +6,7 @@ import time
 import json
 import sys
 from .rest_utils import *
+from .conversion import is_geojson, geojson_to_arcgis
 
 import six
 from six.moves import range
@@ -170,6 +171,10 @@ class Geometry(BaseGeometry):
             else:
                 self.geometryType = NULL_GEOMETRY
         self.hasCurves = CURVE_PATHS in self.json or CURVE_RINGS in self.json
+        
+    @property
+    def _native_format(self):
+        return geojson_to_arcgis(self.json) if is_geojson(self.json) else self.json
 
     def envelope(self):
         """Return an envelope from shape."""
@@ -212,9 +217,7 @@ class Geometry(BaseGeometry):
 
     def asShape(self):
         """Returns JSON as arcpy.Geometry() object."""
-        if self.geometryType != ESRI_ENVELOPE:
-            return arcpy.AsShape(self.json, True)
-        else:
+        if self.geometryType == ESRI_ENVELOPE:
             ar = arcpy.Array([
                 arcpy.Point(self.json[XMIN], self.json[YMAX]),
                 arcpy.Point(self.json[XMAX], self.json[YMAX]),
@@ -222,6 +225,8 @@ class Geometry(BaseGeometry):
                 arcpy.Point(self.json[XMIN], self.json[YMIN])
             ])
             return arcpy.Polygon(ar, arcpy.SpatialReference(self.spatialReference))
+        else:
+            return arcpy.AsShape(self._native_format, True)
 
     def toPolygon(self):
         """Returns a polygon that is converted from geometry."""
