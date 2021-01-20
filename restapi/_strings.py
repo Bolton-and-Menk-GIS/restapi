@@ -34,6 +34,7 @@ SPATIAL_REFERENCE = 'spatialReference'
 WKID = 'wkid'
 LATEST_WKID = 'latestWkid'
 WKT = 'wkt'
+FID = 'FID'
 GEOMETRY_TYPE = 'geometryType'
 GEOMETRY = 'geometry'
 ATTRIBUTES = 'attributes'
@@ -72,6 +73,8 @@ RELATION_PARAM = 'relationParam'
 MAX_RECORD_COUNT = 'maxRecordCount'
 RETURN_Z = 'returnZ'
 RETURN_M = 'returnM'
+HAS_Z = 'hasZ'
+HAS_M = 'hasM'
 RETURN_TRUE_CURVES = 'returnTrueCurves'
 RETURN_IDS_ONLY = 'returnIdsOnly'
 RESULT_RECORD_COUNT = 'resultRecordCount' # added at 10.3
@@ -280,6 +283,7 @@ CURVE_RINGS = 'curveRings'
 CURVE_PATHS = 'curvePaths'
 X = 'x'
 Y = 'y'
+Z = 'z'
 COPY_RUNTIME_GDB_TO_FILE_GDB = 'CopyRuntimeGdbToFileGdb'
 DEFAULT_VALUE = 'defaultValue'
 SQL_GLOBAL_ID_EXP = 'NEWID() WITH VALUES'
@@ -365,23 +369,30 @@ FTYPES = {DATE_FIELD:'DATE',
           GLOBALID: 'GUID'}
 
 SKIP_FIELDS = {
-          RASTER_FIELD:'RASTER',
-          BLOB_FIELD: 'BLOB'}
+    RASTER_FIELD:'RASTER',
+    BLOB_FIELD: 'BLOB'
+}
 
-EXTRA ={OID: 'OID@',
-        SHAPE: 'SHAPE@'}
+EXTRA = {
+    OID: 'OID@',  
+    SHAPE: 'SHAPE@'
+}
 
-G_DICT = {ESRI_POLYGON: 'Polygon',
-          ESRI_POINT: 'Point',
-          ESRI_POLYLINE: 'Polyline',
-          ESRI_MULTIPOINT: 'Multipoint',
-          ESRI_ENVELOPE:'Envelope'}
+G_DICT = {
+    ESRI_POLYGON: 'Polygon',
+    ESRI_POINT: 'Point',
+    ESRI_POLYLINE: 'Polyline',
+    ESRI_MULTIPOINT: 'Multipoint',
+    ESRI_ENVELOPE:'Envelope'
+}
 
-GEOM_DICT = {RINGS: ESRI_POLYGON,
-             PATHS: ESRI_POLYLINE,
-             POINTS: ESRI_MULTIPOINT,
-             X: ESRI_POINT,
-             Y: ESRI_POINT}
+GEOM_DICT = {
+    RINGS: ESRI_POLYGON,
+    PATHS: ESRI_POLYLINE,
+    POINTS: ESRI_MULTIPOINT,
+    X: ESRI_POINT,
+    Y: ESRI_POINT
+}
 
 FIELD_STRUCT = {ALIAS: NULL,
     NAME: NULL,
@@ -390,11 +401,13 @@ FIELD_STRUCT = {ALIAS: NULL,
 }
 
 
-JSON_DICT = {'rings': 'esriGeometryPolygon',
-             'paths': 'esriGeometryPolyline',
-             'points': 'esriGeometryMultipoint',
-             'x': 'esriGeometryPoint',
-             'y': 'esriGeometryPoint'}
+JSON_DICT = {
+    'rings': 'esriGeometryPolygon',
+    'paths': 'esriGeometryPolyline',
+    'points': 'esriGeometryMultipoint',
+    'x': 'esriGeometryPoint',
+    'y': 'esriGeometryPoint'
+}
 
 JSON_CODE = {v:k for k,v in six.iteritems(JSON_DICT)}
 
@@ -417,3 +430,10 @@ try:
     JSON_PATH = os.path.dirname(__file__)
 except:
     JSON_PATH = os.path.abspath(os.path.dirname(sys.argv[0]))
+
+GEOJSON_POINT = 'Point'
+GEOJSON_MULTIPOINT = 'MultiPoint'
+GEOJSON_LINESTRING = 'LineString'
+GEOJSON_MULTI_LINESTRING = 'MultiLineString'
+GEOJSON_POLYGON = 'Polygon'
+GEOJSON_MULTIPOLYGON = 'MultiPolygon'
