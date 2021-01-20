@@ -1042,6 +1042,10 @@ class SpatialReferenceMixin(object):
         if not isinstance(in_json, dict):
             return None
         for k, v in six.iteritems(in_json):
+            if k == CRS:
+                prop = in_json.get(CRS, {}).get(PROPERTIES, {}).get(NAME, '')
+                if ('ESPG:') in prop:
+                    return int(prop.replace('ESPG:',''))
             if k == SPATIAL_REFERENCE:
                 if isinstance(v, int):
                     return v
@@ -1111,6 +1115,19 @@ class SpatialReferenceMixin(object):
         """Returns the well known text (if it exists) for a service."""
         return self._spatialReference.get(WKT, '')
 
+    def getCRS(self):
+        """returs the crs representation if WKID exists"""
+        wkid = self.getWKID()
+        if wkid:
+            return munchify({
+                TYPE: NAME,
+                PROPERTIES: {
+                    NAME: 'ESPG:{}'.format(wkid)
+                }
+            })
+
+        return None
+
 
 class FieldsMixin(object):
     json = {}
@@ -1173,13 +1190,11 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     def __getitem__(self, key):
         """Supports grabbing feature by index and json keys by name."""
-        try:
-            if isinstance(key, int):
-                return Feature(self.json.features[key])
-            else:
-                return Feature(self.json.get(key))
-        except:
-            return self.json.get(key)
+        
+        if isinstance(key, int):
+            return Feature(self.json.features[key])
+
+        return self.json.get(key)
 
     def __iter__(self):
         for feature in self.features:
