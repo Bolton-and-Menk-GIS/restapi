@@ -1119,7 +1119,7 @@ class SpatialReferenceMixin(object):
         """returs the crs representation if WKID exists"""
         wkid = self.getWKID()
         if wkid:
-            return munchify({
+            return munch.munchify({
                 TYPE: NAME,
                 PROPERTIES: {
                     NAME: 'ESPG:{}'.format(wkid)
