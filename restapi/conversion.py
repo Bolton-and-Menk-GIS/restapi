@@ -1,6 +1,7 @@
 import six
 import numbers
 from ._strings import *
+from .rest_utils import FeatureCollection, FeatureSet
 from munch import munchify
 
 ESRI_GEOMETRY_PROPS = [RINGS, POINTS, PATHS, X, Y, Z]
@@ -13,6 +14,15 @@ OID_ATTRIBUTES = [OBJECTID, 'objectid', FID]
 GEOJSON_POLYGON_TYPES = [GEOJSON_POLYGON, GEOJSON_MULTIPOLYGON]
 GEOJSON_LINE_TYPES = [GEOJSON_LINESTRING, GEOJSON_MULTI_LINESTRING]
 
+GEOJSON_GEOMETRY_MAPPING = {
+    GEOJSON_POINT: ESRI_POINT,
+    GEOJSON_POLYGON: ESRI_POLYGON,
+    GEOJSON_MULTIPOLYGON: ESRI_POLYGON,
+    GEOJSON_LINESTRING: ESRI_POLYLINE,
+    GEOJSON_MULTI_LINESTRING: ESRI_POLYLINE,
+    GEOJSON_MULTIPOINT: ESRI_MULTIPOINT
+}
+
 
 def is_geojson(g):
     """ checks if json geometry is geojson format
@@ -23,6 +33,9 @@ def is_geojson(g):
     Returns:
         bool: returns True if json structure is a geojson type
     """
+    # duck type check for restapi.Geometry
+    if hasattr(g, JSON):
+        g = getattr(g, JSON)
     if isinstance(g, dict):
         if TYPE in g:
             return g.get(TYPE) in GEOJSON_GEOMETRY_TYPES
@@ -39,6 +52,9 @@ def is_arcgis(g):
     Returns:
         bool: returns True if json structure is an arcgis type
     """
+    # duck type check for restapi.Geometry
+    if hasattr(g, JSON):
+        g = getattr(g, JSON)
     if isinstance(g, dict):
         if TYPE in g:
             return g.get(TYPE) in ESRI_GEOMETRY_TYPES
@@ -55,6 +71,8 @@ def is_feature_set(dct):
     Returns:
         bool: returns True if json structure is a feature set
     """
+    if isinstance(dct, FeatureSet):
+        return True
     if isinstance(dct, dict):
         return all(map(lambda x: dct.get(x), [FEATURES, FIELDS]))
     return False
@@ -69,6 +87,8 @@ def is_feature_collection(dct):
     Returns:
         bool: returns True if json structure is a feature collection
     """
+    if isinstance(dct, FeatureCollection):
+        return True
     if isinstance(dct, dict):
         return dct.get(TYPE) == FEATURE_COLLECTION
         # return all(map(lambda x: dct.get(x), [FEATURES, TYPE]))
@@ -463,19 +483,22 @@ def featureSet_to_featureCollection(fs):
         dict: feature collection json structure
     """
     if is_feature_collection(fs):
-        return munchify(fs)
+        return FeatureCollection(fs)
 
-    fc = { 
+    if not isinstance(fs, FeatureSet):
+        fs = FeatureSet(fs)
+    return FeatureCollection({ 
         TYPE: FEATURE_COLLECTION,
         FEATURES: [
             { 
                 TYPE: FEATURE,
                 ID: get_oid(ft.get(ATTRIBUTES)) or i+1,
+                CRS: fs.getCRS(),
                 PROPERTIES: ft.get(ATTRIBUTES), 
                 GEOMETRY: arcgis_to_geojson(ft.get(GEOMETRY))
-            } for i,ft in enumerate(fs.get(FEATURES, []))] 
-    }
-    return munchify(fc)
+            } for i,ft in enumerate(fs.get(FEATURES, []))
+        ] 
+    })
 
 
 def featureCollection_to_featureSet(fc, fields):
@@ -489,17 +512,21 @@ def featureCollection_to_featureSet(fc, fields):
         dict: feature collection json structure
     """
     if is_feature_set(fc):
-        return munchify(fc)
+        return FeatureSet(fc)
 
-    fs = { 
+    if not isinstance(fc, FeatureCollection):
+        fc = FeatureCollection(fc)
+
+    return FeatureSet({ 
         FIELDS: fields,
+        SPATIAL_REFERENCE: fc._spatialReference,
         FEATURES: [
             { 
                 ATTRIBUTES: ft.get(PROPERTIES), 
                 GEOMETRY: geojson_to_arcgis(ft.get(GEOMETRY))
-            } for ft in fc.get(FEATURES, [])] 
-    }
-    return munchify(fs)
+            } for ft in fc.get(FEATURES, [])
+        ] 
+    })
 
 
 if __name__ == '__main__':
