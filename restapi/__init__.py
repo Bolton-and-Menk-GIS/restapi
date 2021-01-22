@@ -44,3 +44,11 @@ def getHelp():
     import webbrowser
     webbrowser.open_new_tab(__documentation__)
     return __documentation__
+
+get_help = getHelp
+
+def open_geometry_helper():
+    import webbrowser
+    import os
+    index = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'geometry-helper', 'index.html').replace('\\', '/')
+    webbrowser.open('file:///{}'.format(index))
