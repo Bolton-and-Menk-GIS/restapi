@@ -302,7 +302,7 @@ def exportFeatureSet_os(feature_set, out_fc, outSR=None, **kwargs):
 
                     field_name = fld.name.split('.')[-1][:10]
                     field_type = SHP_FTYPES[fld.type]
-                    field_length = str(fld.length) if hasattr(fld, 'length') else "50"
+                    field_length = str(min([fld.length if hasattr(fld, 'length') else 50, 255]))
                     w.add_field(field_name, field_type, field_length)
                     field_map.append((fld.name, field_name))
 
@@ -901,7 +901,7 @@ class ArcServer(RESTEndpoint):
             full_service_url = '/'.join([self.url, qualified_service])
             services.append(qualified_service)
             self.service_cache.append(full_service_url)
-        yield (self.url, services)
+        yield (None, services)
 
         for f in self.folders:
             new = '/'.join([self.url, f])
@@ -1098,9 +1098,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             params[RESULT_RECORD_COUNT] = min([int(params[RESULT_RECORD_COUNT]), self.get(MAX_RECORD_COUNT)])
 
         # check for tokens (only shape and oid)
-        fields = self._fix_fields(params.get('fields', '*'))
+        fields = self._fix_fields(params.get(FIELDS, '*'))
         # print('FIX FIELDS OUTPUT: ', fields)
-        params[FIELDS] = fields
+        params[OUT_FIELDS] = fields
 
         # geometry validation
         if self.type == FEATURE_LAYER and GEOMETRY in params:
@@ -1136,7 +1136,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # get oids
         resp = self.query(where=where, **kwargs)
-        oids = sorted(resp.get(OBJECT_IDS, []))[:max_recs]
+        
+        # check if feature collect
+        if is_feature_collection(resp):
+            oids = resp.properties.get(OBJECT_IDS, [])[:max_recs]
+        else:
+            oids = sorted(resp.get(OBJECT_IDS, []))[:max_recs]
         oid_name = resp.get(OID_FIELD_NAME, OBJECTID)
         print('total records: {0}'.format(len(oids)))
 
@@ -1224,9 +1229,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 server_response = self.request(query_url, params)
 
             return self._format_server_response(server_response, records)
-            # srv = self._format_server_response(server_response, records)
-            # print(srv)
-            # return srv
 
     def query_in_chunks(self, where='1=1', fields='*', records=None, **kwargs):
         """Queries a layer in chunks and returns a generator.
@@ -1315,7 +1317,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             esriSRUnit_Meter | esriSRUnit_StatuteMile | esriSRUnit_Foot | esriSRUnit_Kilometer | esriSRUnit_NauticalMile | esriSRUnit_USNauticalMile
         """
         geometry = Geometry(geometry)
-        sr = geometry.getSR()
         if envelope:
             geometry = geometry.envelopeAsJSON()
             geometryType = ESRI_ENVELOPE
@@ -1323,20 +1324,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             geometryType = geometry.geometryType
 
         params = {
-            GEOMETRY: geometry,
+            GEOMETRY: geometry.dumps(),
             GEOMETRY_TYPE: geometryType,
             SPATIAL_REL: spatialRel,
          }
         
-        if sr:
-            if not inSR:
-                inSR = sr
-                
-            # if not outSR:
-            #     outSR = sr
+        if not inSR:
+            params[IN_SR]= geometry.getSR()
 
-        if inSR:
-            params[IN_SR]= inSR
         if outSR:
             params[OUT_SR] = outSR
 
@@ -1349,9 +1344,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if k not in params:
                 params[k] = v
 
-        params['exceed_limit'] = exceed_limit
-
-        return self.query(**params)
+        return self.query(exceed_limit=exceed_limit, **params)
 
 
     def export_kmz(self, out_kmz='', fields='*', where='1=1', **kwargs):
@@ -1565,10 +1558,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         if self.type in (FEATURE_LAYER, TABLE):
 
             # make new feature class
-            if not sr:
-                sr = self.getSR()
-            else:
-                kwargs[OUT_SR] = sr
+            if not kwargs.get(OUT_SR):
+                kwargs[OUT_SR] = sr or self.getSR()
 
             if exceed_limit:
 
@@ -1615,7 +1606,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             print('Layer: "{}" is not a Feature Layer!'.format(self.name))
 
 
-    def clip(self, poly, output, fields='*', outSR='', where='', envelope=False, exceed_limit=True, **kwargs):
+    def clip(self, poly, output, fields='*', outSR=None, where='', envelope=False, exceed_limit=True, **kwargs):
         """Method for spatial Query, exports geometry that intersect polygon or
                 envelope features.
 
@@ -1636,10 +1627,10 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         in_geom = Geometry(poly)
         sr = in_geom.getSR()
         if envelope:
-            geojson = in_geom.envelopeAsJSON()
+            geomJson = in_geom.envelopeAsJSON()
             geometryType = ESRI_ENVELOPE
         else:
-            geojson = in_geom.dumps()
+            geomJson = in_geom.dumps()
             geometryType = in_geom.geometryType
 
         if not outSR:
@@ -1648,7 +1639,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         params = {
             GEOMETRY_TYPE: geometryType,
             RETURN_GEOMETRY: TRUE,
-            GEOMETRY: geojson,
+            GEOMETRY: geomJson,
             IN_SR : sr,
             OUT_SR: outSR,
             SPATIAL_REL: kwargs.get(SPATIAL_REL) or ESRI_INTERSECT

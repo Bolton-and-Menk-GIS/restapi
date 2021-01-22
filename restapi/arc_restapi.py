@@ -6,7 +6,7 @@ import time
 import json
 import sys
 from .rest_utils import *
-from .conversion import is_geojson, geojson_to_arcgis
+from .conversion import *
 
 import six
 from six.moves import range
@@ -54,6 +54,7 @@ class Geometry(BaseGeometry):
         geometryType: The type of geometry.
         json: JSON object.
     """
+    _native_format = ESRI_JSON_FORMAT
 
     def __init__(self, geometry, **kwargs):
         """Converts geometry input to restapi.Geometry object.
@@ -116,6 +117,12 @@ class Geometry(BaseGeometry):
                     raise ValueError('Not a valid geometry input!')
 
         if isinstance(geometry, dict):
+            # first check for geojson
+            if is_geojson(geometry):
+                self.geometryType = GEOJSON_GEOMETRY_MAPPING.get(geometry.get(TYPE))
+                self.json = geojson_to_arcgis(geometry)
+                return
+
             if FEATURES in geometry:
                 d = geometry[FEATURES][0]
                 if GEOMETRY in d:
@@ -173,8 +180,12 @@ class Geometry(BaseGeometry):
         self.hasCurves = CURVE_PATHS in self.json or CURVE_RINGS in self.json
         
     @property
-    def _native_format(self):
+    def _native_json(self):
         return geojson_to_arcgis(self.json) if is_geojson(self.json) else self.json
+
+    @property
+    def _native_type(self):
+        return self.geometryType
 
     def envelope(self):
         """Return an envelope from shape."""
@@ -226,7 +237,7 @@ class Geometry(BaseGeometry):
             ])
             return arcpy.Polygon(ar, arcpy.SpatialReference(self.spatialReference))
         else:
-            return arcpy.AsShape(self._native_format, True)
+            return arcpy.AsShape(self._native_json, True)
 
     def toPolygon(self):
         """Returns a polygon that is converted from geometry."""

@@ -9,7 +9,7 @@ import json
 import sys
 from collections import OrderedDict
 from .rest_utils import *
-from .conversion import is_arcgis, arcgis_to_geojson
+from .conversion import *
 shapefile =  shp_helper.shapefile
 
 from . import projections
@@ -200,6 +200,7 @@ def find_ws_type(path):
 
 class Geometry(BaseGeometry):
     """Class to handle restapi.Geometry."""
+    _native_format = GEOJSON_FORMAT
 
     def __init__(self, geometry, **kwargs):
         """Converts geometry input to restapi.Geometry object.
@@ -237,18 +238,7 @@ class Geometry(BaseGeometry):
 
         self.json = OrderedDict2()
         if isinstance(geometry, shapefile.Shape):
-            if geometry.shapeType in (1, 11, 21):
-                self.geometryType = ESRI_POINT
-            elif geometry.shapeType in (3, 13, 23):
-                self.geometryType = ESRI_POLYLINE
-            elif geometry.shapeType in (5,15, 25):
-                self.geometryType = ESRI_POLYGON
-            elif self.geometryType in (8, 18, 28):
-                self.geometryType = ESRI_MULTIPOINT
-            if self.geometryType != ESRI_POINT:
-                self.json[json_CODE[self.geometryType]] = partHandler(geometry.points)
-            else:
-                self.json = OrderedDict2(zip([X, Y], geometry.points[0]))
+            geometry = geometry.__geo_interface__
 
         elif isinstance(geometry, six.string_types):
             try:
@@ -268,9 +258,9 @@ class Geometry(BaseGeometry):
                         raise IOError('No spatial reference found in JSON object!')
 
             # first check for geojson
-            if COORDINATES in geometry:
-                self.geometryType = geometry.get(TYPE)
-                self.json = munch.munchify(geometry)
+            if is_geojson(geometry):
+                self.geometryType = GEOJSON_GEOMETRY_MAPPING.get(geometry.get(TYPE))
+                self.json = geojson_to_arcgis(geometry)
                 return
                 
             if FEATURES in geometry:
@@ -320,8 +310,12 @@ class Geometry(BaseGeometry):
         self.json = munch.munchify(self.json)
     
     @property
-    def _native_format(self):
+    def _native_json(self):
         return arcgis_to_geojson(self.json) if is_arcgis(self.json) else self.json
+
+    @property
+    def _native_type(self):
+        return self._native_json.get(TYPE)
 
     @property
     def spatialReference(self):
@@ -371,32 +365,7 @@ class Geometry(BaseGeometry):
 
     def asShape(self):
         """Returns geometry as shapefile.Shape() object."""
-        return shapefile.Shape._from_geojson(self._native_format)
-#         shp = shapefile.Shape(shp_helper.shp_dict[self.geometryType.split('Geometry')[1].upper()])
-#         if self.geometryType != ESRI_POINT:
-#             shp.points = self.json[JSON_CODE[self.geometryType]]
-#         else:
-#             shp.points = [[self.json[X], self.json[Y]]]
-
-#         # check if multipart, will need to fix if it is
-#         if any(isinstance(i, list) for i in shp.points):
-#             coords = []
-#             part_indices = [0] + [len(i) for i in iter(shp.points)][:-1]
-# ##            for i in shp.points:
-# ##                coords.extend(i)
-# ##            shp.points = coords
-#             shp.parts = shapefile._Array('i', part_indices)
-#         else:
-#             shp.parts = shapefile._Array('i', [0])
-
-#         if shp.shapeType not in (0,1,8,18,28,31):
-#             XMin = min(coords[0] for coords in shp.points)
-#             YMin = min(coords[1] for coords in shp.points)
-#             XMax = max(coords[0] for coords in shp.points)
-#             YMax = max(coords[1] for coords in shp.points)
-#             shp.bbox = shapefile._Array('d', [XMin, YMin, XMax, YMax])
-
-        return shp
+        return shapefile.Shape._from_geojson(self._native_json)
 
     def __str__(self):
         """Dumps JSON to string."""
