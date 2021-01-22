@@ -62,6 +62,9 @@ import restapi
 
 
 ## Connecting to an ArcGIS Server
+
+> samples for this section can be found in the [connecting_to_arcgis_server.py](./restapi/samples/connecting_to_arcgis_server.py) file.
+> 
 One of the first things you might do is to connect to a services directory (or catalog):
 
 
@@ -145,23 +148,109 @@ repr: "<MapService: NYTimes_Covid19Cases_USCounties/MapServer>"
 url: https://sampleserver6.arcgisonline.com/arcgis/rest/services/NYTimes_Covid19Cases_USCounties/MapServer
 ```
 
-You can also query the layer and get back arcpy.da Cursor like access
+### Working with layers 
+
+> samples for this section can be found in the [working_with_layers.py](./restapi/samples/working_with_layers.py) file.
+
+You can connect to `MapServiceLayer`s or `FeatureLayer`s directly by passing the url, or by accessing from the parent `FeatureService` or `MapService`.
+
+
+also query the layer and get back arcpy.da Cursor like access
 
 ````py
-# run search cursor for gauges in California
-# (maximimum limit may be 1000 records, can use get_all=True to exceed transfer limit)
-# can filter fields by putting a field list, can use actual shape field name to get
-#  geometry or use the ArcGIS-like token "SHAPE@"
-# all fields are gathered by the default ("*") and fields can be filtered by providing a list
-query = "state = 'CA'"
-for row in lyr.cursor(where=query, fields=['SHAPE@', u'gaugelid', u'status', u'location']):
-    print(row)
+# get access to the "Cities" layer from USA Map Service
+cities = usa.layer('Cities') # or can use layer id: usa.layer(0)
 
-# Note: can also do this from the MapService level like this:
-# cursor = gauges.cursor('observed_river_stages', where=query)
+# query the map layer for all cities in California with population > 100000
+where = "st = 'CA' and pop2000 > 100000"
+
+# the query operation returns a restapi.FeatureSet or restapi.FeatureCollection depending on the return format
+featureSet = cities.query(where=where)
+
+# get result count, can also use len(featureSet)
+print('Found {} cities in California with Population > 100K'.format(featureSet.count))
+
+# print first feature (restapi.Feature).  The __str__ method is pretty printed JSON
+# can use an index to fetch via its __getitem__ method
+print(featureSet[0])
+
+# if you don't want the json/FeatureSet representation, you can use restapi cursors
+# for the query which are similar to the arcpy.da cursors. The search cursor will return a tuple
+cursor = cities.cursor(fields=['areaname', 'pop2000', 'SHAPE@'], where=where)
+for row in cursor:
+    print(row)
 ````
 
-The layer can also be exported to a shapefile or KMZ
+check outputs:
+```py
+>>> Found 57 cities in California with Population > 100K
+>>> # in this case it is a restapi.FeatureCollection because 'geojson` format was requested
+>>> {
+  "type": "Feature",      
+  "id": 169,
+  "geometry": {
+    "type": "Point",      
+    "coordinates": [      
+      -117.88976896399998,
+      33.836165033999976  
+    ]
+  },
+  "properties": {
+    "objectid": 169,
+    "areaname": "Anaheim",
+    "class": "city",
+    "st": "CA",
+    "capital": "N",
+    "pop2000": 328014
+  }
+}
+>>> ('Anaheim', 328014, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+>>> ('Bakersfield', 247057, <restapi.shapefile.Shape object at 0x000002B1DE232470>)
+>>> ('Berkeley', 102743, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+>>> ('Burbank', 100316, <restapi.shapefile.Shape object at 0x000002B1DE232470>)
+>>> ('Chula Vista', 173556, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+>>> ('Concord', 121780, <restapi.shapefile.Shape object at 0x000002B1DE232470>)
+>>> ('Corona', 124966, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+# ... etc
+```
+
+In the above example, when the `cities.cursor()` method was called, it actually kicked off a new query for the cursor results.  If you already have a `FeatureSet` or `FeatureCollection` like we did above, you can also save a network call by constructing the `restapi.common_types.Cursor` from the feature set by doing:
+
+```py
+featureSet = cities.query(where=where)
+
+# can pass in fields as second argument to limit results
+cursor = restapi.Cursor(featureSet, ['areaname', 'pop2000', 'SHAPE@'])
+```
+
+#### exporting features from a layer
+
+Data can also be easily exported from a `FeatureLayer` or `MapServicelayer`.  This can be done by exporting a feature set directly or from the layer itself:
+
+```py
+# set output folder
+out_folder = os.path.join(os.path.expanduser('~'), 'Documents', 'restapi_samples')
+
+# create output folder if it doesn't exist
+if not os.path.exists(out_folder):
+    os.makedirs(out_folder)
+
+# output shapefile
+shp = os.path.join(out_folder, 'CA_Cities_100K.shp')
+
+# export layer from map service
+cities.export_layer(shp, where=where)
+```
+
+You can also export a feature set directly if you already have one loaded:
+```py
+restapi.exportFeatureSet(featureSet, shp)
+```
+
+exporting layers or feature sets also supports a `fields` filter, where you can limit which fields are exported. Other options are supported as well such as an output spatial reference.  One important thing to note, if you do not have access to `arcpy`, you can only export to shapefile format.  If you do have `arcpy`, any output format supported by esri will work.  If the output is a [geodatabase feature class](https://desktop.arcgis.com/en/arcmap/latest/manage-data/feature-classes/a-quick-tour-of-feature-classes.htm), you can also choose to include things like [domains](https://desktop.arcgis.com/en/arcmap/latest/manage-data/geodatabases/an-overview-of-attribute-domains.htm) and [attachments](https://desktop.arcgis.com/en/arcmap/10.3/manage-data/editing-attributes/enabling-attachments-on-a-feature-class.htm) if applicable.
+
+#### creating a KMZ file
+The layer can also be exported to a KMZ if it is supported in the [query format](https://developers.arcgis.com/rest/services-reference/query-map-service-layer-.htm)
 
 ````py
 # export Nebraska "College/University" layer to feature class
@@ -202,7 +291,7 @@ url = 'http://gis.srh.noaa.gov/arcgis/rest/services/ahps_gauges/MapServer'
 gauges = restapi.MapService(url)
 ```
 
-Working with Feature Layers
+Working with Layers
 ---------------
 
 ### query examples

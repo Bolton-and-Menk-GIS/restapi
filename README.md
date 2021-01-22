@@ -2,7 +2,7 @@
 This is a Python API for working with ArcGIS REST API, ArcGIS Online, and Portal/ArcGIS Enterprise.  This package has been designed to work with [arcpy](https://pro.arcgis.com/en/pro-app/arcpy/get-started/what-is-arcpy-.htm) when available, or the included open source module [pyshp](https://pypi.org/project/pyshp/).  It will try to use arcpy if available for some data conversions, otherwise will use open source options. Also included is a subpackage for administering ArcGIS Server Sites.  This is updated often, so continue checking here for new functionality!
 
 ### Why would you use this package?
-Esri currently provides the [ArcGIS API for Python](https://developers.arcgis.com/python/) which provides complete bindings to the ArcGIS REST API.  This package has less coverage of the REST API, but has many convience functions not available in the ArcGIS API for Python.  This package will also support older versions of Python (i.e. 2.7.x) whereas Esri's package only supports 3.x.
+Esri currently provides the [ArcGIS API for Python](https://developers.arcgis.com/python/) which provides complete bindings to the ArcGIS REST API.  This package has less coverage of the REST API, but has many convience functions not available in the ArcGIS API for Python and has a strong focus on downloading and querying data.  This package will also support older versions of Python (i.e. 2.7.x) whereas Esri's package only supports 3.x.
 
 ## Release History
 [Release History](ReleaseNotes.md)
@@ -62,6 +62,9 @@ import restapi
 
 
 ## Connecting to an ArcGIS Server
+
+> samples for this section can be found in the [connecting_to_arcgis_server.py](./restapi/samples/connecting_to_arcgis_server.py) file.
+> 
 One of the first things you might do is to connect to a services directory (or catalog):
 
 
@@ -83,19 +86,19 @@ ags = restapi.ArcServer(rest_url)
 >>> 
 >>> # walk thru directories
 >>> for root, services in ags.walk():
->>>     print('Folder: "{}"'.format(root))
+>>>     print('Folder: {}'.format(root))
 >>>     print('Services: {}\n'.format(services))
 
 Number of folders: 13
 Number of services: 60
 
-Folder: "https://sampleserver6.arcgisonline.com/arcgis/rest/services"
+Folder: None
 Services: ['911CallsHotspot/GPServer', '911CallsHotspot/MapServer', 'Census/MapServer', 'CharlotteLAS/ImageServer', 'CommercialDamageAssessment/FeatureServer', 'CommercialDamageAssessment/MapServer', 'CommunityAddressing/FeatureServer', 'CommunityAddressing/MapServer', '<...>', 'Water_Network/MapServer', 'Wildfire/FeatureServer', 'Wildfire/MapServer', 'WindTurbines/MapServer', 'World_Street_Map/MapServer', 'WorldTimeZones/MapServer']
 
-Folder: "AGP"
+Folder: AGP
 Services: ['AGP/Census/MapServer', 'AGP/Hurricanes/MapServer', 'AGP/USA/MapServer', 'AGP/WindTurbines/MapServer']
 
-Folder: "Elevation"
+Folder: Elevation
 Services: ['Elevation/earthquakedemoelevation/ImageServer', 'Elevation/ESRI_Elevation_World/GPServer', 'Elevation/GlacierBay/MapServer', 'Elevation/MtBaldy_Elevation/ImageServer', 'Elevation/WorldElevations/MapServer']
 
 # ..etc
@@ -119,8 +122,6 @@ infastructure = ags.getService('Infrastructure') #/Energy/Infrastructure/Feature
 # using a wildcard search
 covid_cases = ags.getService('*Covid19Cases*') #/NYTimes_Covid19Cases_USCounties/MapServer -> restapi.common_types.MapService
 ````
-
-#### Accessing layers from a `MapService`
 
 check outputs:
 
@@ -147,97 +148,228 @@ repr: "<MapService: NYTimes_Covid19Cases_USCounties/MapServer>"
 url: https://sampleserver6.arcgisonline.com/arcgis/rest/services/NYTimes_Covid19Cases_USCounties/MapServer
 ```
 
-You can also query the layer and get back arcpy.da Cursor like access
+### Working with layers 
 
-````py
-# run search cursor for gauges in California
-# (maximimum limit may be 1000 records, can use get_all=True to exceed transfer limit)
-# can filter fields by putting a field list, can use actual shape field name to get
-#  geometry or use the ArcGIS-like token "SHAPE@"
-# all fields are gathered by the default ("*") and fields can be filtered by providing a list
-query = "state = 'CA'"
-for row in lyr.cursor(where=query, fields=['SHAPE@', u'gaugelid', u'status', u'location']):
+> samples for this section can be found in the [working_with_layers.py](./restapi/samples/working_with_layers.py) file.
+
+You can connect to `MapServiceLayer`s or `FeatureLayer`s directly by passing the url, or by accessing from the parent `FeatureService` or `MapService`.
+
+
+also query the layer and get back arcpy.da Cursor like access
+
+```py
+# get access to the "Cities" layer from USA Map Service
+cities = usa.layer('Cities') # or can use layer id: usa.layer(0)
+
+# query the map layer for all cities in California with population > 100000
+where = "st = 'CA' and pop2000 > 100000"
+
+# the query operation returns a restapi.FeatureSet or restapi.FeatureCollection depending on the return format
+featureSet = cities.query(where=where)
+
+# get result count, can also use len(featureSet)
+print('Found {} cities in California with Population > 100K'.format(featureSet.count))
+
+# print first feature (restapi.Feature).  The __str__ method is pretty printed JSON
+# can use an index to fetch via its __getitem__ method
+print(featureSet[0])
+```
+
+#### exceeding the `maxRecordCount`
+In many cases, you may run into issues due to the `maxRecordCount` set for a service, which by default is `1000` features.  This limit can be exceeded by using the `exceed_limit` parameter.  If `exceed_limit` is set to `True`, the `query_in_chunks` method will be called internally to keep fetching until all queried features are returned.
+
+```py
+# fetch first 1000
+first1000 = cities.query()
+print('count without exceed_limit: {}'.format(first1000.count)) # can also use len()
+
+# fetch all by exceeding limit
+allCities = cities.query(exceed_limit=True)
+print('count without exceed_limit: {}'.format(len(allCities)))
+```
+
+check outputs:
+
+```py
+Found 57 cities in California with Population > 100K
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      -117.88976896399998,
+      33.836165033999976
+    ]
+  },
+  "properties": {
+    "areaname": "Anaheim"
+  }
+}
+count without exceed_limit: 1000
+total records: 3557
+count with exceed_limit: 3557
+```
+
+#### using a search cursor
+
+A query can also be done by using a search cursor, which behaves very similarly to the [arcpy.da.SearchCursor](https://pro.arcgis.com/en/pro-app/latest/arcpy/data-access/searchcursor-class.htm).  While the `restapi.Cursor` does support usage of a `with` statement, it is not necessary as there is no file on disk that is opened.  When using the `cursor()` method on a `MapServiceLayer` or `FeatureLayer` it will actually make a call to the ArcGIS Server and will return a tuple of values based on the `fields` requested.  The default `fields` value is `*`, which will return all fields.  Like the arcpy cursors, the `SHAPE@` token can be used to fetch geometry, while the `OID@` token will fetch the object id.
+
+```py
+# if you don't want the json/FeatureSet representation, you can use restapi cursors
+# for the query which are similar to the arcpy.da cursors. The search cursor will return a tuple
+cursor = cities.cursor(fields=['areaname', 'pop2000', 'SHAPE@'], where=where)
+for row in cursor:
     print(row)
-
-# Note: can also do this from the MapService level like this:
-# cursor = gauges.cursor('observed_river_stages', where=query)
 ````
 
-The layer can also be exported to a shapefile or KMZ
-
-````py
-# export Nebraska "College/University" layer to feature class
-# make scratch folder first
-folder = os.path.join(os.environ['USERPROFILE'], r'Desktop\restapi_test_data')
-if not os.path.exists(folder):
-    os.makedirs(folder)
-
-# export layer to shapefile (can also call from Map Service)
-output = os.path.join(folder, 'California_Stream_Gauges.shp')
-lyr.layer_to_fc(output, where=query, sr=102100) #override spatial reference with web mercator
-
-# export to KMZ
-kmz = output.replace('.shp', '.kmz')
-lyr.layer_to_kmz(kmz, where=query)
-````
-
-Clipping a layer is also easy
-
-````py
-# clip lyr by polygon (Sacramento area)
-esri_json = {"rings":[[[-121.5,38.6],[-121.4,38.6],
-                      [-121.3,38.6],[-121.2,38.6],
-                      [-121.2,38.3],[-121.5,38.3],
-                      [-121.5,38.6]]],
-            "spatialReference":
-                {"wkid":4326,"latestWkid":4326}}
-
-# clip by polygon and filter fields (can use polygon shapefile or feature class as well)
-sac = os.path.join(folder, 'Sacramento_gauges.shp')
-lyr.clip(esri_json, sac, fields=['gaugelid', 'location'])
-````
-
-You can also connect to a MapService directly
-
+check outputs:
 ```py
-url = 'http://gis.srh.noaa.gov/arcgis/rest/services/ahps_gauges/MapServer'
-gauges = restapi.MapService(url)
+('Anaheim', 328014, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+('Bakersfield', 247057, <restapi.shapefile.Shape object at 0x000002B1DE232470>)
+('Berkeley', 102743, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+('Burbank', 100316, <restapi.shapefile.Shape object at 0x000002B1DE232470>)
+('Chula Vista', 173556, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+('Concord', 121780, <restapi.shapefile.Shape object at 0x000002B1DE232470>)
+('Corona', 124966, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
+# ... etc
 ```
 
-Working with Feature Layers
----------------
+also supports `with` statements:
 
-### query examples
 ```py
-
-# create FeatureLayer
-url = 'https://services.arcgis.com/V6ZHFr6zdgNZuVG0/arcgis/rest/services/Hazards_Uptown_Charlotte/FeatureServer/0'
-hazards = restapi.FeatureLayer(url)
-
-# QUERY EXAMPLES
-
-# query all features, to fetch all regardless of `maxRecordCount` 
-# use `exceed_limit=true` keyword arg
-fs = hazards.query()
-print('All Hazards Count: {}'.format(fs.count))
-
-# query features that are "High" Priority
-high_priority = hazards.query(where="Priority = 'High'")
-print('High Priority Hazards count: {}'.format(high_priority.count))
+with cities.cursor(fields=['areaname', 'pop2000', 'SHAPE@'], where=where) as cursor:
+    for row in cursor:
+        print(row)
 ```
 
-### download features
+In the above examples, when the `cities.cursor()` method was called, it actually kicked off a new query for the cursor results.  If you already have a `FeatureSet` or `FeatureCollection` like we did above, you can also save a network call by constructing the `restapi.Cursor` from the feature set by doing:
+
 ```py
-# download features - choosing a geodatbase output will bring over domain 
-# info (when you have access to arcpy), whereas a shapefile output will 
-# just bring over the domain values
-shp = os.path.join(test_data_folder, 'hazards.shp')
-    
-# export layer to shapefile in WGS 1984 projection
-hazards.export_layer(shp, outSR=4326)
+featureSet = cities.query(where=where)
+
+# can pass in fields as second argument to limit results
+cursor = restapi.Cursor(featureSet, ['areaname', 'pop2000', 'SHAPE@'])
 ```
 
-## feature editing
+#### exporting features from a layer
+
+Data can also be easily exported from a `FeatureLayer` or `MapServicelayer`.  This can be done by exporting a feature set directly or from the layer itself:
+
+```py
+# set output folder
+out_folder = os.path.join(os.path.expanduser('~'), 'Documents', 'restapi_samples')
+
+# create output folder if it doesn't exist
+if not os.path.exists(out_folder):
+    os.makedirs(out_folder)
+
+# output shapefile
+shp = os.path.join(out_folder, 'CA_Cities_100K.shp')
+
+# export layer from map service
+cities.export_layer(shp, where=where)
+```
+
+You can also export a feature set directly if you already have one loaded:
+```py
+restapi.exportFeatureSet(featureSet, shp)
+```
+
+exporting layers or feature sets also supports a `fields` filter, where you can limit which fields are exported. Other options are supported as well such as an output spatial reference.  One important thing to note, if you do not have access to `arcpy`, you can only export to shapefile format.  If you do have `arcpy`, any output format supported by esri will work.  If the output is a [geodatabase feature class](https://desktop.arcgis.com/en/arcmap/latest/manage-data/feature-classes/a-quick-tour-of-feature-classes.htm), you can also choose to include things like [domains](https://desktop.arcgis.com/en/arcmap/latest/manage-data/geodatabases/an-overview-of-attribute-domains.htm) and [attachments](https://desktop.arcgis.com/en/arcmap/10.3/manage-data/editing-attributes/enabling-attachments-on-a-feature-class.htm) if applicable.
+
+```py
+# exporting features 
+out_folder = os.path.join(os.path.expanduser('~'), 'Documents', 'restapi_samples')
+if not os.path.exists(out_folder):
+    os.makedirs(out_folder)
+shp = os.path.join(out_folder, 'CA_Cities_100K.shp')
+
+# export layer to a shapefile
+cities.export_layer(shp, where=where)
+
+# if there is an existing feature set, you can also export that directly
+# restapi.exportFeatureSet(featureSet, shp)
+```
+
+### selecting features by geometry
+Both the `MapServiceLayer` and `FeatureLayer` support arcgis spatial selections using [arcgis geometry](https://developers.arcgis.com/documentation/common-data-types/geometry-objects.htm) objects. The `select_layer_by_location` method will return a `FeatureSet` or `FeatureCollection`, while the `clip` method will actually export the spatial selection to a shapffile or Feature Class (latter only available with `arcpy`).
+
+#### the `geometry-helper` application
+This package now includes a [geometry-helper](geometry-helper/README.md) application that can be used to quickly create geometries and copy the geometry in either `esri-json` or `geojson` format to form geometry necessary to make queries:
+
+![geometry-helper app](docs/images/geometry-helper.png)
+
+to open this application in a web browser, simply call:
+
+```py
+restapi.open_geometry_helper()
+```
+
+#### select by location
+to select a layer by location, first create a geometry object as json (can be esri or geojson format) and make the selection:
+
+```py
+# select layer by location
+universities_url = 'https://services1.arcgis.com/Hp6G80Pky0om7QvQ/arcgis/rest/services/Colleges_and_Universities/FeatureServer/0'
+
+# get feature layer
+universities = restapi.FeatureLayer(universities_url)
+print('universities: ', repr(universities))
+
+# form geometry (do not have to cast to restapi.Geometry, this will happen under the hood automatically)
+geometry = restapi.Geometry({
+  "spatialReference": {
+    "latestWkid": 3857,
+    "wkid": 102100
+  },
+  "rings": [
+    [
+      [
+        -10423340.4579098,
+        5654465.8453829475
+      ],
+      [
+        -10324889.565478457,
+        5654465.8453829475
+      ],
+      [
+        -10324889.565478457,
+        5584449.527473665
+      ],
+      [
+        -10423340.4579098,
+        5584449.527473665
+      ],
+      [
+        -10423340.4579098,
+        5654465.8453829475
+      ]
+    ]
+  ]
+})
+
+# make selection
+featureCollection = universities.select_by_location(geometry)
+print('Number of Universities in Twin Cities area: {}'.format(featureCollection.count))
+
+# can also export the feature collection directly or call the clip() method (makes a new call to server)
+universities_shp = os.path.join(out_folder, 'TwinCities_Univiersities.shp')
+universities.clip(geometry, universities_shp)
+```
+
+check outputs:
+```py
+universities:  <FeatureLayer: "CollegesUniversities" (id: 0)>
+total records: 50
+Number of Universities in Twin Cities area: 50
+total records: 50
+Created: "L:\Users\calebma\Documents\restapi_samples\TwinCities_Univiersities.shp"
+Fetched all records
+```
+
+## FeatureLayer Editing
+
+This package also includes comprehensive support for working with [FeatureLayers](https://enterprise.arcgis.com/en/portal/latest/use/feature-layers.htm).  These are editable layers hosted by an ArcGIS Server, Portal, or ArcGIS Online.  A `FeatureLayer` is an extension of the `MapServiceLayer` that
 
 ### add features using `FeatureLayer.addFeatures()`
 ```py
