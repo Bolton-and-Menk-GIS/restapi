@@ -19,18 +19,17 @@ from six.moves import urllib, zip_longest
 DEFAULT_REQUEST_FORMAT = JSON
 DEFAULT_FEATURESET_CLASS = FeatureSet
 SHOULD_USE_ARCPY = str(os.environ.get('RESTAPI_USE_ARCPY')).upper() not in ('FALSE', '0')
+
 __opensource__ = False
 
 try:
     if not SHOULD_USE_ARCPY:
         raise ImportError
-    print('importing arcpy?')
     import arcpy
     from .arc_restapi import *
     has_arcpy = True
 
 except Exception as e:
-    print('skipping arcpy')
     # if not isinstance(e, ImportError):
     #     # raise exception if not an import error
     #     raise e
@@ -582,6 +581,32 @@ class Cursor(object):
         """Returns row object at index."""
         return self._createRow(self.features[index], self.spatialReference)
 
+    def _toJson(self, row):
+        """Casts row to JSON."""
+        if isinstance(row, (list, tuple)):
+            ft = {ATTRIBUTES: {}}
+            for i,f in enumerate(self.field_names):
+                if f != self.featureSet.ShapeFieldName and f.upper() != SHAPE_TOKEN:
+                    val = row[i]
+                    if f in self.date_fields:
+                        ft[ATTRIBUTES][f] = date_to_mil(val) if isinstance(val, datetime.datetime) else val
+                    elif f in self.long_fields:
+                        ft[ATTRIBUTES][f] = int(val) if val is not None else val
+                    else:
+                        ft[ATTRIBUTES][f] = val
+                else:
+                    geom = row[i]
+                    if isinstance(geom, Geometry):
+                        ft[GEOMETRY] = {k:v for k,v in six.iteritems(geom.json) if k != SPATIAL_REFERENCE}
+                    else:
+                        ft[GEOMETRY] = {k:v for k,v in six.iteritems(Geometry(geom).json) if k != SPATIAL_REFERENCE}
+            return Feature(ft)
+        elif isinstance(row, Row):
+            return row.feature
+        elif isinstance(row, Feature):
+            return row
+        elif isinstance(row, dict):
+            return Feature(row)
 
     def __validateOrderBy(self, fields):
         """Fixes "fieldOrder" input fields, accepts esri field tokens too ("SHAPE@", "OID@").
@@ -1776,7 +1801,7 @@ class MapService(BaseService):
                 size = ','.join(map(str, [abs(int(bbox[0]) - int(bbox[2])), abs(int(bbox[1]) - int(bbox[3]))]))
 
         if isinstance(bbox, dict) or (isinstance(bbox, six.string_types) and bbox.startswith('{')):
-            print('it is a geometry object')
+            # print('it is a geometry object')
             bbox = Geometry(bbox)
 
         if isinstance(bbox, Geometry):
@@ -1785,7 +1810,7 @@ class MapService(BaseService):
             bboxSR = geom.spatialReference
             envJson = geom.envelopeAsJSON()
             size = ','.join(map(str, [abs(envJson.get(XMAX) - envJson.get(XMIN)), abs(envJson.get(YMAX) - envJson.get(YMIN))]))
-            print('set size from geometry object: {}'.format(size))
+            # print('set size from geometry object: {}'.format(size))
 
         if not bbox:
             ie = self.initialExtent
@@ -2300,6 +2325,8 @@ class FeatureLayer(MapServiceLayer):
                 self.useGlobalIds = useGlobalIds
                 self._deletes = []
                 self._updates = []
+                self._removeOIDs = []
+                self._auto_save = auto_save
                 self._feature_lookup_by_oid = {self._get_oid(ft): {'index': i, 'feature': ft} for i,ft in enumerate(self.features)}
                 self._attachments = {
                     ADDS: [],
@@ -2310,22 +2337,23 @@ class FeatureLayer(MapServiceLayer):
                 for k,v in six.iteritems(kwargs):
                     if k not in('feature_set', 'fieldOrder', 'auto_save'):
                         self._kwargs[k] = v
-                for i, f in enumerate(self.features):
-                    ft = Feature(f)
-                    oid = self._get_oid(ft)
-                    self.features[i] = ft
+                print('update cursor count: ', self.featureSet.count, repr(self.featureSet))
+
+            @property
+            def features(self):
+                return self.featureSet.features
 
             @property
             def has_oid(self):
                 try:
-                    return hasattr(self, OID_FIELD_NAME) and getattr(self, OID_FIELD_NAME)
+                    return hasattr(self.featureSet, OID_FIELD_NAME) and getattr(self.featureSet, OID_FIELD_NAME)
                 except:
                     return False
 
             @property
             def has_globalid(self):
                 try:
-                    return hasattr(self, GLOBALID_FIELD_NAME) and getattr(self, GLOBALID_FIELD_NAME)
+                    return hasattr(self.featureSet, GLOBALID_FIELD_NAME) and getattr(self.featureSet, GLOBALID_FIELD_NAME)
                 except:
                     return False
 
@@ -2335,7 +2363,7 @@ class FeatureLayer(MapServiceLayer):
                     self.useGlobalIds,
                     layer.canUseGlobalIdsForEditing,
                     self.has_globalid,
-                    getattr(self, GLOBALID_FIELD_NAME) in self.field_names
+                    self.featureSet.GlobalIdFieldName in self.field_names
                 ])
 
             def _find_by_oid(self, oid):
@@ -2366,8 +2394,8 @@ class FeatureLayer(MapServiceLayer):
                     oid: Object ID.
                     feature: The input feature.
                 """
-
-                feature = self._toJson(feature)
+                if not isinstance(feature, (dict, Feature)):
+                    feature = self._toJson(feature)
                 if self._get_oid(feature) != oid:
                     feature.json[ATTRIBUTES][layer.OIDFieldName] = oid
                 i = self._find_index_by_oid(oid)
@@ -2417,7 +2445,7 @@ class FeatureLayer(MapServiceLayer):
             def __exit__(self, type, value, traceback):
                 if isinstance(type, Exception):
                     raise type(value)
-                elif type is None and bool(auto_save):
+                elif type is None and bool(self._auto_save):
                     self.applyEdits()
 
             def rows(self):
@@ -2562,7 +2590,6 @@ class FeatureLayer(MapServiceLayer):
                 Args:
                     row: List/tuple/Feature/Row that has been updated.
                 """
-
                 row = self._toJson(row)
                 if self.canEditByGlobalId:
                     globalid = self._get_globalid(row)
@@ -2580,27 +2607,37 @@ class FeatureLayer(MapServiceLayer):
                 """
 
                 oid = self._get_oid(row)
-                self.features.remove(self._find_by_oid(oid))
                 if oid:
+                    self._removeOIDs.append(oid)
                     self._deletes.append(oid)
 
             def applyEdits(self):
                 """Applies edits to a layer."""
-                attCount = filter(None, [len(atts) for op, atts in six.iteritems(self._attachments)])
+                attCount = list(filter(None, [len(atts) for op, atts in six.iteritems(self._attachments)]))
                 if (self.has_oid or (self.has_globalid and layer.canUseGlobalIdsForEditing and self.useGlobalIds)) \
                 and any([self._updates, self._deletes, attCount]):
-                    kwargs = {UPDATES: self._updates, DELETES: self._deletes}
+                    kwargs = {}
+                    if self._updates:
+                        kwargs[UPDATES] = self._updates
+                    if self._deletes:
+                        kwargs[DELETES] = self._deletes
                     if layer.canApplyEditsWithAttachments and self._attachments:
                         kwargs[ATTACHMENTS] = self._attachments
-                    for k,v in six.iteritems(self._kwargs):
-                        kwargs[k] = v
+                    kwargs.update(self._kwargs)
                     if layer.canUseGlobalIdsForEditing:
                         kwargs[USE_GLOBALIDS] = self.useGlobalIds
-                    return layer.applyEdits(**kwargs)
+                    response = layer.applyEdits(**kwargs)
+                    # remove any deleted features from feature set/rows
+                    for res in response.deleteResults:
+                        oid = res.get(RESULT_OBJECT_ID)
+                        if oid:
+                            self.features.remove(self._find_by_oid(oid))
+                    return response
                 elif not (self.has_oid or not (self.has_globalid and layer.canUseGlobalIdsForEditing and self.useGlobalIds)):
                     raise RuntimeError('Missing OID or GlobalId Field in Data!')
 
         cur_fields = self._fix_fields(fields)
+        kwargs[F] = JSON
         fs = self.query(where, cur_fields, records, exceed_limit, **kwargs)
         return UpdateCursor(fs, fields)
 
@@ -2624,16 +2661,8 @@ class FeatureLayer(MapServiceLayer):
                 self._adds = []
                 self.fields = fields
                 self.has_geometry = getattr(layer, TYPE) == FEATURE_LAYER
-                skip = (SHAPE_TOKEN, OID_TOKEN, layer.OIDFieldName)
-                if template_name:
-                    try:
-                        self.template = self.get_template(template_name).templates[0].prototype
-                    except:
-                        self.template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
-                else:
-                    self.template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
-                if self.has_geometry:
-                    self.template[GEOMETRY] = NULL
+                self._default_template_name = template_name
+                self._auto_save = auto_save
                 try:
                     self.geometry_index = self.fields.index(SHAPE_TOKEN)
                 except ValueError:
@@ -2642,14 +2671,37 @@ class FeatureLayer(MapServiceLayer):
                     except ValueError:
                         self.geometry_index = None
 
+            def getEditableTemplate(self, template_name=None):
+                """ returns an editable copy of the FeatureLayer's default template or a specific template
+                requested by name.
+
+                Args:
+                    template_name (str, optional): the target template. Defaults to None.
+
+                Returns:
+                    dict: the feature template
+                """
+                template = None
+                template_name = template_name or self._default_template_name
+                skip = (SHAPE_TOKEN, OID_TOKEN, layer.OIDFieldName)
+                if template_name:
+                    try:
+                        template = layer.get_template(template_name).templates[0].prototype.copy()
+                    except:
+                        template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
+                if not template:
+                    template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
+                if self.has_geometry:
+                    template[GEOMETRY] = NULL
+                return template
+
             def insertRow(self, row):
                 """Inserts a row into the InsertCursor._adds cache.
 
                 Args:
                     row: List/tuple/dict/Feature/Row that has been updated.
                 """
-
-                feature = {k:v for k,v in six.iteritems(self.template)}
+                feature = self.getEditableTemplate()
                 if isinstance(row, (list, tuple)):
                     for i, value in enumerate(row):
                         try:
@@ -2663,7 +2715,7 @@ class FeatureLayer(MapServiceLayer):
                         except IndexError:
                             pass
                     self._adds.append(feature)
-                    return
+                    return feature
                 elif isinstance(row, Feature):
                     row = row.json
                 if isinstance(row, dict):
@@ -2684,7 +2736,7 @@ class FeatureLayer(MapServiceLayer):
                             elif f == SHAPE_TOKEN and self.has_geometry:
                                 feature[GEOMETRY] = Geometry(value).json
                     self._adds.append(feature)
-                    return
+                    return feature
 
             def applyEdits(self):
                 """Applies the edits to the layer."""
@@ -2696,7 +2748,7 @@ class FeatureLayer(MapServiceLayer):
             def __exit__(self, type, value, traceback):
                 if isinstance(type, Exception):
                     raise type(value)
-                elif type is None and bool(auto_save):
+                elif type is None and bool(self._auto_save):
                     self.applyEdits()
 
         return InsertCursor(fields, template_name, auto_save)
@@ -2755,9 +2807,9 @@ class FeatureLayer(MapServiceLayer):
         if name in type_names:
             for t in self.json.get(TYPES, []):
                 if name == t.get(NAME):
-                    return t
+                    return t.copy()
         try:
-            return self.json.get(TYPES)[0]
+            return self.json.get(TYPES)[0].copy()
         except IndexError:
             return {}
 
@@ -2794,10 +2846,12 @@ class FeatureLayer(MapServiceLayer):
         add_url = self.url + '/addFeatures'
         if isinstance(features, (list, tuple)):
             features = json.dumps(features, ensure_ascii=False)
-        params = {FEATURES: features,
-                  GDB_VERSION: gdbVersion,
-                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
-                  F: JSON}
+        params = {
+            FEATURES: features,
+            GDB_VERSION: gdbVersion,
+            ROLLBACK_ON_FAILURE: rollbackOnFailure,
+            F: JSON
+        }
 
         # add features
         return self.__edit_handler(self.request(add_url, params, method=POST))
@@ -2825,13 +2879,15 @@ class FeatureLayer(MapServiceLayer):
         if isinstance(features, (list, tuple)):
             features = json.dumps(features, ensure_ascii=False)
         update_url = self.url + '/updateFeatures'
-        params = {FEATURES: features,
-                  GDB_VERSION: gdbVersion,
-                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
-                  F: JSON}
+        params = {
+            FEATURES: features,
+            GDB_VERSION: gdbVersion,
+            ROLLBACK_ON_FAILURE: rollbackOnFailure,
+            F: JSON
+        }
 
         # update features
-        return self.__edit_handler(self.request(update_url, params))
+        return self.__edit_handler(self.request(update_url, params, method=POST))
 
     def deleteFeatures(self, oids='', where='', geometry='', geometryType='',
                        spatialRel='', inSR='', gdbVersion='', rollbackOnFailure=True):
@@ -2863,19 +2919,21 @@ class FeatureLayer(MapServiceLayer):
         del_url = self.url + '/deleteFeatures'
         if isinstance(oids, (list, tuple)):
             oids = ', '.join(map(str, oids))
-        params = {OBJECT_IDS: oids,
-                  WHERE: where,
-                  GEOMETRY: geometry,
-                  GEOMETRY_TYPE: geometryType,
-                  SPATIAL_REL: spatialRel,
-                  GDB_VERSION: gdbVersion,
-                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
-                  F: JSON}
+        params = {
+            OBJECT_IDS: oids,
+            WHERE: where,
+            GEOMETRY: geometry,
+            GEOMETRY_TYPE: geometryType,
+            SPATIAL_REL: spatialRel,
+            GDB_VERSION: gdbVersion,
+            ROLLBACK_ON_FAILURE: rollbackOnFailure,
+            F: JSON
+        }
 
         # delete features
-        return self.__edit_handler(self.request(del_url, params))
+        return self.__edit_handler(self.request(del_url, params, method=POST))
 
-    def applyEdits(self, adds=None, updates=None, deletes=None, attachments=None, gdbVersion=None, rollbackOnFailure=TRUE, useGlobalIds=False, **kwargs):
+    def applyEdits(self, adds=None, updates=None, deletes=None, attachments=None, gdbVersion=None, rollbackOnFailure=TRUE, useGlobalIds=FALSE, **kwargs):
         """Applies edits on a feature service layer.
 
         Args:
@@ -2957,12 +3015,13 @@ class FeatureLayer(MapServiceLayer):
         if isinstance(deletes, (list, tuple)):
             deletes = ', '.join(map(str, deletes))
 
-        params = {ADDS: adds,
-                  UPDATES: updates,
-                  DELETES: deletes,
-                  GDB_VERSION: gdbVersion,
-                  ROLLBACK_ON_FAILURE: rollbackOnFailure,
-                  USE_GLOBALIDS: useGlobalIds
+        params = {
+            ADDS: adds,
+            UPDATES: updates,
+            DELETES: deletes,
+            GDB_VERSION: gdbVersion,
+            ROLLBACK_ON_FAILURE: rollbackOnFailure,
+            USE_GLOBALIDS: useGlobalIds
         }
 
         # handle attachment edits (added at version 10.4) cannot get this to work :(
@@ -3022,7 +3081,7 @@ class FeatureLayer(MapServiceLayer):
                 params[TOKEN] = str(self.token)
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST).json(), oid)
+            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
@@ -3258,9 +3317,11 @@ class GeometryService(RESTEndpoint):
                 params[k] = v
 
         # perform operation
-        print('params: {}'.format({k:v for k,v in six.iteritems(params) if k != GEOMETRIES}))
-        return GeometryCollection(self.request(buff_url, params),
-                                  spatialReference=outSR if outSR else inSR)
+        # print('params: {}'.format({k:v for k,v in six.iteritems(params) if k != GEOMETRIES}))
+        return GeometryCollection(
+            self.request(buff_url, params),
+            spatialReference=outSR if outSR else inSR
+        )
 
     @geometry_passthrough
     def intersect(self, geometries, geometry, sr):
