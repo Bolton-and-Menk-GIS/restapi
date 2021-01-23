@@ -983,7 +983,8 @@ class RESTEndpoint(JsonGetter):
 
     def request(self, *args, **kwargs):
         """Wrapper for request to automatically pass in credentials."""
-        for key, value in six.iteritems({'token': 'token',
+        for key, value in six.iteritems({
+            'token': 'token',
             'cookies': '_cookie',
             'proxy': '_proxy',
             'referer': '_referer'
