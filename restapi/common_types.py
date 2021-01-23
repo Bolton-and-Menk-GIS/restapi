@@ -493,7 +493,7 @@ class Row(object):
 class Cursor(object):
     json = {}
     fieldOrder = []
-    field_names = []
+    # field_names = []
     
     def __init__(self, feature_set, fieldOrder='*'):
         """Cursor object for a feature set.
@@ -642,7 +642,465 @@ class Cursor(object):
     def __repr__(self):
         return object.__repr__(self)
 
-    
+class InsertCursor(object):
+    # """Class that inserts cursor."""
+    def __init__(self, layer, fields, template_name=None, auto_save=True):
+        """ insert records into a FeatureLayer
+
+        Args:
+            layer (FeatureLayer): the input FeatureLayer
+            fields (list): list of fields to set values
+            template_name (str, optional): name of a Feature template. Defaults to None.
+            auto_save (bool, optional): option to save automatically on __exit__ method. Only used when called via a `with` statement. Defaults to True.
+        """
+        self._adds = []
+        self.fields = fields
+        self.has_geometry = getattr(layer, TYPE) == FEATURE_LAYER
+        self._default_template_name = template_name
+        self._auto_save = auto_save
+        self.layer = layer
+        try:
+            self.geometry_index = self.fields.index(SHAPE_TOKEN)
+        except ValueError:
+            try:
+                self.geometry_index = self.fields.index(layer.shapeFieldName)
+            except ValueError:
+                self.geometry_index = None
+
+    def getEditableTemplate(self, template_name=None):
+        """ returns an editable copy of the FeatureLayer's default template or a specific template
+        requested by name.
+
+        Args:
+            template_name (str, optional): the target template. Defaults to None.
+
+        Returns:
+            dict: the feature template
+        """
+        template = None
+        template_name = template_name or self._default_template_name
+        skip = (SHAPE_TOKEN, OID_TOKEN, self.layer.OIDFieldName)
+        if template_name:
+            try:
+                template = self.layer.get_template(template_name).templates[0].prototype.copy()
+            except:
+                template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
+        if not template:
+            template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
+        if self.has_geometry:
+            template[GEOMETRY] = NULL
+        return template
+
+    def insertRow(self, row):
+        """Inserts a row into the InsertCursor._adds cache.
+
+        Args:
+            row: List/tuple/dict/Feature/Row that has been updated.
+        """
+        feature = self.getEditableTemplate()
+        if isinstance(row, (list, tuple)):
+            for i, value in enumerate(row):
+                try:
+                    field = self.fields[i]
+                    if field == SHAPE_TOKEN:
+                        feature[GEOMETRY] = Geometry(value).json
+                    else:
+                        if isinstance(value, datetime.datetime):
+                            value = date_to_mil(value)
+                        feature[ATTRIBUTES][field] = value
+                except IndexError:
+                    pass
+            self._adds.append(feature)
+            return feature
+        elif isinstance(row, Feature):
+            row = row.json
+        if isinstance(row, dict):
+            if GEOMETRY in row and self.has_geometry:
+                feature[GEOMETRY] = Geometry(row[GEOMETRY]).json
+            if ATTRIBUTES in row:
+                for f, value in six.iteritems(row[ATTRIBUTES]):
+                    if f in feature[ATTRIBUTES]:
+                        if isinstance(value, datetime.datetime):
+                            value = date_to_mil(value)
+                        feature[ATTRIBUTES][f] = value
+            else:
+                for f, value in six.iteritems(row):
+                    if f in feature[ATTRIBUTES]:
+                        if isinstance(value, datetime.datetime):
+                            value = date_to_mil(value)
+                        feature[ATTRIBUTES][f] = value
+                    elif f == SHAPE_TOKEN and self.has_geometry:
+                        feature[GEOMETRY] = Geometry(value).json
+            self._adds.append(feature)
+            return feature
+
+    def applyEdits(self):
+        """Applies the edits to the layer."""
+        return self.layer.applyEdits(adds=self._adds)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if isinstance(type, Exception):
+            raise type(value)
+        elif type is None and bool(self._auto_save):
+            self.applyEdits()
+
+
+class SearchCursor(Cursor):
+    def __init__(self, layer, fields='*', where='1=1', records=None, exceed_limit=False, **kwargs):
+        """Runs Cursor on layer, helper method that calls Cursor Object.
+
+        Args:
+            layer: the MapServiceLayer or FeatureLayer
+            fields: Optional fields to return. Default is "*" to return all fields.
+            where: Optional where clause. Defaults to '1=1'.
+            records: Optional number of records to return.  Default is None to
+                return all. records within bounds of max record count unless
+                exceed_limit is True.
+            exceed_limit: Optional boolean to get all records in layer.  This
+                option may be time consuming because the ArcGIS REST API uses
+                default maxRecordCount of 1000, so queries must be performed in
+                chunks to get all records.
+        """
+
+        feature_set = layer.query(where=where, fields=layer._fix_fields(fields), records=records, exceed_limit=exceed_limit, f=JSON, **kwargs)
+        super(SearchCursor, self).__init__(feature_set, fields)
+        self.layer = layer
+
+
+class UpdateCursor(Cursor):
+    """Class that updates a cursor."""
+
+    def __init__(self, layer, fieldOrder=[], where='1=1', auto_save=True, useGlobalIds=False, exceed_limit=False, records=None, **kwargs):
+        """Inits class with cursor parameters.
+
+        Args:
+            layer: Feature set as json or restapi.FeatureSet() object.
+            fieldOrder: List of order of fields for cursor row returns.
+                Defaults to [].
+            auto_save: Optional boolean, determines whether autosave is enabled or not.
+            useGlobalIds: Optional boolean, when set to true, the features
+                and attachments in the adds, updates, deletes, and
+                attachments parameters are identified by their globalIds.
+        """
+        feature_set = layer.query(where=where, fields=layer._fix_fields(fieldOrder), records=records, exceed_limit=exceed_limit, f=JSON, **kwargs)
+        super(UpdateCursor, self).__init__(feature_set, fieldOrder)
+        self.useGlobalIds = useGlobalIds
+        self._deletes = []
+        self._updates = []
+        self._removeOIDs = []
+        self._auto_save = auto_save
+        self.layer = layer
+        self._feature_lookup_by_oid = {self._get_oid(ft): {'index': i, 'feature': ft} for i,ft in enumerate(self.features)}
+        self._attachments = {
+            ADDS: [],
+            UPDATES: [],
+            DELETES: []
+        }
+        self._kwargs = {}
+        for k,v in six.iteritems(kwargs):
+            if k not in('feature_set', 'fieldOrder', 'auto_save'):
+                self._kwargs[k] = v
+
+    @property
+    def features(self):
+        return self.featureSet.features
+
+    @property
+    def has_oid(self):
+        try:
+            return hasattr(self.featureSet, OID_FIELD_NAME) and getattr(self.featureSet, OID_FIELD_NAME)
+        except:
+            return False
+
+    @property
+    def has_globalid(self):
+        try:
+            return hasattr(self.featureSet, GLOBALID_FIELD_NAME) and getattr(self.featureSet, GLOBALID_FIELD_NAME)
+        except:
+            return False
+
+    @property
+    def canEditByGlobalId(self):
+        return all([
+            self.useGlobalIds,
+            self.layer.canUseGlobalIdsForEditing,
+            self.has_globalid,
+            self.featureSet.GlobalIdFieldName in self.field_names
+        ])
+
+    def _find_by_oid(self, oid):
+        """Gets a feature by its OID.
+
+        Args:
+            oid: Object ID.
+        """
+        for ft in iter(self.features):
+            if self._get_oid(ft) == oid:
+                return ft
+
+    def _find_index_by_oid(self, oid):
+        """Gets the index of a Feature by it's OID.
+
+        Args:
+            oid: Object ID.
+        """
+        return self._feature_lookup_by_oid.get(oid, {}).get('index')
+        # for i, ft in enumerate(self.features):
+        #     if self._get_oid(ft) == oid:
+        #         return i
+
+    def _replace_feature_with_oid(self, oid, feature):
+        """Replaces a feature with OID with another Feature.
+
+        Args:
+            oid: Object ID.
+            feature: The input feature.
+        """
+        if not isinstance(feature, (dict, Feature)):
+            feature = self._toJson(feature)
+        if self._get_oid(feature) != oid:
+            feature.json[ATTRIBUTES][layer.OIDFieldName] = oid
+        i = self._find_index_by_oid(oid)
+        if i:
+            self.features[i] = feature
+        # for i, ft in enumerate(self.features):
+        #     if self._get_oid(ft) == oid:
+        #         self.features[i] = feature
+
+    def _find_by_globalid(self, globalid):
+        """Returns a feature by its GlobalId.
+
+        Args:
+            globalid: The Global ID.
+        """
+        for ft in iter(self.features):
+            if self._get_globalid(ft) == globalid:
+                return ft
+
+    def _find_index_by_globalid(self, globalid):
+        """Returns the index of a Feature by it's GlobalId.
+
+        Args:
+            globalid: The Global ID.
+        """
+        for i, ft in enumerate(self.features):
+            if self._get_globalid(ft) == globalid:
+                return i
+
+    def _replace_feature_with_globalid(self, globalid, feature):
+        """Replaces a feature with GlobalId with another Feature.
+
+        Args:
+            globalid: The Global ID.
+            feature: The input feature.
+        """
+        feature = self._toJson(feature)
+        if self._get_globalid(feature) != globalid:
+            feature.json[ATTRIBUTES][layer.OIDFieldName] = globalid
+        for i, ft in enumerate(self.features):
+            if self._get_globalid(ft) == globalid:
+                self.features[i] = feature
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if isinstance(type, Exception):
+            raise type(value)
+        elif type is None and bool(self._auto_save):
+            self.applyEdits()
+
+    def rows(self):
+        """Returns Cursor.rows() as generator."""
+        for feature in self.features:
+            yield list(self._createRow(feature, self.spatialReference).values)
+
+    def _get_oid(self, row):
+        """Returns the oid of a row.
+
+        Args:
+            row: The row to find the oid of.
+        """
+
+        if isinstance(row, six.integer_types):
+            return row
+        try:
+            return self._toJson(row).get(self.layer.OIDFieldName)
+        except:
+            return None
+
+    def _get_globalid(self, row):
+        """Returns the global ID of a row."""
+        if isinstance(row, six.integer_types):
+            return row
+        try:
+            return self._toJson(row).get(self.layer.GlobalIdFieldName or getattr(self, GLOBALID_FIELD_NAME))
+        except:
+            return None
+
+    def _get_row_identifier(self, row):
+        """Returns the appropriate row identifier (OBJECTID or GlobalID)."""
+        if self.canEditByGlobalId:
+            return self._get_globalid(row)
+        return self._get_oid(row)
+
+    def check_for_attachments(self):
+        if not hasattr(self.layer, HAS_ATTACHMENTS) or not getattr(self.layer, HAS_ATTACHMENTS):
+            raise NotImplemented('{} does not support attachments!'.format(self.layer))
+
+    def addAttachment(self, row_or_oid, attachment, **kwargs):
+        """Adds an attachment.
+
+        Args:
+            row_or_oid: Row returned from cursor or an OID/GlobalId.
+            attachment: Full path to attachment.
+
+        Raises:
+            NotImplemented: '{} does not support attachments!'
+            ValueError: 'No OID field found! In order to add attachments,
+                make sure the OID field is returned in the query.'
+            ValueError: 'No valid OID or GlobalId found to add attachment!'
+        """
+
+        self.check_for_attachments()
+        if not self.has_oid:
+            raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
+##                # cannot get this to work :(
+##                if layer.canApplyEditsWithAttachments:
+##                    att_key = DATA
+##                    if isinstance(attachment, six.string_types) and attachment.startswith('{'):
+##                        # this is an upload id?
+##                        att_key = UPLOAD_ID
+##                    att = {
+##                        PARENT_GLOBALID: self._get_globalid(row_or_oid),
+##                        att_key: attachment
+##                    }
+##                    self._attachments[ADDS].append(att)
+##                    return
+
+        oid = self._get_oid(row_or_oid)
+        if oid:
+            return self.layer.addAttachment(oid, attachment, **kwargs)
+        raise ValueError('No valid OID or GlobalId found to add attachment!')
+
+    def updateAttachment(self, row_or_oid, attachmentId, attachment, **kwargs):
+        """Updates an attachment.
+
+        Args:
+            row_or_oid: Row returned from cursor or an OID/GlobalId
+            attachment: Full path to attachment
+            attachmentId: ID of the attachment.
+
+        Raises:
+            ValueError: 'No OID field found! In order to add attachments,
+                make sure the OID field is returned in the query.'
+            ValueError: 'No valid OID or GlobalId found to add attachment!'
+        """
+        self.check_for_attachments()
+        if not self.has_oid:
+            raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
+##                # cannot get this to work :(
+##                if layer.canApplyEditsWithAttachments:
+##                    att_key = DATA
+##                    if isinstance(attachment, six.string_types) and attachment.startswith('{'):
+##                        # this is an upload id?
+##                        att_key = UPLOAD_ID
+##                    att = {
+##                        PARENT_GLOBALID: self._get_globalid(row_or_oid),
+##                        GLOBALID_CAMEL: attachmentId,
+##                        att_key: attachment
+##                    }
+##                    self._attachments[UPDATES].append(att)
+##                    return
+
+        oid = self._get_oid(row_or_oid)
+        if oid:
+            return self.layer.updateAttachment(oid, attachmentId, attachment, **kwargs)
+        raise ValueError('No valid OID or GlobalId found to add attachment!')
+
+    def deleteAttachments(self, row_or_oid, attachmentIds, **kwargs):
+        """Deletes an attachment.
+
+        Args:
+            row_or_oid: Row returned from cursor or an OID/GlobalId.
+            attachment: Full path to attachment.
+            attachmentIds: ID's for the attachment.
+
+        Raises:
+            ValueError: 'No OID field found! In order to add attachments,
+                make sure the OID field is returned in the query.'
+            ValueError: 'No valid OID or GlobalId found to add attachment!'
+        """
+        self.check_for_attachments()
+        if not self.has_oid:
+            raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
+
+        oid = self._get_oid(row_or_oid)
+        if oid:
+            return self.layer.deleteAttachments(oid, attachmentIds, **kwargs)
+        raise ValueError('No valid OID or GlobalId found to add attachment!')
+
+    def updateRow(self, row):
+        """Updates the feature with values from updated row.  If not used
+                in context of a "with" statement, updates will have to be
+                applied manually after all edits are made using the
+                UpdateCursor.applyEdits() method.  When used in the
+                context of a "with" statement, edits are automatically
+                applied on __exit__.
+
+        Args:
+            row: List/tuple/Feature/Row that has been updated.
+        """
+        row = self._toJson(row)
+        if self.canEditByGlobalId:
+            globalid = self._get_globalid(row)
+            self._replace_feature_with_globalid(globalid, row)
+        else:
+            oid = self._get_oid(row)
+            self._replace_feature_with_oid(oid, row)
+        self._updates.append(row)
+
+    def deleteRow(self, row):
+        """Deletes the row.
+
+        Args:
+            row: List/tuple/Feature/Row that has been updated.
+        """
+
+        oid = self._get_oid(row)
+        if oid:
+            self._removeOIDs.append(oid)
+            self._deletes.append(oid)
+
+    def applyEdits(self):
+        """Applies edits to a layer."""
+        attCount = list(filter(None, [len(atts) for op, atts in six.iteritems(self._attachments)]))
+        if (self.has_oid or (self.has_globalid and self.layer.canUseGlobalIdsForEditing and self.useGlobalIds)) \
+        and any([self._updates, self._deletes, attCount]):
+            kwargs = {}
+            if self._updates:
+                kwargs[UPDATES] = self._updates
+            if self._deletes:
+                kwargs[DELETES] = self._deletes
+            if self.layer.canApplyEditsWithAttachments and self._attachments:
+                kwargs[ATTACHMENTS] = self._attachments
+            kwargs.update(self._kwargs)
+            if self.layer.canUseGlobalIdsForEditing:
+                kwargs[USE_GLOBALIDS] = self.useGlobalIds
+            response = self.layer.applyEdits(**kwargs)
+            # remove any deleted features from feature set/rows
+            for res in response.deleteResults:
+                oid = res.get(RESULT_OBJECT_ID)
+                if oid:
+                    self.features.remove(self._find_by_oid(oid))
+            return response
+        elif not (self.has_oid or not (self.has_globalid and self.layer.canUseGlobalIdsForEditing and self.useGlobalIds)):
+            raise RuntimeError('Missing OID or GlobalId Field in Data!')
+
+
 class JsonReplica(JsonGetter):
     """Represents a JSON replica.
 
@@ -1094,7 +1552,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     return server_response[:records]
             return server_response
 
-    def _validate_params(self, **kwargs):
+    def _validate_params(self, fields='*', where='1=1', **kwargs):
         """Queries layer and gets response as JSON.
 
         Args:
@@ -1112,8 +1570,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         # default params
         params = {
             RETURN_GEOMETRY : TRUE, 
-            WHERE: '1=1', 
-            FIELDS: '*',
+            WHERE: where or '1=1', 
             F : JSON
         }
 
@@ -1123,9 +1580,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             params[RESULT_RECORD_COUNT] = min([int(params[RESULT_RECORD_COUNT]), self.get(MAX_RECORD_COUNT)])
 
         # check for tokens (only shape and oid)
-        fields = self._fix_fields(params.get(FIELDS, '*'))
+        fields = self._fix_fields(fields or params.get(FIELDS, '*'))
         # print('FIX FIELDS OUTPUT: ', fields)
         params[OUT_FIELDS] = fields
+        if FIELDS in params:
+            del params[FIELDS]
 
         # geometry validation
         if self.type == FEATURE_LAYER and GEOMETRY in params:
@@ -1531,7 +1990,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         print('Downloaded {} Attachments - elsapsed time: {}'.format(len(files), datetime.datetime.now()-start))
         return files
 
-    def cursor(self, fields='*', where='1=1', records=None, exceed_limit=False, **kwargs):
+    def searchCursor(self, fields='*', where='1=1', records=None, exceed_limit=False, **kwargs):
         """Runs Cursor on layer, helper method that calls Cursor Object.
 
         Args:
@@ -1545,11 +2004,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 default maxRecordCount of 1000, so queries must be performed in
                 chunks to get all records.
         """
-
-        cur_fields = self._fix_fields(fields)
-
-        fs = self.query(where, cur_fields, records, exceed_limit, **kwargs)
-        return Cursor(fs, fields)
+        return SearchCursor(self, fields, where, records, exceed_limit, **kwargs)
 
     def export_layer(self, out_fc, fields='*', where='1=1', records=None, exceed_limit=False, sr=None,
                      include_domains=True, include_attachments=False, qualified_fieldnames=False, **kwargs):
@@ -1674,6 +2129,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
     def __repr__(self):
         """String representation with service name."""
         return '<{}: "{}" (id: {})>'.format(self.__class__.__name__, self.name, self.id)
+
+# legacy support
+MapServiceLayer.cursor = MapServiceLayer.searchCursor
 
 class MapServiceTable(MapServiceLayer):
     pass
@@ -2303,343 +2761,7 @@ class FeatureLayer(MapServiceLayer):
             kwargs: Any additional keyword arguments supported by the applyEdits method of the REST API, see
             http://resources.arcgis.com/en/help/arcgis:restapi/index.html#/Apply_Edits_Feature_Service_Layer/02r3000000r6000000/
         """
-
-        layer = self
-        class UpdateCursor(Cursor):
-            """Class that updates a cursor."""
-
-            def __init__(self,  feature_set, fieldOrder=[], auto_save=auto_save, useGlobalIds=useGlobalIds, **kwargs):
-                """Inits class with cursor parameters.
-
-                Args:
-                    feature_set: Feature set as json or restapi.FeatureSet() object.
-                    fieldOrder: List of order of fields for cursor row returns.
-                        Defaults to [].
-                    auto_save: Optional boolean, determines whether autosave is enabled or not.
-                    useGlobalIds: Optional boolean, when set to true, the features
-                        and attachments in the adds, updates, deletes, and
-                        attachments parameters are identified by their globalIds.
-                """
-
-                super(UpdateCursor, self).__init__(feature_set, fieldOrder)
-                self.useGlobalIds = useGlobalIds
-                self._deletes = []
-                self._updates = []
-                self._removeOIDs = []
-                self._auto_save = auto_save
-                self._feature_lookup_by_oid = {self._get_oid(ft): {'index': i, 'feature': ft} for i,ft in enumerate(self.features)}
-                self._attachments = {
-                    ADDS: [],
-                    UPDATES: [],
-                    DELETES: []
-                }
-                self._kwargs = {}
-                for k,v in six.iteritems(kwargs):
-                    if k not in('feature_set', 'fieldOrder', 'auto_save'):
-                        self._kwargs[k] = v
-                print('update cursor count: ', self.featureSet.count, repr(self.featureSet))
-
-            @property
-            def features(self):
-                return self.featureSet.features
-
-            @property
-            def has_oid(self):
-                try:
-                    return hasattr(self.featureSet, OID_FIELD_NAME) and getattr(self.featureSet, OID_FIELD_NAME)
-                except:
-                    return False
-
-            @property
-            def has_globalid(self):
-                try:
-                    return hasattr(self.featureSet, GLOBALID_FIELD_NAME) and getattr(self.featureSet, GLOBALID_FIELD_NAME)
-                except:
-                    return False
-
-            @property
-            def canEditByGlobalId(self):
-                return all([
-                    self.useGlobalIds,
-                    layer.canUseGlobalIdsForEditing,
-                    self.has_globalid,
-                    self.featureSet.GlobalIdFieldName in self.field_names
-                ])
-
-            def _find_by_oid(self, oid):
-                """Gets a feature by its OID.
-
-                Args:
-                    oid: Object ID.
-                """
-                for ft in iter(self.features):
-                    if self._get_oid(ft) == oid:
-                        return ft
-
-            def _find_index_by_oid(self, oid):
-                """Gets the index of a Feature by it's OID.
-
-                Args:
-                    oid: Object ID.
-                """
-                return self._feature_lookup_by_oid.get(oid, {}).get('index')
-                # for i, ft in enumerate(self.features):
-                #     if self._get_oid(ft) == oid:
-                #         return i
-
-            def _replace_feature_with_oid(self, oid, feature):
-                """Replaces a feature with OID with another Feature.
-
-                Args:
-                    oid: Object ID.
-                    feature: The input feature.
-                """
-                if not isinstance(feature, (dict, Feature)):
-                    feature = self._toJson(feature)
-                if self._get_oid(feature) != oid:
-                    feature.json[ATTRIBUTES][layer.OIDFieldName] = oid
-                i = self._find_index_by_oid(oid)
-                if i:
-                    self.features[i] = feature
-                # for i, ft in enumerate(self.features):
-                #     if self._get_oid(ft) == oid:
-                #         self.features[i] = feature
-
-            def _find_by_globalid(self, globalid):
-                """Returns a feature by its GlobalId.
-
-                Args:
-                    globalid: The Global ID.
-                """
-                for ft in iter(self.features):
-                    if self._get_globalid(ft) == globalid:
-                        return ft
-
-            def _find_index_by_globalid(self, globalid):
-                """Returns the index of a Feature by it's GlobalId.
-
-                Args:
-                    globalid: The Global ID.
-                """
-                for i, ft in enumerate(self.features):
-                    if self._get_globalid(ft) == globalid:
-                        return i
-
-            def _replace_feature_with_globalid(self, globalid, feature):
-                """Replaces a feature with GlobalId with another Feature.
-
-                Args:
-                    globalid: The Global ID.
-                    feature: The input feature.
-                """
-                feature = self._toJson(feature)
-                if self._get_globalid(feature) != globalid:
-                    feature.json[ATTRIBUTES][layer.OIDFieldName] = globalid
-                for i, ft in enumerate(self.features):
-                    if self._get_globalid(ft) == globalid:
-                        self.features[i] = feature
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, type, value, traceback):
-                if isinstance(type, Exception):
-                    raise type(value)
-                elif type is None and bool(self._auto_save):
-                    self.applyEdits()
-
-            def rows(self):
-                """Returns Cursor.rows() as generator."""
-                for feature in self.features:
-                    yield list(self._createRow(feature, self.spatialReference).values)
-
-            def _get_oid(self, row):
-                """Returns the oid of a row.
-
-                Args:
-                    row: The row to find the oid of.
-                """
-
-                if isinstance(row, six.integer_types):
-                    return row
-                try:
-                    return self._toJson(row).get(layer.OIDFieldName)
-                except:
-                    return None
-
-            def _get_globalid(self, row):
-                """Returns the global ID of a row."""
-                if isinstance(row, six.integer_types):
-                    return row
-                try:
-                    return self._toJson(row).get(layer.GlobalIdFieldName or getattr(self, GLOBALID_FIELD_NAME))
-                except:
-                    return None
-
-            def _get_row_identifier(self, row):
-                """Returns the appropriate row identifier (OBJECTID or GlobalID)."""
-                if self.canEditByGlobalId:
-                    return self._get_globalid(row)
-                return self._get_oid(row)
-
-            def addAttachment(self, row_or_oid, attachment, **kwargs):
-                """Adds an attachment.
-
-                Args:
-                    row_or_oid: Row returned from cursor or an OID/GlobalId.
-                    attachment: Full path to attachment.
-
-                Raises:
-                    NotImplemented: '{} does not support attachments!'
-                    ValueError: 'No OID field found! In order to add attachments,
-                        make sure the OID field is returned in the query.'
-                    ValueError: 'No valid OID or GlobalId found to add attachment!'
-                """
-
-                if not hasattr(layer, HAS_ATTACHMENTS) or not getattr(layer, HAS_ATTACHMENTS):
-                    raise NotImplemented('{} does not support attachments!'.format(layer))
-                if not self.has_oid:
-                    raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
-##                # cannot get this to work :(
-##                if layer.canApplyEditsWithAttachments:
-##                    att_key = DATA
-##                    if isinstance(attachment, six.string_types) and attachment.startswith('{'):
-##                        # this is an upload id?
-##                        att_key = UPLOAD_ID
-##                    att = {
-##                        PARENT_GLOBALID: self._get_globalid(row_or_oid),
-##                        att_key: attachment
-##                    }
-##                    self._attachments[ADDS].append(att)
-##                    return
-
-                oid = self._get_oid(row_or_oid)
-                if oid:
-                    return layer.addAttachment(oid, attachment, **kwargs)
-                raise ValueError('No valid OID or GlobalId found to add attachment!')
-
-            def updateAttachment(self, row_or_oid, attachmentId, attachment, **kwargs):
-                """Updates an attachment.
-
-                Args:
-                    row_or_oid: Row returned from cursor or an OID/GlobalId
-                    attachment: Full path to attachment
-                    attachmentId: ID of the attachment.
-
-                Raises:
-                    ValueError: 'No OID field found! In order to add attachments,
-                        make sure the OID field is returned in the query.'
-                    ValueError: 'No valid OID or GlobalId found to add attachment!'
-                """
-
-                if not hasattr(layer, HAS_ATTACHMENTS) or not getattr(layer, HAS_ATTACHMENTS):
-                    raise NotImplemented('{} does not support attachments!'.format(layer))
-                if not self.has_oid:
-                    raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
-##                # cannot get this to work :(
-##                if layer.canApplyEditsWithAttachments:
-##                    att_key = DATA
-##                    if isinstance(attachment, six.string_types) and attachment.startswith('{'):
-##                        # this is an upload id?
-##                        att_key = UPLOAD_ID
-##                    att = {
-##                        PARENT_GLOBALID: self._get_globalid(row_or_oid),
-##                        GLOBALID_CAMEL: attachmentId,
-##                        att_key: attachment
-##                    }
-##                    self._attachments[UPDATES].append(att)
-##                    return
-
-                oid = self._get_oid(row_or_oid)
-                if oid:
-                    return layer.updateAttachment(oid, attachmentId, attachment, **kwargs)
-                raise ValueError('No valid OID or GlobalId found to add attachment!')
-
-            def deleteAttachments(self, row_or_oid, attachmentIds, **kwargs):
-                """Deletes an attachment.
-
-                Args:
-                    row_or_oid: Row returned from cursor or an OID/GlobalId.
-                    attachment: Full path to attachment.
-                    attachmentIds: ID's for the attachment.
-
-                Raises:
-                    ValueError: 'No OID field found! In order to add attachments,
-                        make sure the OID field is returned in the query.'
-                    ValueError: 'No valid OID or GlobalId found to add attachment!'
-                """
-
-                if not hasattr(layer, HAS_ATTACHMENTS) or not getattr(layer, HAS_ATTACHMENTS):
-                    raise NotImplemented('{} does not support attachments!'.format(layer))
-                if not self.has_oid:
-                    raise ValueError('No OID field found! In order to add attachments, make sure the OID field is returned in the query.')
-
-                oid = self._get_oid(row_or_oid)
-                if oid:
-                    return layer.deleteAttachments(oid, attachmentIds, **kwargs)
-                raise ValueError('No valid OID or GlobalId found to add attachment!')
-
-            def updateRow(self, row):
-                """Updates the feature with values from updated row.  If not used
-                        in context of a "with" statement, updates will have to be
-                        applied manually after all edits are made using the
-                        UpdateCursor.applyEdits() method.  When used in the
-                        context of a "with" statement, edits are automatically
-                        applied on __exit__.
-
-                Args:
-                    row: List/tuple/Feature/Row that has been updated.
-                """
-                row = self._toJson(row)
-                if self.canEditByGlobalId:
-                    globalid = self._get_globalid(row)
-                    self._replace_feature_with_globalid(globalid, row)
-                else:
-                    oid = self._get_oid(row)
-                    self._replace_feature_with_oid(oid, row)
-                self._updates.append(row)
-
-            def deleteRow(self, row):
-                """Deletes the row.
-
-                Args:
-                    row: List/tuple/Feature/Row that has been updated.
-                """
-
-                oid = self._get_oid(row)
-                if oid:
-                    self._removeOIDs.append(oid)
-                    self._deletes.append(oid)
-
-            def applyEdits(self):
-                """Applies edits to a layer."""
-                attCount = list(filter(None, [len(atts) for op, atts in six.iteritems(self._attachments)]))
-                if (self.has_oid or (self.has_globalid and layer.canUseGlobalIdsForEditing and self.useGlobalIds)) \
-                and any([self._updates, self._deletes, attCount]):
-                    kwargs = {}
-                    if self._updates:
-                        kwargs[UPDATES] = self._updates
-                    if self._deletes:
-                        kwargs[DELETES] = self._deletes
-                    if layer.canApplyEditsWithAttachments and self._attachments:
-                        kwargs[ATTACHMENTS] = self._attachments
-                    kwargs.update(self._kwargs)
-                    if layer.canUseGlobalIdsForEditing:
-                        kwargs[USE_GLOBALIDS] = self.useGlobalIds
-                    response = layer.applyEdits(**kwargs)
-                    # remove any deleted features from feature set/rows
-                    for res in response.deleteResults:
-                        oid = res.get(RESULT_OBJECT_ID)
-                        if oid:
-                            self.features.remove(self._find_by_oid(oid))
-                    return response
-                elif not (self.has_oid or not (self.has_globalid and layer.canUseGlobalIdsForEditing and self.useGlobalIds)):
-                    raise RuntimeError('Missing OID or GlobalId Field in Data!')
-
-        cur_fields = self._fix_fields(fields)
-        kwargs[F] = JSON
-        fs = self.query(where, cur_fields, records, exceed_limit, **kwargs)
-        return UpdateCursor(fs, fields)
+        return UpdateCursor(self, fields, where=where)
 
     def insertCursor(self, fields=[], template_name=None, auto_save=True):
         """Inserts new features into layer using a cursor, , the applyEdits()
@@ -2652,106 +2774,7 @@ class FeatureLayer(MapServiceLayer):
             auto_save: Optional boolean, automatically apply edits when using
                 with statement, if True, will apply edits on the __exit__ method.
         """
-
-        layer = self
-        field_names = [f.name for f in layer.fields if f.type not in (GLOBALID, OID)]
-        class InsertCursor(object):
-            """Class that inserts cursor."""
-            def __init__(self, fields, template_name=None, auto_save=True):
-                self._adds = []
-                self.fields = fields
-                self.has_geometry = getattr(layer, TYPE) == FEATURE_LAYER
-                self._default_template_name = template_name
-                self._auto_save = auto_save
-                try:
-                    self.geometry_index = self.fields.index(SHAPE_TOKEN)
-                except ValueError:
-                    try:
-                        self.geometry_index = self.fields.index(layer.shapeFieldName)
-                    except ValueError:
-                        self.geometry_index = None
-
-            def getEditableTemplate(self, template_name=None):
-                """ returns an editable copy of the FeatureLayer's default template or a specific template
-                requested by name.
-
-                Args:
-                    template_name (str, optional): the target template. Defaults to None.
-
-                Returns:
-                    dict: the feature template
-                """
-                template = None
-                template_name = template_name or self._default_template_name
-                skip = (SHAPE_TOKEN, OID_TOKEN, layer.OIDFieldName)
-                if template_name:
-                    try:
-                        template = layer.get_template(template_name).templates[0].prototype.copy()
-                    except:
-                        template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
-                if not template:
-                    template = {ATTRIBUTES: {k: NULL for k in self.fields if k not in skip}}
-                if self.has_geometry:
-                    template[GEOMETRY] = NULL
-                return template
-
-            def insertRow(self, row):
-                """Inserts a row into the InsertCursor._adds cache.
-
-                Args:
-                    row: List/tuple/dict/Feature/Row that has been updated.
-                """
-                feature = self.getEditableTemplate()
-                if isinstance(row, (list, tuple)):
-                    for i, value in enumerate(row):
-                        try:
-                            field = self.fields[i]
-                            if field == SHAPE_TOKEN:
-                                feature[GEOMETRY] = Geometry(value).json
-                            else:
-                                if isinstance(value, datetime.datetime):
-                                    value = date_to_mil(value)
-                                feature[ATTRIBUTES][field] = value
-                        except IndexError:
-                            pass
-                    self._adds.append(feature)
-                    return feature
-                elif isinstance(row, Feature):
-                    row = row.json
-                if isinstance(row, dict):
-                    if GEOMETRY in row and self.has_geometry:
-                        feature[GEOMETRY] = Geometry(row[GEOMETRY]).json
-                    if ATTRIBUTES in row:
-                        for f, value in six.iteritems(row[ATTRIBUTES]):
-                            if f in feature[ATTRIBUTES]:
-                                if isinstance(value, datetime.datetime):
-                                    value = date_to_mil(value)
-                                feature[ATTRIBUTES][f] = value
-                    else:
-                        for f, value in six.iteritems(row):
-                            if f in feature[ATTRIBUTES]:
-                                if isinstance(value, datetime.datetime):
-                                    value = date_to_mil(value)
-                                feature[ATTRIBUTES][f] = value
-                            elif f == SHAPE_TOKEN and self.has_geometry:
-                                feature[GEOMETRY] = Geometry(value).json
-                    self._adds.append(feature)
-                    return feature
-
-            def applyEdits(self):
-                """Applies the edits to the layer."""
-                return layer.applyEdits(adds=self._adds)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, type, value, traceback):
-                if isinstance(type, Exception):
-                    raise type(value)
-                elif type is None and bool(self._auto_save):
-                    self.applyEdits()
-
-        return InsertCursor(fields, template_name, auto_save)
+        return InsertCursor(self, fields, template_name, auto_save)
 
     @property
     def canUseGlobalIdsForEditing(self):
