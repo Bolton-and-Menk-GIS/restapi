@@ -216,8 +216,8 @@ A query can also be done by using a search cursor, which behaves very similarly 
 
 ```py
 # if you don't want the json/FeatureSet representation, you can use restapi cursors
-# for the query which are similar to the arcpy.da cursors. The search cursor will return a tuple
-cursor = cities.cursor(fields=['areaname', 'pop2000', 'SHAPE@'], where=where)
+# for the query which are similar to the arcpy.da cursors. The `SearchCursor` will return a tuple
+cursor = restapi.SearchCursor(cities, fields=['areaname', 'pop2000', 'SHAPE@'], where=where)
 for row in cursor:
     print(row)
 ````
@@ -237,12 +237,12 @@ check outputs:
 also supports `with` statements:
 
 ```py
-with cities.cursor(fields=['areaname', 'pop2000', 'SHAPE@'], where=where) as cursor:
+with restapi.SearchCursor(cities, fields=['areaname', 'pop2000', 'SHAPE@'], where=where) as cursor:
     for row in cursor:
         print(row)
 ```
 
-In the above examples, when the `cities.cursor()` method was called, it actually kicked off a new query for the cursor results.  If you already have a `FeatureSet` or `FeatureCollection` like we did above, you can also save a network call by constructing the `restapi.Cursor` from the feature set by doing:
+In the above examples, when the `SearchCursor` is instantiated, it actually kicked off a new query for the cursor results.  If you already have a `FeatureSet` or `FeatureCollection` like we did above, you can also save a network call by constructing the `restapi.Cursor` from the feature set by doing:
 
 ```py
 featureSet = cities.query(where=where)
@@ -251,6 +251,8 @@ featureSet = cities.query(where=where)
 cursor = restapi.Cursor(featureSet, ['areaname', 'pop2000', 'SHAPE@'])
 ```
 
+> note: Both the `MapServiceLayer` and `FeatureLayer` also have a `searchCursor()` convenience method, which will allow you to use the same functionality as shown above but without passing in the layer itself: 
+> `rows = cities.searchCursor(['areaname', 'pop2000', 'SHAPE@'])`
 #### exporting features from a layer
 
 Data can also be easily exported from a `FeatureLayer` or `MapServicelayer`.  This can be done by exporting a feature set directly or from the layer itself:
@@ -369,95 +371,230 @@ Fetched all records
 
 ## FeatureLayer Editing
 
-This package also includes comprehensive support for working with [FeatureLayers](https://enterprise.arcgis.com/en/portal/latest/use/feature-layers.htm).  These are editable layers hosted by an ArcGIS Server, Portal, or ArcGIS Online.  A `FeatureLayer` is an extension of the `MapServiceLayer` that
+> samples for this section can be found in the [feature_layer_editing.py](./restapi/samples/feature_layer_editing.py) file.
 
-### add features using `FeatureLayer.addFeatures()`
+
+This package also includes comprehensive support for working with [FeatureLayers](https://enterprise.arcgis.com/en/portal/latest/use/feature-layers.htm).  These are editable layers hosted by an ArcGIS Server, Portal, or ArcGIS Online.  A `FeatureLayer` is an extension of the `MapServiceLayer` that supports editing options.
+
+#### add features using `FeatureLayer.addFeatures()`
 ```py
-# add new records via FeatureLayer.addFeatures()
-desc = "restapi edit test"
-new_ft = {
-    "attributes": {
-        "HazardType": "Flooding",
-        "Description": desc,
-        "SpecialInstructions": None,
-        "Status": "Active",
-        "GlobalID": "416f04e5-0ae9-4444-8d0c-d4e9b44e7f87",
-        "Priority": "Moderate"
-    },
-    "geometry": create_random_coordinates()
+# connect to esri's Charlotte Hazards Sample Feature Layer for incidents
+url = 'https://services.arcgis.com/V6ZHFr6zdgNZuVG0/ArcGIS/rest/services/Hazards_Uptown_Charlotte/FeatureServer/0'
+
+# instantiate a FeatureLayer
+hazards = restapi.FeatureLayer(url)
+
+# create a new feature as json
+feature = {
+  "attributes" : { 
+    "HazardType" : "Road Not Passable", 
+    "Description" : "restapi test", 
+    "SpecialInstructions" : "Contact Dispatch", 
+    "Priority" : "High",
+    "Status": "Active"
+  }, 
+  "geometry": create_random_coordinates()
 }
 
-# add new feature
-results = hazards.addFeatures([new_ft])
-print(results)
+# add json feature
+adds = hazards.addFeatures([ feature ])
+print(adds)
 ```
-### using `restapi` cursors
+check outputs:
+```py
+Added 1 feature(s)
+{
+  "addResults": [
+    {
+      "globalId": "8B643546-7253-4F0B-80DE-2DE8F1754C03",
+      "objectId": 11858,
+      "success": true,
+      "uniqueId": 11858
+    }
+  ]
+}
+```
+
+#### add an attachment
+```py
+# add attachment to new feature using the OBJECTID of the new feature
+oid = adds.addResults[0].objectId
+image = os.path.join(os.path.abspath('...'), 'docs', 'images', 'geometry-helper.png')
+attRes = hazards.addAttachment(oid, image)
+print(attRes)
+
+# now query attachments for new feature
+attachments = hazards.attachments(oid)
+print(attachments)
+```
+check outputs:
+```py
+Added attachment '211' for feature objectId
+{
+  "addAttachmentResult": {
+    "globalId": "f370a4e0-3976-4809-b0d5-f5d1b5990b4b",
+    "objectId": 211,
+    "success": true
+  }
+}
+[<Attachment ID: 211 (geometry-helper.png)>]
+```
+
+#### update features 
+```py
+# update the feature we just added, payload only has to include OBJECTID and any fields to update
+updatePayload = [
+  { 
+    "attributes": { 
+      "OBJECTID": r.objectId, 
+      "Description": "restapi update" 
+    } 
+  } for r in adds.addResults
+]
+updates = hazards.updateFeatures(updatePayload)
+print(updates)
+```
+
+check outputs:
+
+```py
+Updated 1 feature(s)
+{
+  "updateResults": [
+    {
+      "globalId": null,
+      "objectId": 11858,
+      "success": true,
+      "uniqueId": 11858
+    }
+  ]
+}
+```
+
+#### delete features
+
+```py
+# delete features by passing in a list of objectIds
+deletePayload = [r.objectId for r in updates.updateResults]
+deletes = hazards.deleteFeatures(deletePayload)
+print(deletes)
+```
+
+check outputs:
+```py
+Deleted 1 feature(s)
+{
+  "deleteResults": [
+    {
+      "globalId": null,
+      "objectId": 11858,
+      "success": true,
+      "uniqueId": 11858
+    }
+  ]
+}
+```
+
+### feature editing with `restapi` cursors
 
 `restapi` also supports cursors similar to what you get when using `arcpy`.  However, these work directly with the REST API and JSON features while also supporting `arcpy` and `shapefile` geometry types.  See the below example on how to use an `insertCursor` to add new records:
 
-```py
-# add 3 new features using an insert cursor 
-# using this in a "with" statement will call applyEdits on __exit__
-fields = ["SHAPE@", 'HazardType', "Description", "Priority"]
-with hazards.insertCursor(fields) as irows:
-    for i in range(3):
-        irows.insertRow([create_random_coordinates(), "Wire Down", desc, "High"])
-```
+#### adding features with an `InsertCursor`
 
-records can be updated with an `updateCursor` and a where clause.  Note that the `OBJECTID` field must be included in the query to indicate which records will be updated.  The `OID@` field token can be used to retreive the `objectIdFieldName`:
+New records can be added using an `InsertCursor`.  This can be instantiated using the `InsertCursor` class itself, or by calling the `insertCursor` method of a `FeatureLayer`.  When called as `FeatureLayer.insertCursor`, the layer itself will not need to be passed in.
 
 ```py
-# now update records with updateCursor
-whereClause = "Description = '{}'".format(desc)
+>>> # add 5 new features using an insert cursor 
+>>> # using this in a "with" statement will call applyEdits on __exit__
+>>> fields = ["SHAPE@", 'HazardType', "Description", "Priority"]
+>>> with restapi.InsertCursor(hazards, fields) as irows:
+      for i in list(range(1,6)):
+          desc = "restapi insert cursor feature {}".format(i)
+          irows.insertRow([create_random_coordinates(), "Wire Down", desc, "High"])
 
-with hazards.updateCursor(["Priority", "OID@"], where=whereClause) as rows:
-    for row in rows:
-        row[0] = "Low"
-        rows.updateRow(row)
+Added 5 feature(s)
 ```
-
-Deleting features can be done with a simple `where` clause:
+Any time an insert or update cursor will save changes, it will print a short message showing how many features were affected.  You can always get at the raw edit information from the `FeatureLayer` by calling the `editResults` property.  This will be an array that stores the results of every `applyEdits` operation, so the length will reflect how many times edits have been saved. 
 
 ```py
-# now delete the records we added
-hazards.deleteFeatures(where=whereClause)
+>>> # we can always view the results by calling FeatureLayer.editResults which stores
+>>> # an array of edit results for each time applyEdits() is called.
+>>> print(hazards.editResults)
+[{
+  "addResults": [
+    {
+      "globalId": "2774C9ED-D8F8-4B71-9F37-B26B40790710",
+      "objectId": 12093,
+      "success": true,
+      "uniqueId": 12093
+    },
+    {
+      "globalId": "18411060-F6FF-49FB-AD91-54DB65C13D06",
+      "objectId": 12094,
+      "success": true,
+      "uniqueId": 12094
+    },
+    {
+      "globalId": "8045C840-F1B9-4BD2-AEDC-72F4D65EB7A6",
+      "objectId": 12095,
+      "success": true,
+      "uniqueId": 12095
+    },
+    {
+      "globalId": "EC9DB6FC-0D34-4B83-8C98-398C7B48666D",
+      "objectId": 12096,
+      "success": true,
+      "uniqueId": 12096
+    },
+    {
+      "globalId": "C709033F-DF3B-43B3-8148-2299E7CEE986",
+      "objectId": 12097,
+      "success": true,
+      "uniqueId": 12097
+    }
+  ],
+  "deleteResults": [],
+  "updateResults": []
+}]
 ```
 
-We can also add attachments
-````py
-# add attachment, get new OID from add results
-oid = result.addResults[0]  # must get an OID to add attachment to
+> note: when using a `with` statement for the `InsertCursor` and `UpdateCursor` it will automatically call the `applyEdits()` method on `__exit__`, which is critical to submitting the new, deleted, or updated features to the server.  If not using a `with` statement, you will need to call `applyEdits()` manually after changes have been made.
 
-# download python image online and add it to the featuer we just added above
-url = 'http://www.cis.upenn.edu/~lhuang3/cse399-python/images/pslytherin.png'
-im = urllib.urlopen(url).read()
-tmp = os.path.join(os.path.dirname(sys.argv[0]), 'python.png')
-with open(tmp, 'wb') as f:
-    f.write(im)
 
-# add attachment
-incidents.addAttachment(oid, tmp)
-os.remove(tmp)
+#### updating features with an `UpdateCursor`
 
-# get attachment info from service and download it
-attachments = incidents.attachments(oid)
+records can be updated or deleted with an `updateCursor` and a where clause.  Note that the `OBJECTID` field must be included in the query to indicate which records will be updated.  The `OID@` field token can be used to retreive the `objectIdFieldName`:
 
-for attachment in attachments:
-    print(attachment)
-    print attachment.contentType, attachment.size)
-    attachment.download(folder) # folder is a user specified output directory
-````
-Update feature and delete features
+```py
+>>> # now update records with updateCursor for the records we just added. Can use the 
+>>> # editResults property of the feature layer to get the oids of our added features
+>>> addedOids = ','.join(map(str, [r.objectId for r in hazards.editResults[0].addResults]))
+>>> whereClause = "{} in ({})".format(hazards.OIDFieldName, addedOids)
+>>> with restapi.UpdateCursor(hazards, ["Priority", "Description", "OID@"], where=whereClause) as rows:
+        for row in rows:
+            if not row[2] % 2:
+                # update rows with even OBJECTID's
+                row[0] = "Low"
+                rows.updateRow(row)
+            else:
+                # delete odd OBJECTID rows
+                print('deleting row with odd objectid: ', row[2])
+                rows.deleteRow(row)
+          
+Updated 2 feature(s)
+Deleted 3 feature(s)       
 
-````py
-# update the feature we just added
-adds[0]['attributes']['address'] = 'Address Not Available'
-adds[0]['attributes']['objectid'] = oid
-incidents.updateFeatures(adds)
+>>> # now delete the rest of the records we added
+>>> whereClause = "Description like 'restapi%'"
+>>> with restapi.UpdateCursor(hazards, ["Description", "Priority", "OID@"], where=whereClause) as rows:
+        for row in rows:
+            rows.deleteRow(row)
+                irows.insertRow([create_random_coordinates(), "Wire Down", desc, "High"])
 
-# now delete feature
-incidents.deleteFeatures(oid)
-````
+Deleted 2 feature(s)
+```
+
+#### attachment editing
 
 Offline capabilities (Sync)
 

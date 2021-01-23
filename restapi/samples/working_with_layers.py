@@ -39,13 +39,13 @@ print('count with exceed_limit: {}'.format(len(allCities)))
 
 # if you don't want the json/FeatureSet representation, you can use restapi cursors
 # for the query which are similar to the arcpy.da cursors
-with cities.cursor(fields=['areaname', 'pop2000', 'SHAPE@'], where=where) as cursor:
+with restapi.SearchCursor(cities, fields=['areaname', 'pop2000', 'SHAPE@'], where=where) as cursor:
    for row in cursor:
        print(row)
        
 
 # the above cursor() method will actually make the API query call again, 
-# a cursor can also be instantiated from a restapi.Cursor by passing in a feature set:
+# a restapi.Cursor can also be instantiated directly from a FeatureSet by restapi.Cursor:
 # cursor = restapi.Cursor(featureSet, ['areaname', 'pop2000', 'SHAPE@'])
 
 # exporting features 
