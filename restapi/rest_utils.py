@@ -1750,28 +1750,19 @@ class EditResult(JsonGetter):
             print('Updated {} feature(s)'.format(self.success_count(getattr(self, UPDATE_RESULTS))))
         if self.json.get(DELETE_RESULTS, []):
             print('Deleted {} feature(s)'.format(self.success_count(getattr(self, DELETE_RESULTS))))
-        if self.json.get(ATTACHMENTS, []):
-            print('Attachment Edits: {}'.format(self.success_count(getattr(self, ATTACHMENTS))))
-        if self.json.get(ADD_ATTACHMENT_RESULT):
-            try:
-                k,v = list(getattr(self, ADD_ATTACHMENT_RESULT).items())[0]
-                print("Added attachment '{}' for feature {}".format(v, k))
-            except IndexError: # should never happen?
-                print('Added 1 attachment')
-        if self.json.get(DELETE_ATTACHMENT_RESULTS):
-            try:
-                for res in getattr(self, DELETE_ATTACHMENT_RESULTS, []) or []:
-                    if res.get(SUCCESS_STATUS) in (True, TRUE):
-                        print("Deleted attachment '{}'".format(res.get(RESULT_OBJECT_ID)))
-                    else:
-                        print("Failed to Delete attachment '{}'".format(res.get(RESULT_OBJECT_ID)))
-            except IndexError: # should never happen?
-                print('Deleted {} attachment(s)'.format(len(getattr(self, DELETE_ATTACHMENT_RESULT))))
-        if self.json.get(UPDATE_ATTACHMENT_RESULT):
-            try:
-                print("Updated attachment '{}'".format(self.json.get(UPDATE_ATTACHMENT_RESULT, {}).get(RESULT_OBJECT_ID)))
-            except IndexError: # should never happen?
-                print('Updated 1 attachment')
+        attResults = self.json.get(ATTACHMENTS)
+        if attResults:
+            for resAttr in (ADD_RESULTS, UPDATE_RESULTS):
+                results = attResults.get(resAttr, [])
+                if results:
+                    print('Attachment {} operation successful for {} of {} attachment(s)'.format(
+                        resAttr.replace('Results', ''), 
+                        self.success_count(attResults.get(resAttr)), 
+                        len(results)
+                    )
+            dels = attResults.get(DELETE_RESULTS):
+            if dels:
+                print('Successfully deleted {} attachments')
 
 class BaseGeometry(SpatialReferenceMixin):
     """Base geometry obect."""

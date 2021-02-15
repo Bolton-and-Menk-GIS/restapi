@@ -11,7 +11,7 @@ import sys
 import warnings
 from munch import munchify
 from . import projections
-from .conversion import is_feature_set, is_feature_collection
+from .conversion import *
 
 import six
 from six.moves import urllib, zip_longest
@@ -89,7 +89,29 @@ USE_GEOMETRY_PASSTHROUGH = True #can be set to false to not use @geometry_passth
 def get_geometry_object(self):
     return Geometry(getattr(self, GEOMETRY))
 
+def toEsriJson(self):
+    if self._type == GEOJSON:
+        return Feature({
+            ATTRIBUTES: self.json[PROPERTIES],
+            GEOMETRY: geojson_to_arcgis(self.geometry)
+        })
+    elif self._type == ESRI_JSON_GETTER:
+        return self
+
+def toGeoJson(self):
+    if self._type == ESRI_JSON_FORMAT:
+        return Feature({
+            TYPE: FEATURE,
+            ID: self.get(self.OIDFieldName),
+            PROPERTIES: self.json[ATTRIBUTES],
+            GEOMETRY: arcgis_to_geojson(self.geometry)
+        })
+    elif self._type == GEOJSON:
+        return self
+
 Feature.getGeometry = get_geometry_object
+Feature.toEsriJson = toEsriJson
+Feature.toGeoJson = toGeoJson
 
 @decorator
 def geometry_passthrough(func, *args, **kwargs):
@@ -765,7 +787,7 @@ class SearchCursor(Cursor):
                 chunks to get all records.
         """
 
-        feature_set = layer.query(where=where, fields=layer._fix_fields(fields), records=records, exceed_limit=exceed_limit, f=JSON, **kwargs)
+        feature_set = layer.query(where=where, fields=layer._fix_fields(fields), records=records, exceed_limit=exceed_limit, **kwargs)
         super(SearchCursor, self).__init__(feature_set, fields)
         self.layer = layer
 
@@ -862,10 +884,12 @@ class UpdateCursor(Cursor):
         if not isinstance(feature, (dict, Feature)):
             feature = self._toJson(feature)
         if self._get_oid(feature) != oid:
-            feature.json[ATTRIBUTES][layer.OIDFieldName] = oid
+            feature.json[ATTRIBUTES][self.layer.OIDFieldName] = oid
+            
         i = self._find_index_by_oid(oid)
         if i:
             self.features[i] = feature
+        return feature
         # for i, ft in enumerate(self.features):
         #     if self._get_oid(ft) == oid:
         #         self.features[i] = feature
@@ -899,7 +923,7 @@ class UpdateCursor(Cursor):
         """
         feature = self._toJson(feature)
         if self._get_globalid(feature) != globalid:
-            feature.json[ATTRIBUTES][layer.OIDFieldName] = globalid
+            feature.json[ATTRIBUTES][self.layer.OIDFieldName] = globalid
         for i, ft in enumerate(self.features):
             if self._get_globalid(ft) == globalid:
                 self.features[i] = feature
@@ -2955,6 +2979,62 @@ class FeatureLayer(MapServiceLayer):
 
         # delete features
         return self.__edit_handler(self.request(del_url, params, method=POST))
+    
+    @staticmethod
+    def _create_globalId():
+        return str(uuid.uuid4())
+
+    @classmethod
+    def _prepare_attachment(cls, parentGlobalId, data=None, globalId=None, name=None, contentType=None, uploadId=None):
+        """prepares 
+
+        Args:
+            parentGlobalId (str): the globalId of the parent feature
+            data (str, optional): the data to attach. This can be the full path to a file on disk, StringIO/BytesIO, file like object, or a base64 encoded string.  This is not required if the "uploadId" argument is used. Defaults to None.
+            globalId (str, optional): the globalId for the attachment. If none is provided, one will be automatically generated. Defaults to None.
+            name (str, optional): The file name, not required if the full path to a file was provided in the "data" argument. Defaults to None.
+            contentType (str, optional): the file's content type, not required if the full path to a file was provided in the "data" argument. Defaults to None.
+            uploadId (str, optional): the globalid for an uploaded Item. Defaults to None.
+
+        Raises:
+            TypeError: [description]
+
+        Returns:
+            [type]: [description]
+        """
+        attInfo = {
+            PARENT_GLOBALID: parentGlobalId,
+            GLOBALID_CAMEL: globalId or cls._create_globalId(),
+            CONTENT_TYPE: contentType, 
+            NAME: name
+        }
+
+        if uploadId:
+            attInfo[UPLOAD_ID] = uploadId
+        
+        elif data:
+
+            if os.path.isfile(data):
+                if not mime_type:
+                    attInfo[CONTENT_TYPE] = cls.guess_content_type(data)
+
+                if not name:
+                    attInfo[NAME] = os.path.basename(data)
+                
+                with open(data, 'rb') as f:
+                    attInfo[DATA] = base64.b64encode(f.read()).decode('utf-8')
+
+            elif hasattr(data, 'read'):
+                attInfo[DATA] = data.read()
+
+            else:
+                attInfo[DATA] = data 
+
+        if not attInfo.get(DATA):
+            raise TypeError('missing "{}" parameter'.format(DATA))
+        
+        return attInfo
+            
 
     def applyEdits(self, adds=None, updates=None, deletes=None, attachments=None, gdbVersion=None, rollbackOnFailure=TRUE, useGlobalIds=FALSE, **kwargs):
         """Applies edits on a feature service layer.
@@ -2993,34 +3073,34 @@ class FeatureLayer(MapServiceLayer):
 
             >>> #attachments example (supported only in 10.4 and above):
             >>> attachments = {
-                "adds": [
-                    {
-                        "globalId": "{55E85F98:FBDD4129:9F0B848DD40BD911}",
-                        "parentGlobalId": "{02041AEF:41744d81:8A98D7AC5B9F4C2F}",
-                        "contentType": "image/pjpeg",
-                        "name": "Pothole.jpg",
-                        "uploadId": "{DD1D0A30:CD6E4ad7:A516C2468FD95E5E}"
-                    },
-                    {
-                        "globalId": "{3373EE9A:461941B7:918BDB54575465BB}",
-                        "parentGlobalId": "{6FA4AA68:76D84856:971DB91468FCF7B7}",
-                        "contentType": "image/pjpeg",
-                        "name": "Debree.jpg",
-                        "data": "<base 64 encoded data>"
-                    }
-                ],
-                "updates": [
-                    {
-                        "globalId": "{8FDD9AEF:E05E440A:94261D7F301E1EBA}",
-                        "contentType": "image/pjpeg",
-                        "name": "IllegalParking.jpg",
-                        "uploadId": "{57860BE4:3B8544DD:A0E7BE252AC79061}"
-                    }
-                ],
-                "deletes": [
-                    "{95059311:741C4596:88EFC437C50F7C00}",
-                    " {18F43B1C:27544D05:BCB0C4643C331C29}"
-                ]
+                    "adds": [
+                        {
+                            "globalId": "{55E85F98:FBDD4129:9F0B848DD40BD911}",
+                            "parentGlobalId": "{02041AEF:41744d81:8A98D7AC5B9F4C2F}",
+                            "contentType": "image/pjpeg",
+                            "name": "Pothole.jpg",
+                            "uploadId": "{DD1D0A30:CD6E4ad7:A516C2468FD95E5E}"
+                        },
+                        {
+                            "globalId": "{3373EE9A:461941B7:918BDB54575465BB}",
+                            "parentGlobalId": "{6FA4AA68:76D84856:971DB91468FCF7B7}",
+                            "contentType": "image/pjpeg",
+                            "name": "Debree.jpg",
+                            "data": "<base 64 encoded data>"
+                        }
+                    ],
+                    "updates": [
+                        {
+                            "globalId": "{8FDD9AEF:E05E440A:94261D7F301E1EBA}",
+                            "contentType": "image/pjpeg",
+                            "name": "IllegalParking.jpg",
+                            "uploadId": "{57860BE4:3B8544DD:A0E7BE252AC79061}"
+                        }
+                    ],
+                    "deletes": [
+                        "{95059311:741C4596:88EFC437C50F7C00}",
+                        "{18F43B1C:27544D05:BCB0C4643C331C29}"
+                    ]
             }
 
         >>> featureService.applyEdits(attachments=attachments)
@@ -3047,29 +3127,32 @@ class FeatureLayer(MapServiceLayer):
             USE_GLOBALIDS: useGlobalIds
         }
 
-        # handle attachment edits (added at version 10.4) cannot get this to work :(
-##        if self.canApplyEditsWithAttachments and isinstance(attachments, dict):
-##            for edit_type in (ADDS, UPDATES):
-##                if edit_type in attachments:
-##                    for att in attachments[edit_type]:
-##                        if att.get(DATA) and os.path.isfile(att.get(DATA)):
-##                            # multipart encoded files
-##                            ct = self.guess_content_type(att.get(DATA))
-##                            if CONTENT_TYPE not in att:
-##                                att[CONTENT_TYPE] = ct
-##                            if NAME not in att:
-##                                att[NAME] = os.path.basename(att.get(DATA))
-##                            with open(att.get(DATA), 'rb') as f:
-##                                att[DATA] = 'data:{};base64,'.format(ct) + base64.b64encode(f.read())
-##                                print(att[DATA][:50])
-##                            if GLOBALID_CAMEL not in att:
-##                                att[GLOBALID_CAMEL] = 'f5e0f368-17a1-4062-b848-48eee2dee1d5'
-##                        temp = {k:v for k,v in six.iteritems(att) if k != 'data'}
-##                        temp[DATA] = att['data'][:50]
-##                        print(json.dumps(temp, indent=2))
-##            params[ATTACHMENTS] = attachments
-##            if any([params[ATTACHMENTS].get(k) for k in (ADDS, UPDATES, DELETES)]):
-##                params[USE_GLOBALIDS] = TRUE
+        if isinstance(attachments, dict) and self.json.get(SUPPORTS_APPLY_EDITS_WITH_GLOBALIDS):
+            # params[ATTACHMENTS] = attachments
+
+            # handle attachment edits (added at version 10.4) cannot get this to work :(
+            
+            for edit_type in (ADDS, UPDATES):
+                if edit_type in attachments:
+                    for att in attachments[edit_type]:
+                        if att.get(DATA) and os.path.isfile(att.get(DATA)):
+                            # multipart encoded files
+                            ct = self.guess_content_type(att.get(DATA))
+                            if CONTENT_TYPE not in att:
+                                att[CONTENT_TYPE] = ct
+                            if NAME not in att:
+                                att[NAME] = os.path.basename(att.get(DATA))
+                            with open(att.get(DATA), 'rb') as f:
+                                att[DATA] = 'data:{};base64,'.format(ct) + base64.b64encode(f.read())
+                                print(att[DATA][:50])
+                            if GLOBALID_CAMEL not in att:
+                                att[GLOBALID_CAMEL] = 'f5e0f368-17a1-4062-b848-48eee2dee1d5'
+                        temp = {k:v for k,v in six.iteritems(att) if k != 'data'}
+                        temp[DATA] = att['data'][:50]
+                        print(json.dumps(temp, indent=2))
+            params[ATTACHMENTS] = attachments
+            if any([params[ATTACHMENTS].get(k) for k in (ADDS, UPDATES, DELETES)]):
+                params[USE_GLOBALIDS] = TRUE
         # add other keyword arguments
         for k,v in six.iteritems(kwargs):
             kwargs[k] = v
