@@ -1831,22 +1831,40 @@ class ArcServerAdmin(AdminRESTEndpoint):
         if isinstance(other, self.__class__):
             other = other.dataStore
 
+        # existing items to skip duplicates
+        ds = self.dataStore
+        existing = []
+        for item in ds:
+            if item.type == 'folder':
+                existing.append(item.info.path)
+            elif item.type == 'egdb':
+                existing.append(item.info.connectionString)
+
         # iterate through data store
         global VERBOSE
         results = []
-        ds = self.dataStore
+        
         for d in other:
-            ni = {
-                'path': d.path,
-                'type': d.type,
-                'clientPath': d.clientPath,
-                'info': d.info
-            }
-            st = ds.registerItem(ni)
-            ni['result'] = st
-            results.append(ni)
-            if VERBOSE:
-                print(json.dumps(ni))
+            if d.type in ['egdb', 'folder']:
+                source = d.info.connectionString if d.type == 'egdb' else d.info.path
+                if source not in existing:
+                    ni = {
+                        'path': d.path,
+                        'type': d.type,
+                        'clientPath': d.clientPath,
+                        'info': d.info
+                    }
+                    try:
+                        st = ds.registerItem(ni)
+                    except Exception as e:
+                        st = { 'status': 'error', 'message': str(e) }
+                    ni['result'] = st
+                    results.append(ni)
+                    if VERBOSE:
+                        print(json.dumps(ni))
+                else:
+                    if VERBOSE:
+                        print('skipping existing item: "{}" (type: {})'.format(d.path, d.type))
 
         return results
 
@@ -3137,16 +3155,30 @@ class AGOLAdminInitializer(AdminRESTEndpoint):
 
 
 class Portal(AdminRESTEndpoint):
+    __servers = []
+
+    @property
+    def _servers(self):
+        return self.getServers()
 
     def getServers(self):
-        servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
-        request_method = get_request_method(servers_url, {TOKEN: self.token.token, F: JSON}, client=self.client)
-        # TODO: verify True
-        serversResp = request_method(servers_url, params={TOKEN: self.token.token, F: JSON}).json()
-        return [ArcServerAdmin(s.get('adminUrl') + '/admin/services', token=self.token) for s in serversResp.get('servers', [])]
+        if not self.__servers:
+            servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
+            request_method = get_request_method(servers_url, {TOKEN: self.token.token, F: JSON}, client=self.client)
+            # TODO: verify True
+            serversResp = request_method(servers_url, params={TOKEN: self.token.token, F: JSON}).json()
+            self.__servers = [ArcServerAdmin(s.get('adminUrl') + '/admin/services', token=self.token) for s in serversResp.get('servers', [])]
+        return self.__servers
 
     def __repr__(self):
         return '<{}:Admin: "{}">'.format(self.__class__.__name__, self.name)
+
+    def __iter__(self):
+        for server in self._servers:
+            yield server
+    
+    def __len__(self):
+        return len(self._servers)
 
 
 class AGOLAdmin(AGOLAdminInitializer):

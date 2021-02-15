@@ -20,17 +20,17 @@ url = 'https://services.arcgis.com/V6ZHFr6zdgNZuVG0/ArcGIS/rest/services/Hazards
 # instantiate a FeatureLayer
 hazards = restapi.FeatureLayer(url)
 
-# # create a new feature as json
-# feature = {
-#   "attributes" : { 
-#     "HazardType" : "Road Not Passable", 
-#     "Description" : "restapi test", 
-#     "SpecialInstructions" : "Contact Dispatch", 
-#     "Priority" : "High",
-#     "Status": "Active"
-#   }, 
-#   "geometry": create_random_coordinates()
-# }
+# create a new feature as json
+feature = {
+  "attributes" : { 
+    "HazardType" : "Road Not Passable", 
+    "Description" : "restapi test", 
+    "SpecialInstructions" : "Contact Dispatch", 
+    "Priority" : "High",
+    "Status": "Active"
+  }, 
+  "geometry": create_random_coordinates()
+}
 
 # # add json feature
 # adds = hazards.addFeatures([ feature ])
@@ -38,7 +38,7 @@ hazards = restapi.FeatureLayer(url)
 
 # # add attachment to new feature using the OBJECTID
 # oid = adds.addResults[0].objectId
-# image = os.path.join(os.path.abspath('...'), 'docs', 'images', 'geometry-helper.png')
+image = os.path.join(os.path.abspath('...'), 'docs', 'images', 'geometry-helper.png')
 # attRes = hazards.addAttachment(oid, image)
 # print(attRes)
 
@@ -63,39 +63,59 @@ hazards = restapi.FeatureLayer(url)
 # deletes = hazards.deleteFeatures(deletePayload)
 # print(deletes)
 
-# working with cursors
-# add 5 new features using an insert cursor 
-# using this in a "with" statement will call applyEdits on __exit__
-fields = ["SHAPE@", 'HazardType', "Description", "Priority"]
-# with hazards.insertCursor(fields) as irows:
-with restapi.InsertCursor(hazards, fields) as irows:
-    for i in list(range(1,6)):
-        desc = "restapi insert cursor feature {}".format(i)
-        irows.insertRow([create_random_coordinates(), "Wire Down", desc, "High"])
+# # working with cursors
+# # add 5 new features using an insert cursor 
+# # using this in a "with" statement will call applyEdits on __exit__
+# fields = ["SHAPE@", 'HazardType', "Description", "Priority"]
+# # with hazards.insertCursor(fields) as irows:
+# with restapi.InsertCursor(hazards, fields) as irows:
+#     for i in list(range(1,6)):
+#         desc = "restapi insert cursor feature {}".format(i)
+#         irows.insertRow([create_random_coordinates(), "Wire Down", desc, "High"])
 
-# we can always view the results by calling FeatureLayer.editResults which stores
-# an array of edit results for each time applyEdits() is called.
-print(hazards.editResults)
+# # we can always view the results by calling FeatureLayer.editResults which stores
+# # an array of edit results for each time applyEdits() is called.
+# print(hazards.editResults)
 
-# now update records with updateCursor for the records we just added. Can use the 
-# editResults property of the feature layer to get the oids of our added features
-addedOids = ','.join(map(str, [r.objectId for r in hazards.editResults[0].addResults]))
-whereClause = "{} in ({})".format(hazards.OIDFieldName, addedOids)
-# with hazards.updateCursor(["Priority", "Description", "OID@"], where=whereClause) as rows:
-with restapi.UpdateCursor(hazards, ["Priority", "Description", "OID@"], where=whereClause) as rows:
-    for row in rows:
-        if not row[2] % 2:
-            # print('updating row with even id: ', row[2])
-            row[0] = "Low"
-            rows.updateRow(row)
-        else:
-            # delete odd OBJECTID rows
-            # print('deleting row with odd objectid: ', row[2])
-            rows.deleteRow(row)
+# # now update records with updateCursor for the records we just added. Can use the 
+# # editResults property of the feature layer to get the oids of our added features
+# addedOids = ','.join(map(str, [r.objectId for r in hazards.editResults[0].addResults]))
+# whereClause = "{} in ({})".format(hazards.OIDFieldName, addedOids)
+# with restapi.UpdateCursor(hazards, ["Priority", "Description", "OID@"], where=whereClause) as rows:
+#     for row in rows:
+#         if not row[2] % 2:
+#             row[0] = "Low"
+#             rows.updateRow(row)
+#         else:
+#             # delete odd OBJECTID rows
+#             rows.deleteRow(row)
           
        
-# now delete the rest of the records we added
-whereClause = "Description like 'restapi%'"
-with hazards.updateCursor(["Description", "Priority", "OID@"], where=whereClause) as rows:
-    for row in rows:
-        rows.deleteRow(row)
+# # # now delete the rest of the records we added
+# # whereClause = "Description like 'restapi%'"
+# # with hazards.updateCursor(["Description", "Priority", "OID@"], where=whereClause) as rows:
+# #     for row in rows:
+# #         rows.deleteRow(row)
+
+import uuid, base64, json
+parentGuid = 'D9431509-3209-4267-B13A-7DB566E81401'
+
+with open(image, 'rb') as f:
+	encoded = base64.b64encode(f.read()).decode('utf-8')
+
+
+res = hazards.applyEdits(
+	useGlobalIds=True,
+	attachments=json.dumps({
+		'adds': [
+			{
+				"globalId": str(uuid.uuid4()).upper(),
+				"parentGlobalId": parentGuid,
+				"contentType": "image/png",
+				"name": os.path.basename(image),
+				"data": encoded
+			}
+		]
+	})
+)
+print(res)
