@@ -1760,7 +1760,7 @@ class EditResult(JsonGetter):
                         self.success_count(attResults.get(resAttr)), 
                         len(results)
                     )
-            dels = attResults.get(DELETE_RESULTS):
+            dels = attResults.get(DELETE_RESULTS)
             if dels:
                 print('Successfully deleted {} attachments')
 
