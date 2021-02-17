@@ -406,11 +406,11 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=
         request_method = get_request_method(proxied_url, method=method, client=client)
     if referer:
         headers[enums.headers.referer] = referer
-    
+
     if request_method.__name__ == 'get':
         # must use kwargs after url in GET
         return request_method(proxied_url, params=params, headers=headers)
-    
+
     return request_method(proxied_url, params, headers=headers)
 
 
@@ -459,7 +459,7 @@ def validate_name(file_name):
     Returns:
         The path for the file.
     """
-    
+
 
     import string
     path = os.sep.join(file_name.split(os.sep)[:-1]) #forward slash in name messes up os.path.split()
@@ -1174,7 +1174,7 @@ class FieldsMixin(object):
 
 class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
     """Base Class for feature set."""
-    _format = None 
+    _format = None
 
     @property
     def hasGeometry(self):
@@ -1191,7 +1191,7 @@ class FeatureSetBase(JsonGetter, SpatialReferenceMixin, FieldsMixin):
 
     def __getitem__(self, key):
         """Supports grabbing feature by index and json keys by name."""
-        
+
         if isinstance(key, int):
             return Feature(self.json.features[key])
 
@@ -1513,7 +1513,7 @@ class Token(JsonGetter):
     @property
     def isExpired(self):
         """Boolean value for expired or not."""
-        if datetime.datetime.now() > self.time_expires:
+        if datetime.datetime.utcnow() > self.time_expires:
             return True
         else:
             return False
@@ -1756,8 +1756,8 @@ class EditResult(JsonGetter):
                 results = attResults.get(resAttr, [])
                 if results:
                     print('Attachment {} operation successful for {} of {} attachment(s)'.format(
-                        resAttr.replace('Results', ''), 
-                        self.success_count(attResults.get(resAttr)), 
+                        resAttr.replace('Results', ''),
+                        self.success_count(attResults.get(resAttr)),
                         len(results)
                     ))
             dels = attResults.get(DELETE_RESULTS)
@@ -1810,8 +1810,8 @@ class GeocodeService(RESTEndpoint):
     """Class to handle Geocode Service."""
 
     def geocodeAddresses(self, recs, outSR=4326, address_field=''):
-        """Geocodes a list of addresses.  If there is a singleLineAddress field present in the 
-        geocoding service, the only input required is a list of addresses.  Otherwise, a record 
+        """Geocodes a list of addresses.  If there is a singleLineAddress field present in the
+        geocoding service, the only input required is a list of addresses.  Otherwise, a record
         set an be passed in for the "recs" parameter.  See formatting example at bottom.
 
         Args:
