@@ -1851,9 +1851,10 @@ class ArcServerAdmin(AdminRESTEndpoint):
                     ni = {
                         'path': d.path,
                         'type': d.type,
-                        'clientPath': d.clientPath,
                         'info': d.info
                     }
+                    if d.type == 'folder':
+                        ni['clientPath'] = source
                     try:
                         st = ds.registerItem(ni)
                     except Exception as e:
