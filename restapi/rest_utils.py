@@ -530,10 +530,8 @@ def mil_to_date(mil):
     elif mil < 0:
         return datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(seconds=(mil/1000))
     else:
-        # safely cast, to avoid being out of range for platform local time
         try:
-            struct = time.gmtime(mil /1000.0)
-            return datetime.datetime.fromtimestamp(time.mktime(struct))
+            return datetime.datetime.utcfromtimestamp(mil / 1000)
         except Exception as e:
             warnings.warn('bad milliseconds value: {}'.format(mil))
             raise e
@@ -1492,8 +1490,8 @@ class Token(JsonGetter):
         self._portal = self.json.get('_{}'.format(PORTAL_INFO))
         if '_portalInfo' in self.json:
             del self.json._portalInfo
-##        self.isAGOL = self.json.get(IS_AGOL, False)
-##        self.isAdmin = self.json.get(IS_ADMIN, False)
+        self.isAGOL = self.json.get(IS_AGOL, False)
+        self.isAdmin = self.json.get(IS_ADMIN, False)
 
 
     @property
@@ -1513,7 +1511,8 @@ class Token(JsonGetter):
     @property
     def isExpired(self):
         """Boolean value for expired or not."""
-        if datetime.datetime.utcnow() > self.time_expires:
+        now = datetime.datetime.utcnow()
+        if now > self.time_expires:
             return True
         else:
             return False
