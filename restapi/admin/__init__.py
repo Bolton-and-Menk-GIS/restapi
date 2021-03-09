@@ -9,7 +9,7 @@ import json
 from collections import namedtuple
 from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, \
     generate_token, ID_MANAGER, do_request, SpatialReferenceMixin, parse_url, get_portal_base, requestClient, \
-    get_request_method, get_request_client
+    get_request_method, get_request_client, TokenExpired
 from ..decorator import decorator
 import munch
 from .._strings import *
@@ -104,12 +104,20 @@ class AdminRESTEndpoint(JsonGetter):
         self.url = self.url.replace('/services//', '/services/') # cannot figure out where extra / is coming from in service urls
         params = {'f': 'json'}
 
+        if self.token:
+            if isinstance(token, six.string_types):
+                try:
+                    found_token = ID_MANAGER.findToken(token)
+                    if found_token:
+                        self.token = found_token
+                except TokenExpired:
+                    self.token = None
+                except:
+                    raise
+            if isinstance(token, Token) and token.isExpired and not all([usr, pw]):
+                raise ('Token expired at {}! Please sign in again.'.format(token.expires))
         if not self.token:
             self.check_for_token(self.url, usr, pw, self.token)
-
-        else:
-            if isinstance(token, Token) and token.isExpired:
-                raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
 
         if self.token:
             if isinstance(self.token, Token):
@@ -140,7 +148,7 @@ class AdminRESTEndpoint(JsonGetter):
             else:
                 self.token = ID_MANAGER.findToken(self.url)
                 if self.token and self.token.isExpired:
-                    raise RuntimeError('Token expired at {}! Please sign in again.'.format(token.expires))
+                    raise TokenExpired('Token expired at {}! Please sign in again.'.format(token.expires))
                 elif self.token is None:
                     raise RuntimeError('No token found, please try again with credentials')
 
@@ -1843,7 +1851,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
         # iterate through data store
         global VERBOSE
         results = []
-        
+
         for d in other:
             if d.type in ['egdb', 'folder']:
                 source = d.info.connectionString if d.type == 'egdb' else d.info.path
@@ -3177,7 +3185,7 @@ class Portal(AdminRESTEndpoint):
     def __iter__(self):
         for server in self._servers:
             yield server
-    
+
     def __len__(self):
         return len(self._servers)
 

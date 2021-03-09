@@ -137,7 +137,7 @@ class IdentityManager(object):
                 generated for the ArcGIS Server resource.
 
         Args:
-            url: URL for secured resource.
+            url: URL for secured resource, or token as a string.
 
         Raises:
             TokenExpired: 'Token expired at {}! Please sign in again.'
@@ -152,7 +152,7 @@ class IdentityManager(object):
             #     url = url.split('/rest/services')[0] + '/rest/services'
             to_remove = []
             for registered_url, token in list(self.tokens.items()) + list(self._portal_tokens.items()):
-                if fnmatch.fnmatch(url, registered_url + '*'):
+                if fnmatch.fnmatch(url, registered_url + '*') or token['token'] == url:
                     if not token.isExpired:
                         return token
                     else:
@@ -184,6 +184,19 @@ class IdentityManager(object):
                 return self.proxies[url]
 
         return None
+
+
+    def flush(self):
+        """Flush expired tokens from the Identity Manager.
+
+        """
+        deletes = []
+        for tokens in (self.tokens, self._portal_tokens):
+            for url in list(tokens.keys()):
+                token = tokens[url]
+                if token.isExpired:
+                    del tokens[url]
+
 
 # initialize Identity Manager
 ID_MANAGER = IdentityManager()
@@ -577,7 +590,7 @@ def generate_token(url, user, pw, expiration=60, client=None, **kwargs):
     Returns:
         The token for security.
     """
-
+    ID_MANAGER.flush()
     suffix = '/rest/info'
     isAdmin = False
     if '/admin/' in url:
@@ -618,7 +631,7 @@ def generate_token(url, user, pw, expiration=60, client=None, **kwargs):
               USER_NAME: user,
               PASSWORD: pw,
               CLIENT: REQUEST_IP,
-              EXPIRATION: max([expiration, shortLived])}
+              EXPIRATION: min([expiration, shortLived])}
 
     # headers = {}
     if is_agol:
@@ -689,13 +702,20 @@ def generate_token(url, user, pw, expiration=60, client=None, **kwargs):
     if is_agol:
         if isinstance(org_resp, dict):
             org_id = org_resp.get('id')
+            base_url, url_key = org_resp.get('customBaseUrl'), org_resp.get('urlKey')
             if org_id:
-                # print('setting portal token: https://services2.arcgis.com/{}/arcgis/rest/services'.format(org_id))
                 token_copy = munch.munchify({})
                 token_copy.update(token.json)
                 serv_url = infoUrl.replace('/info', '/services')
                 token_copy.domain = serv_url
                 ID_MANAGER.tokens[serv_url] = Token(token_copy)
+            if base_url and url_key:
+                token_copy = munch.munchify({})
+                token_copy.update(token.json)
+                serv_url = get_portal_base('{}://{}.{}'.format(PROTOCOL, url_key, base_url))
+                token_copy.domain = serv_url
+                ID_MANAGER.tokens[serv_url] = Token(token_copy)
+
 
     if is_portal:
         if isinstance(portal_resp, dict):
@@ -738,7 +758,7 @@ def generate_elevated_portal_token(server_url, user_token, client=None, **kwargs
     Returns:
         The elevated portal token.
     """
-
+    ID_MANAGER.flush()
     params = {
         TOKEN: str(user_token) if isinstance(user_token, Token) else user_token,
         "serverURL": server_url,
@@ -1490,8 +1510,8 @@ class Token(JsonGetter):
         self._portal = self.json.get('_{}'.format(PORTAL_INFO))
         if '_portalInfo' in self.json:
             del self.json._portalInfo
-        self.isAGOL = self.json.get(IS_AGOL, False)
-        self.isAdmin = self.json.get(IS_ADMIN, False)
+##        self.isAGOL = self.json.get(IS_AGOL, False)
+##        self.isAdmin = self.json.get(IS_ADMIN, False)
 
 
     @property
