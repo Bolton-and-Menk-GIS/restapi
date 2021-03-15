@@ -186,16 +186,23 @@ class IdentityManager(object):
         return None
 
 
-    def flush(self):
-        """Flush expired tokens from the Identity Manager.
+    def flush(self, expired_only=True):
+        """Flush expired or all tokens/proxies from the Identity Manager.
+
+        Args:
+            expired_only (bool): If True, will only remove expired tokens. If
+                False, will remove all tokens and proxies. Default is True.
 
         """
-        deletes = []
-        for tokens in (self.tokens, self._portal_tokens):
-            for url in list(tokens.keys()):
-                token = tokens[url]
-                if token.isExpired:
-                    del tokens[url]
+        if expired_only:
+            deletes = []
+            for tokens in (self.tokens, self._portal_tokens):
+                for url in list(tokens.keys()):
+                    token = tokens[url]
+                    if token.isExpired:
+                        del tokens[url]
+        else:
+            self.__init__()
 
 
 # initialize Identity Manager
@@ -787,6 +794,7 @@ def generate_elevated_portal_token(server_url, user_token, client=None, **kwargs
     token = Token(resp)
     ID_MANAGER.tokens[token.domain] = token
     return token
+
 
 class NameEncoder(json.JSONEncoder):
     """encoder for restapi objects to make serializeable for JSON"""
