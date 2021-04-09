@@ -195,7 +195,6 @@ class IdentityManager(object):
 
         """
         if expired_only:
-            deletes = []
             for tokens in (self.tokens, self._portal_tokens):
                 for url in list(tokens.keys()):
                     token = tokens[url]
@@ -295,6 +294,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
     Returns:
         The post request.
     """
+    ID_MANAGER.flush()
     global PROTOCOL
     if PROTOCOL != '':
         service = '{}://{}'.format(PROTOCOL, service.split('://')[-1])

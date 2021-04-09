@@ -3276,7 +3276,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
             # ASYNC: runAsync
         }
 
-        result = self.request(url, params)
+        result = self.request(url, params, method='post')
         self.refresh()
         self.reload()
         return result
@@ -3300,7 +3300,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
             # ASYNC: runAsync
         }
 
-        result = self.request(url, params)
+        result = self.request(url, params, method='post')
         self.refresh()
         self.reload()
         return result
