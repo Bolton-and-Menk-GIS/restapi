@@ -2072,6 +2072,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
                 # download in chunks
                 isShp = out_fc.endswith('.shp')
+                fs = None
                 orig = out_fc
                 doesExceed = False
                 if isShp:
@@ -2080,6 +2081,10 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                         out_fc = r'in_memory\restapi_chunk_{}'.format(os.path.splitext(os.path.basename(orig))[0])
                 for fs in self.query_in_chunks(where, fields, f=DEFAULT_REQUEST_FORMAT, **kwargs):
                     exportFeatureSet(fs, out_fc, include_domains=False)
+
+                if not fs:
+                    print('No records to fetch')
+                    return
 
                 if not isShp and include_domains:
                     add_domains_from_feature_set(out_fc, fs)
