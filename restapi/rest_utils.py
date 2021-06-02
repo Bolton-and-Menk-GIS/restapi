@@ -348,14 +348,6 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
 
     stream = params.get(F) == 'image'
 
-    # mixin default kwargs for requests
-    defaults = {
-        "stream": stream,
-    }
-    for k,v in six.iteritems(defaults):
-        if k not in kwargs:
-            kwargs[k] = v
-
     # handle cookies specially to merge
     kwarg_cookies = kwargs.get('cookies')
     if isinstance(kwarg_cookies, dict):
@@ -367,6 +359,16 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
     if kwargs.get('stream'):
         if params[F]:
             del params[F]
+        stream = True
+        ret_json = False
+
+    # mixin default kwargs for requests
+    defaults = {
+        "stream": stream,
+    }
+    for k,v in six.iteritems(defaults):
+        if k not in kwargs:
+            kwargs[k] = v
 
     if proxy:
         # IMPORTANT: this is not a regular proxy, this is the Esri Proxy
