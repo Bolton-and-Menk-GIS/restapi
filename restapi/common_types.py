@@ -2101,6 +2101,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
                 # do query to get feature set
                 fs = self.query(where, fields, records, exceed_limit, **kwargs)
+                if not fs.features:
+                    print('No records to fetch')
+                    return
 
                 # get any domain info
                 f_dict = {f.name: f for f in self.fields}
