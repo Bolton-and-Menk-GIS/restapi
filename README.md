@@ -277,7 +277,7 @@ You can also export a feature set directly if you already have one loaded:
 restapi.exportFeatureSet(featureSet, shp)
 ```
 
-exporting layers or feature sets also supports a `fields` filter, where you can limit which fields are exported. Other options are supported as well such as an output spatial reference.  One important thing to note, if you do not have access to `arcpy`, you can only export to shapefile format.  If you do have `arcpy`, any output format supported by esri will work.  If the output is a [geodatabase feature class](https://desktop.arcgis.com/en/arcmap/latest/manage-data/feature-classes/a-quick-tour-of-feature-classes.htm), you can also choose to include things like [domains](https://desktop.arcgis.com/en/arcmap/latest/manage-data/geodatabases/an-overview-of-attribute-domains.htm) and [attachments](https://desktop.arcgis.com/en/arcmap/10.3/manage-data/editing-attributes/enabling-attachments-on-a-feature-class.htm) if applicable.
+exporting layers or feature sets also supports a `fields` filter, where you can limit which fields are exported. Other options are supported as well such as an output spatial reference.  One important thing to note, if you do not have access to `arcpy`, you can only export to shapefile format.  If you do have `arcpy`, any output format supported by esri will work.  If the output is a [geodatabase feature class](https://desktop.arcgis.com/en/arcmap/latest/manage-data/feature-classes/a-quick-tour-of-feature-classes.htm), you can also choose to include things like [domains](https://desktop.arcgis.com/en/arcmap/latest/manage-data/geodatabases/an-overview-of-attribute-domains.htm) if applicable.
 
 ```py
 # exporting features 
