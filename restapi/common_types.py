@@ -516,7 +516,7 @@ class Cursor(object):
     json = {}
     fieldOrder = []
     # field_names = []
-    
+
     def __init__(self, feature_set, fieldOrder='*'):
         """Cursor object for a feature set.
 
@@ -533,7 +533,7 @@ class Cursor(object):
                 feature_set = FeatureCollection(feature_set)
             else:
                 feature_set = FeatureSet(feature_set)
-                
+
         self.featureSet = feature_set
         self.type = self.featureSet._format
         self.fieldOrder = self.__validateOrderBy(fieldOrder)
@@ -885,7 +885,7 @@ class UpdateCursor(Cursor):
             feature = self._toJson(feature)
         if self._get_oid(feature) != oid:
             feature.json[ATTRIBUTES][self.layer.OIDFieldName] = oid
-            
+
         i = self._find_index_by_oid(oid)
         if i:
             self.features[i] = feature
@@ -1593,8 +1593,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # default params
         params = {
-            RETURN_GEOMETRY : TRUE, 
-            WHERE: where or '1=1', 
+            RETURN_GEOMETRY : TRUE,
+            WHERE: where or '1=1',
             F : JSON
         }
 
@@ -1644,12 +1644,15 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # get oids
         resp = self.query(where=where, **kwargs)
-        
+
         # check if feature collect
         if is_feature_collection(resp):
-            oids = resp.properties.get(OBJECT_IDS, [])[:max_recs]
+            oids = resp.properties.get(OBJECT_IDS, [])
         else:
-            oids = sorted(resp.get(OBJECT_IDS, []))[:max_recs]
+            oids = resp.get(OBJECT_IDS, [])
+        if not oids:
+            return
+        oids = sorted(oids)[:max_recs]
         oid_name = resp.get(OID_FIELD_NAME, OBJECTID)
         print('total records: {0}'.format(len(oids)))
 
@@ -1836,7 +1839,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             GEOMETRY_TYPE: geometryType,
             SPATIAL_REL: spatialRel,
          }
-        
+
         if not inSR:
             params[IN_SR]= geometry.getSR()
 
@@ -2979,14 +2982,14 @@ class FeatureLayer(MapServiceLayer):
 
         # delete features
         return self.__edit_handler(self.request(del_url, params, method=POST))
-    
+
     @staticmethod
     def _create_globalId():
         return str(uuid.uuid4())
 
     @classmethod
     def _prepare_attachment(cls, parentGlobalId, data=None, globalId=None, name=None, contentType=None, uploadId=None):
-        """prepares 
+        """prepares
 
         Args:
             parentGlobalId (str): the globalId of the parent feature
@@ -3005,13 +3008,13 @@ class FeatureLayer(MapServiceLayer):
         attInfo = {
             PARENT_GLOBALID: parentGlobalId,
             GLOBALID_CAMEL: globalId or cls._create_globalId(),
-            CONTENT_TYPE: contentType, 
+            CONTENT_TYPE: contentType,
             NAME: name
         }
 
         if uploadId:
             attInfo[UPLOAD_ID] = uploadId
-        
+
         elif data:
 
             if os.path.isfile(data):
@@ -3020,7 +3023,7 @@ class FeatureLayer(MapServiceLayer):
 
                 if not name:
                     attInfo[NAME] = os.path.basename(data)
-                
+
                 with open(data, 'rb') as f:
                     attInfo[DATA] = base64.b64encode(f.read()).decode('utf-8')
 
@@ -3028,13 +3031,13 @@ class FeatureLayer(MapServiceLayer):
                 attInfo[DATA] = data.read()
 
             else:
-                attInfo[DATA] = data 
+                attInfo[DATA] = data
 
         if not attInfo.get(DATA):
             raise TypeError('missing "{}" parameter'.format(DATA))
-        
+
         return attInfo
-            
+
 
     def applyEdits(self, adds=None, updates=None, deletes=None, attachments=None, gdbVersion=None, rollbackOnFailure=TRUE, useGlobalIds=FALSE, **kwargs):
         """Applies edits on a feature service layer.
@@ -3131,7 +3134,7 @@ class FeatureLayer(MapServiceLayer):
             # params[ATTACHMENTS] = attachments
 
             # handle attachment edits (added at version 10.4) cannot get this to work :(
-            
+
             for edit_type in (ADDS, UPDATES):
                 if edit_type in attachments:
                     for att in attachments[edit_type]:
@@ -3488,7 +3491,7 @@ class GeometryService(RESTEndpoint):
                 transformations are returned.
 
         >>> transformations = geometryService.findTransformations(4267, 4326, numOfResults=3)
-        >>> print(transformations)  
+        >>> print(transformations)
         [
             {
                 "wkid": 15851,
@@ -3602,15 +3605,15 @@ class ImageService(BaseService):
 
         if not geometry:
             if X in kwargs and Y in kwargs:
-                geometry = {X: kwargs[X], Y: kwargs[Y]} 
+                geometry = {X: kwargs[X], Y: kwargs[Y]}
                 if IN_SR in kwargs:
                     geometry[SPATIAL_REFERENCE] = { WKID: kwargs.get(IN_SR)}
                 else:
                     geometry[SPATIAL_REFERENCE] = self.spatialReference
-        
+
             else:
                 raise ValueError('Not a valid input for "geometry" parameter!')
-       
+
         if not isinstance(geometry, Geometry):
             geometry = Geometry(geometry)
 
