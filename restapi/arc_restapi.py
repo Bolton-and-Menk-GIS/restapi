@@ -178,7 +178,7 @@ class Geometry(BaseGeometry):
             else:
                 self.geometryType = NULL_GEOMETRY
         self.hasCurves = CURVE_PATHS in self.json or CURVE_RINGS in self.json
-        
+
     @property
     def _native_json(self):
         return geojson_to_arcgis(self.json) if is_geojson(self.json) else self.json
@@ -599,8 +599,9 @@ def append_feature_set(out_fc, feature_set, cursor):
     fc_fields = arcpy.ListFields(out_fc)
     cur_fields = [f.name for f in fc_fields if f.type not in ('OID', 'Geometry') and not f.name.lower().startswith('shape')]
     # insert cursor to write rows manually
-    with arcpy.da.InsertCursor(out_fc, cur_fields + ['SHAPE@']) as irows:
-        for i, row in enumerate(cursor(feature_set, cur_fields + ['SHAPE@'])):
+    cur_fields = cur_fields if arcpy.Describe(out_fc).dataType == 'Table' else cur_fields + ['SHAPE@']
+    with arcpy.da.InsertCursor(out_fc, cur_fields) as irows:
+        for i, row in enumerate(cursor(feature_set, cur_fields)):
             irows.insertRow(row)
 
 def export_attachments(out_fc, layer):
