@@ -3462,6 +3462,26 @@ class GeometryService(RESTEndpoint):
         }
         return GeometryCollection(self.request(query_url, params), spatialReference=sr)
 
+    def convexHull(self, geometries, sr=None):
+        """Generates a convex hull polygon of the input geometries.
+
+        Args:
+            geometries: Input geometries
+                (GeometryCollection|FeatureSet|json|arcpy.mapping.Layer|FeatureClass|Shapefile).
+            sr: Optional spatial reference for input geometries, if not specified
+                will be derived from input geometries.
+        """
+
+        url = self.url + '/convexHull'
+        geometries = self.validateGeometries(geometries)
+        sr = sr or geometries.getWKID() or NULL
+        params = {
+            GEOMETRY: geometries,
+            GEOMETRIES: geometries,
+            SR: sr
+        }
+        return Geometry(self.request(url, params), spatialReference=sr)
+
     def union(self, geometries, sr=None):
         """Performs union of input geometries.
 

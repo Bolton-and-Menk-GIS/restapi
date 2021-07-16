@@ -36,8 +36,8 @@ geometry = _setter([
             'ymax',
             'xmin',
             'ymin',
-            { 
-                'initial': 'initialExtent', 
+            {
+                'initial': 'initialExtent',
                 'full': 'fullExtent'
             }
         ])
@@ -82,7 +82,7 @@ admin = _setter([
 ])
 
 agol = _setter([
-    { 
+    {
         'urls': {
             'base': 'www.arcgis.com',
             'sharingRest': 'https://www.arcgis.com/sharing/rest',
@@ -146,7 +146,7 @@ fields = _setter([
             'esriFieldTypeDouble': 'DOUBLE',
             'esriFieldTypeSmallInteger': 'SHORT',
             'esriFieldTypeInteger': 'LONG'
-        }, 
+        },
         'skip': {
             'esriFieldTypeRaster': 'RASTER',
             'esriFieldTypeBlob': 'BLOB'
@@ -162,8 +162,8 @@ domain = _setter([
     'codedValues',
     'code',
     'range',
-    { 
-        'codedUpper': 'CODED', 
+    {
+        'codedUpper': 'CODED',
         'rangeUpper': 'RANGE'
     }
 ])
@@ -200,8 +200,8 @@ formats = _setter([
 ])
 
 serviceInfo = _setter([
-    'tables', 
-    'layers', 
+    'tables',
+    'layers',
     'layerDefs',
     'subLayerIds'
 ])
@@ -239,7 +239,7 @@ gpService = _setter([
 service = _setter([
     'supportsCalculate',
 
-      
+
 ])
 
 params =  _setter([
@@ -258,6 +258,7 @@ params =  _setter([
     'objectIds',
     'outFields',
     'geometry',
+    'geometries',
     'units',
     'adds',
     'updates',
@@ -374,7 +375,7 @@ misc = _setter([
 ])
 
 editing = _setter([
-    { 
+    {
         'info': 'editingInfo' ,
         'trackingInfo': 'editorTrackingInfo',
         'changeTracking': 'ChangeTracking'
@@ -391,10 +392,10 @@ auth = _setter([
     'token',
     'referer',
     # spelling confusion alias
-    { 
+    {
         'referrer': 'referer',
-        'info': 'authInfo' 
-    }, 
+        'info': 'authInfo'
+    },
     'requestip',
     'tokenServicesUrl',
     'shortLivedTokenValidity'

@@ -318,11 +318,12 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
 
     # auto fill in geometry params if a restapi.Geometry object is passed in (derived from BaseGeometry)
     if params.get(enums.params.geometry) and isinstance(params.get(enums.featureSet.geometry), BaseGeometry):
-        geometry = params.get(enums.params.geometry)
-        if not enums.geometry.type in params and hasattr(geometry, enums.geometry.type):
-            params[enums.geometry.type] = getattr(geometry, enums.geometry.type)
-        if not enums.params.inSR in params:
-            params[enums.params.inSR] = geometry.getWKID() or geometry.getWKT()
+        if not params.get(enums.params.geometries):
+            geometry = params.get(enums.params.geometry)
+            if not enums.geometry.type in params and hasattr(geometry, enums.geometry.type):
+                params[enums.geometry.type] = getattr(geometry, enums.geometry.type)
+            if not enums.params.inSR in params:
+                params[enums.params.inSR] = geometry.getWKID() or geometry.getWKT()
 
     for pName, p in six.iteritems(params):
         if isinstance(p, dict) or hasattr(p, 'json'):
