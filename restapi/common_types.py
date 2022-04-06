@@ -239,9 +239,9 @@ def exportFeatureSet_arcpy(feature_set, out_fc, include_domains=False, qualified
                     tmp = feature_set.dump(tmp_json_file(), indent=None)
                     arcpy.conversion.JSONToFeatures(tmp, out_fc) #this tool is very buggy :(
 
-            except:
+            except Exception as e:
                 # manually add records with insert cursor
-                print('arcpy conversion failed, manually writing features...')
+                print('arcpy conversion failed, manually writing features...', e)
                 create_empty_schema(feature_set, out_fc)
                 append_feature_set(out_fc, feature_set, Cursor)
 
