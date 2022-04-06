@@ -22,6 +22,7 @@ from urllib3 import disable_warnings
 from . import projections
 from . import enums
 from .globals import RequestClient, DefaultRequestClient
+from uuid import UUID
 import warnings
 
 import six
@@ -1271,6 +1272,9 @@ class FeatureSet(FeatureSetBase):
             # print(self.json.keys())
             raise ValueError('Not a valid Feature Set!')
 
+        if self.features:
+            self.fixGUID()
+
     def extend(self, other):
         """Combines features from another FeatureSet with this one.
 
@@ -1302,6 +1306,27 @@ class FeatureSet(FeatureSetBase):
                 fsd[k] = v
         fsd[FEATURES] = []
         return FeatureSet(fsd)
+
+
+    def fixGUID(self):
+        """Adds curly braces to GlobalID&GUID Values"""
+        fix_fields = [fld.name for fld in self.fields if fld.type in [GUID_FIELD, GLOBALID]]
+        if not fix_fields:
+            return
+        for feat in self.features:
+            for field in fix_fields:
+                try:
+                    globalid = feat[ATTRIBUTES][field]
+                    if not globalid:
+                        continue
+                    globalid = UUID(feat[ATTRIBUTES][field])
+                    feat[ATTRIBUTES][field] = '{{{}}}'.format(globalid)
+                except:
+                    warnings.warn('Invalid GUID value in field {}: {} (OID:{}) )'.format(
+                        field,
+                        feat[ATTRIBUTES][field],
+                        feat[ATTRIBUTES].get(self.OIDFieldName)
+                    ))
 
 
 class FeatureCollection(FeatureSetBase):
