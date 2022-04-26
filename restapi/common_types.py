@@ -1723,15 +1723,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         else:
             server_response = {}
             if exceed_limit:
-
-                for i, where2 in enumerate(self.iter_queries(max_recs=records, **params)):
-                    sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
-                    params[WHERE] = sql
-                    resp = self.request(query_url, params)
+                for i, result in enumerate(self.query_in_chunks(records=records, **params)):
                     if i < 1:
-                        server_response = resp
+                        server_response = result
                     else:
-                        server_response[FEATURES].extend(resp[FEATURES])
+                        server_response[FEATURES].extend(result[FEATURES])
 
             else:
                 if isinstance(records, int) and str(self.currentVersion) >= '10.3':
@@ -1759,12 +1755,24 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         query_url = self.url + '/query'
 
-        params = self._validate_params(where=where, fields=fields, **kwargs)
-        for where2 in self.iter_queries(max_recs=records, **params):
-            sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
-            params[WHERE] = sql
-            # print('FIELDS: ', params.get('fields'))
-            yield self._format_server_response(self.request(query_url, params))
+        params = self._validate_params(where=where, fields=fields, **kwargs).copy()
+        if self.json.get(ADVANCED_QUERY_CAPABILITIES, {}).get(SUPPORTS_PAGINATION):
+            max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
+            params[RESULTOFFSET] = 0
+            params[RESULT_RECORD_COUNT] = max_recs
+            params[ORDER_BY_FIELDS] = '{} ASC'.format(self.OIDFieldName)
+            more = True
+            while more:
+                next_resp = self.request(query_url, params)
+                params[RESULTOFFSET] = params[RESULTOFFSET] + max_recs
+                more = next_resp.get(EXCEED_TRANSFER_LIMIT)
+                yield next_resp
+        else:    
+            for where2 in self.iter_queries(max_recs=records, **params):
+                sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
+                params[WHERE] = sql
+                # print('FIELDS: ', params.get('fields'))
+                yield self._format_server_response(self.request(query_url, params))
 
 
     def query_related_records(self, objectIds, relationshipId, outFields='*', definitionExpression=None, returnGeometry=None, outSR=None, **kwargs):

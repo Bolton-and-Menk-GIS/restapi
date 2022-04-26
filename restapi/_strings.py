@@ -227,6 +227,11 @@ ID = 'id'
 F = 'f' # format
 NULLABLE = 'nullable'
 EDITABLE = 'editable'
+ADVANCED_QUERY_CAPABILITIES = 'advancedQueryCapabilities'
+SUPPORTS_PAGINATION = 'supportsPagination'
+RESULTOFFSET = 'resultOffset'
+ORDER_BY_FIELDS = 'orderByFields'
+EXCEED_TRANSFER_LIMIT = 'exceededTransferLimit'
 
 # misc
 DETAILS = 'details'
