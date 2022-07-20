@@ -1196,7 +1196,9 @@ class FieldsMixin(object):
     @property
     def fieldLookup(self):
         """Convenience property for field lookups."""
-        return {f.name: f for f in self.fields}
+        d = {f.name: f for f in self.fields}
+        d.update({f.name.lower(): f for f in self.fields})
+        return d
 
     def list_fields(self):
         """Returns a list of field names."""
