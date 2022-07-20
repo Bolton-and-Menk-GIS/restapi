@@ -1552,18 +1552,20 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         if FIELDS in server_response:
             for i,fld in enumerate(server_response.fields):
                 server_response.fields[i] = flds.get(fld.name)
+            server_response.fields = [fld for fld in server_response.fields if fld]
 
         if self.type == FEATURE_LAYER:
             for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
                 if key not in server_response:
+                    print(key)
                     if key == SPATIAL_REFERENCE:
-                        server_response[key] = getattr(self, '_' + SPATIAL_REFERENCE)
+                        setattr(server_response, key, getattr(self, '_' + SPATIAL_REFERENCE))
                     else:
-                        server_response[key] = getattr(self, key)
+                        setattr(server_response, key, getattr(self, key))
 
         # elif self.type == TABLE:
         if FIELDS not in server_response:
-            server_response[FIELDS] = getattr(self, FIELDS)
+            setattr(server_response, FIELDS, getattr(self, FIELDS))
 
         if is_feature_set(server_response) or is_feature_collection(server_response):
             if records:
