@@ -6,6 +6,7 @@ import base64
 import shutil
 import contextlib
 from .rest_utils import *
+from .exceptions import AuthExceptionCodes
 from .decorator import decorator
 import sys
 import warnings
@@ -1330,11 +1331,14 @@ class ArcServer(RESTEndpoint):
         """Returns a list of all services."""
         return list(self.iter_services(filterer))
 
-    def iter_services(self, token='', filterer=True):
+    def iter_services(self, token='', ignore_folder_auth=True):
         """Returns a generator for all services
 
         Args:
             token: Optional token to handle security (only required if security is enabled).
+            ignore_folder_auth: Defaults to True. When True, authentication-related
+                errors will only trigger a warning. When False, those errors would
+                raise the appropriate exception. This applies to folders only.
         """
         self.service_cache = []
         for s in self.services:
@@ -1344,7 +1348,13 @@ class ArcServer(RESTEndpoint):
 
         for s in self.folders:
             new = '/'.join([self.url, s])
-            resp = self.request(new)
+            try:
+                resp = self.request(new)
+            except Exception as e:
+                if getattr(e, 'code', None) in AuthExceptionCodes and ignore_folder_auth:
+                    warnings.warn('Authentation Error for folder {}: {}{}'.format(s, os.linesep,  e))
+                else:
+                    raise
             for serv in resp[SERVICES]:
                 full_service_url =  '/'.join([self.url, serv[NAME], serv[TYPE]])
                 self.service_cache.append(full_service_url)
@@ -1387,7 +1397,7 @@ class ArcServer(RESTEndpoint):
             folder_objects.append(Folder(folder_url, self.token))
         return folder_objects
 
-    def walk(self):
+    def walk(self, ignore_folder_auth=True):
         """Method to walk through ArcGIS REST Services. ArcGIS Server only
         supports single folder heiarchy, meaning that there cannot be
         subdirectories within folders.
@@ -1400,6 +1410,11 @@ class ArcServer(RESTEndpoint):
         >>> for root, services in ags.walk():
         >>>     print('Folder: "{}"'.format(root))
         >>>     print('Services: {}\n'.format(services))
+
+        Args:
+            ignore_folder_auth: Defaults to True. When True, authentication-related
+                errors will only trigger a warning. When False, those errors would
+                raise the appropriate exception. This applies to folders only.
         """
         self.service_cache = []
         services = []
@@ -1412,7 +1427,13 @@ class ArcServer(RESTEndpoint):
 
         for f in self.folders:
             new = '/'.join([self.url, f])
-            endpt = self.request(new)
+            try:
+                endpt = self.request(new)
+            except Exception as e:
+                if getattr(e, 'code', None) in AuthExceptionCodes and ignore_folder_auth:
+                    warnings.warn('Authentation Error for folder {}: {}{}'.format(f, os.linesep,  e))
+                else:
+                    raise
             services = []
             for serv in endpt[SERVICES]:
                 qualified_service = '/'.join([serv[NAME], serv[TYPE]])

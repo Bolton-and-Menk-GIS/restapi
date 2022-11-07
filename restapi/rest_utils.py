@@ -17,6 +17,7 @@ import sys
 import munch
 from collections import namedtuple, OrderedDict
 from ._strings import *
+from .exceptions import RequestError
 from urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
 from urllib3 import disable_warnings
 from . import projections
@@ -1578,12 +1579,6 @@ class Token(JsonGetter):
     def __str__(self):
         """Returns token as string representation."""
         return self.token
-
-class RequestError(object):
-    """Class to handle restapi request errors."""
-    def __init__(self, err):
-        if 'error' in err:
-            raise RuntimeError(json.dumps(err, indent=2, ensure_ascii=False))
 
 class Folder(RESTEndpoint):
     """Class to handle ArcGIS REST Folder."""
