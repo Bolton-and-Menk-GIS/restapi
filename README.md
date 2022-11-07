@@ -1,25 +1,31 @@
 # restapi
+
 This is a Python API for working with ArcGIS REST API, ArcGIS Online, and Portal/ArcGIS Enterprise.  This package has been designed to work with [arcpy](https://pro.arcgis.com/en/pro-app/arcpy/get-started/what-is-arcpy-.htm) when available, or the included open source module [pyshp](https://pypi.org/project/pyshp/).  It will try to use arcpy if available for some data conversions, otherwise will use open source options. Also included is a subpackage for administering ArcGIS Server Sites.  This is updated often, so continue checking here for new functionality!
 
 ### Why would you use this package?
+
 Esri currently provides the [ArcGIS API for Python](https://developers.arcgis.com/python/) which provides complete bindings to the ArcGIS REST API.  This package has less coverage of the REST API, but has many convience functions not available in the ArcGIS API for Python and has a strong focus on downloading and querying data.  This package will also support older versions of Python (i.e. 2.7.x) whereas Esri's package only supports 3.x.
 
 ## Release History
+
 [Release History](ReleaseNotes.md)
 
 ## Installation
-`restapi` is supported on Python 2.7 and 3.x. It can be found on [Github](https://github.com/Bolton-and-Menk-GIS/restapi) and [PyPi](https://pypi.org/project/bmi-arcgis-restapi/). To install using pip: 
+
+`restapi` is supported on Python 2.7 and 3.x. It can be found on [Github](https://github.com/Bolton-and-Menk-GIS/restapi) and [PyPi](https://pypi.org/project/bmi-arcgis-restapi/). To install using pip:
 
 ````sh
 pip install bmi-arcgis-restapi
 ````
 
-After installation, it should be available to use in Python:  
+After installation, it should be available to use in Python:
+
 ````py
 import restapi
 ````
 
 ## A note about `arcpy`
+
 By default, `restapi` will import Esri's `arcpy` module if available. However, this module is not required to use this package.  `arcpy` is only used when available to write data to disk in esri specific formats (file geodatabase, etc) and working with `arcpy` Geometries.  When `arcpy` is not availalbe, the  [pyshp](https://pypi.org/project/pyshp/) module is used to write data (shapefile format only) and work with `shapefile.Shape` objects (geometry).  Also worth noting is that open source version is much faster than using `arcpy`.
 
 That being said, there may be times when you want to force `restapi` to use the open source version, even when you have access to `arcpy`.  Some example scenarios being when you don't need to write any data in an Esri specific format, you want the script to execute very fast, or you are working in an environment where `arcpy` may not play very nicely ([Flask](https://palletsprojects.com/p/flask/), [Django](https://www.djangoproject.com/), etc.).  To force `restapi` to use the open source version, you can simply create an environment variable called `RESTAPI_USE_ARCPY` and set it to `FALSE` or `0`.  This variable will be checked before attempting to import `arcpy`.
@@ -35,6 +41,7 @@ import restapi
 ```
 
 ## requests.exceptions.SSLError
+
 If you are seeing `requests.exceptions.SSLError` exceptions in `restapi` >= 2.0, this is probaly due to a change in handling servers without valid SSL certificates. Because many ArcGIS Server instances are accessed using SSL with a self-signed certificate, or through a MITM proxy like Fiddler, `restapi` < 2.0 defaulted to ignoring SSL errors by setting the `request` client's `verify` option to `False`. The new default behavior is to enable certificate verification. If you are receiving this error, you are probably accessing your server with a self-signed certificate, or through a MITM proxy. If that is not the case, you should investigate why you are seeing SSL errors, as there would likely be an issue with the server configuration, or some other security issues.
 
 To mimic the previous behavior in the newer versions of `restapi`, there are 2 options - disable certificate verification (less secure), or [build a custom CA bundle ](https://requests.readthedocs.io/en/stable/user/advanced/#ssl-cert-verification) which includes any self-signed certificates needed to access your server (more secure). Both of these can be done using the new [restapi.RequestClient()](#requestclient) feature.
@@ -54,19 +61,19 @@ client.session.verify = False
 # Use custom CA bundle
 client.session.verify = '/path/to/certfile'
 ````
+
 Since `verify = False` is a commonly used setting when dealing with ArcGIS Server instances, it's also possible to use an environment variable. The variable must be set before `restapi` is imported.
+
 ````py
 os.environ['RESTAPI_VERIFY_CERT'] = 'FALSE'
 import restapi
 ````
 
-
 ## Connecting to an ArcGIS Server
 
 > samples for this section can be found in the [connecting_to_arcgis_server.py](./restapi/samples/connecting_to_arcgis_server.py) file.
-> 
-One of the first things you might do is to connect to a services directory (or catalog):
 
+One of the first things you might do is to connect to a services directory (or catalog):
 
 ````py
 import restapi
@@ -77,7 +84,6 @@ rest_url = 'https://sampleserver6.arcgisonline.com/arcgis/rest/services'
 # connect to restapi.ArcServer instance 
 ags = restapi.ArcServer(rest_url)
 ````
-
 
 ```py
 >>> # get folder and service properties
@@ -148,12 +154,11 @@ repr: "<MapService: NYTimes_Covid19Cases_USCounties/MapServer>"
 url: https://sampleserver6.arcgisonline.com/arcgis/rest/services/NYTimes_Covid19Cases_USCounties/MapServer
 ```
 
-### Working with layers 
+### Working with layers
 
 > samples for this section can be found in the [working_with_layers.py](./restapi/samples/working_with_layers.py) file.
 
 You can connect to `MapServiceLayer`s or `FeatureLayer`s directly by passing the url, or by accessing from the parent `FeatureService` or `MapService`.
-
 
 also query the layer and get back arcpy.da Cursor like access
 
@@ -176,6 +181,7 @@ print(featureSet[0])
 ```
 
 #### exceeding the `maxRecordCount`
+
 In many cases, you may run into issues due to the `maxRecordCount` set for a service, which by default is `1000` features.  This limit can be exceeded by using the `exceed_limit` parameter.  If `exceed_limit` is set to `True`, the `query_in_chunks` method will be called internally to keep fetching until all queried features are returned.
 
 ```py
@@ -223,6 +229,7 @@ for row in cursor:
 ````
 
 check outputs:
+
 ```py
 ('Anaheim', 328014, <restapi.shapefile.Shape object at 0x000002B1DE232400>)
 ('Bakersfield', 247057, <restapi.shapefile.Shape object at 0x000002B1DE232470>)
@@ -251,8 +258,9 @@ featureSet = cities.query(where=where)
 cursor = restapi.Cursor(featureSet, ['areaname', 'pop2000', 'SHAPE@'])
 ```
 
-> note: Both the `MapServiceLayer` and `FeatureLayer` also have a `searchCursor()` convenience method, which will allow you to use the same functionality as shown above but without passing in the layer itself: 
+> note: Both the `MapServiceLayer` and `FeatureLayer` also have a `searchCursor()` convenience method, which will allow you to use the same functionality as shown above but without passing in the layer itself:
 > `rows = cities.searchCursor(['areaname', 'pop2000', 'SHAPE@'])`
+
 #### exporting features from a layer
 
 Data can also be easily exported from a `FeatureLayer` or `MapServicelayer`.  This can be done by exporting a feature set directly or from the layer itself:
@@ -273,6 +281,7 @@ cities.export_layer(shp, where=where)
 ```
 
 You can also export a feature set directly if you already have one loaded:
+
 ```py
 restapi.exportFeatureSet(featureSet, shp)
 ```
@@ -294,9 +303,11 @@ cities.export_layer(shp, where=where)
 ```
 
 ### selecting features by geometry
+
 Both the `MapServiceLayer` and `FeatureLayer` support arcgis spatial selections using [arcgis geometry](https://developers.arcgis.com/documentation/common-data-types/geometry-objects.htm) objects. The `select_layer_by_location` method will return a `FeatureSet` or `FeatureCollection`, while the `clip` method will actually export the spatial selection to a shapffile or Feature Class (latter only available with `arcpy`).
 
 #### the `geometry-helper` application
+
 This package now includes a [geometry-helper](geometry-helper/README.md) application that can be used to quickly create geometries and copy the geometry in either `esri-json` or `geojson` format to form geometry necessary to make queries:
 
 ![geometry-helper app](docs/images/geometry-helper.png)
@@ -308,6 +319,7 @@ restapi.open_geometry_helper()
 ```
 
 #### select by location
+
 to select a layer by location, first create a geometry object as json (can be esri or geojson format) and make the selection:
 
 ```py
@@ -360,6 +372,7 @@ universities.clip(geometry, universities_shp)
 ```
 
 check outputs:
+
 ```py
 universities:  <FeatureLayer: "CollegesUniversities" (id: 0)>
 total records: 50
@@ -373,10 +386,10 @@ Fetched all records
 
 > samples for this section can be found in the [feature_layer_editing.py](./restapi/samples/feature_layer_editing.py) file.
 
-
 This package also includes comprehensive support for working with [FeatureLayers](https://enterprise.arcgis.com/en/portal/latest/use/feature-layers.htm).  These are editable layers hosted by an ArcGIS Server, Portal, or ArcGIS Online.  A `FeatureLayer` is an extension of the `MapServiceLayer` that supports editing options.
 
 #### add features using `FeatureLayer.addFeatures()`
+
 ```py
 # connect to esri's Charlotte Hazards Sample Feature Layer for incidents
 url = 'https://services.arcgis.com/V6ZHFr6zdgNZuVG0/ArcGIS/rest/services/Hazards_Uptown_Charlotte/FeatureServer/0'
@@ -400,7 +413,9 @@ feature = {
 adds = hazards.addFeatures([ feature ])
 print(adds)
 ```
+
 check outputs:
+
 ```py
 Added 1 feature(s)
 {
@@ -416,6 +431,7 @@ Added 1 feature(s)
 ```
 
 #### add an attachment
+
 ```py
 # add attachment to new feature using the OBJECTID of the new feature
 oid = adds.addResults[0].objectId
@@ -427,7 +443,9 @@ print(attRes)
 attachments = hazards.attachments(oid)
 print(attachments)
 ```
+
 check outputs:
+
 ```py
 Added attachment '211' for feature objectId
 {
@@ -440,7 +458,8 @@ Added attachment '211' for feature objectId
 [<Attachment ID: 211 (geometry-helper.png)>]
 ```
 
-#### update features 
+#### update features
+
 ```py
 # update the feature we just added, payload only has to include OBJECTID and any fields to update
 updatePayload = [
@@ -481,6 +500,7 @@ print(deletes)
 ```
 
 check outputs:
+
 ```py
 Deleted 1 feature(s)
 {
@@ -514,7 +534,8 @@ New records can be added using an `InsertCursor`.  This can be instantiated usin
 
 Added 5 feature(s)
 ```
-Any time an insert or update cursor will save changes, it will print a short message showing how many features were affected.  You can always get at the raw edit information from the `FeatureLayer` by calling the `editResults` property.  This will be an array that stores the results of every `applyEdits` operation, so the length will reflect how many times edits have been saved. 
+
+Any time an insert or update cursor will save changes, it will print a short message showing how many features were affected.  You can always get at the raw edit information from the `FeatureLayer` by calling the `editResults` property.  This will be an array that stores the results of every `applyEdits` operation, so the length will reflect how many times edits have been saved.
 
 ```py
 >>> # we can always view the results by calling FeatureLayer.editResults which stores
@@ -560,7 +581,6 @@ Any time an insert or update cursor will save changes, it will print a short mes
 
 > note: when using a `with` statement for the `InsertCursor` and `UpdateCursor` it will automatically call the `applyEdits()` method on `__exit__`, which is critical to submitting the new, deleted, or updated features to the server.  If not using a `with` statement, you will need to call `applyEdits()` manually after changes have been made.
 
-
 #### updating features with an `UpdateCursor`
 
 records can be updated or deleted with an `updateCursor` and a where clause.  Note that the `OBJECTID` field must be included in the query to indicate which records will be updated.  The `OID@` field token can be used to retreive the `objectIdFieldName`:
@@ -580,9 +600,9 @@ records can be updated or deleted with an `updateCursor` and a where clause.  No
                 # delete odd OBJECTID rows
                 print('deleting row with odd objectid: ', row[2])
                 rows.deleteRow(row)
-          
+      
 Updated 2 feature(s)
-Deleted 3 feature(s)       
+Deleted 3 feature(s)   
 
 >>> # now delete the rest of the records we added
 >>> whereClause = "Description like 'restapi%'"
@@ -687,7 +707,7 @@ gp_res = gp.run(Input_Location=str(point), Drive_Times = '1 2 3', inSR = 102100)
 # can test if there are results by __nonzero__()
 if gp_res:
     result = gp_res.results[0]
-    
+  
     # this returned a GPFeatureRecordSetLayer as an outputParameter, so we can export this to polygons
     print('\nOutput Result: "{}", data type: {}\n'.format(result.paramName, result.dataType))
 
@@ -703,6 +723,7 @@ restapi will try to use arcpy first if you have it, otherwise will defer to open
 support the reading of shapefiles to return the first feature back as a restapi.Geometry object
 
 It also supports arcpy Geometries and shapefile.Shape() objects
+
 ````py
 >>> shp = r'C:\TEMP\Polygons.shp' # a shapefile on disk somewhere
 >>> geom = restapi.Geometry(shp)
@@ -714,7 +735,7 @@ Token Based Security
 --------------------
 
 restapi also supports secured services.  This is also session based, so if you sign in once to an
-ArcGIS Server Resource (on the same ArcGIS Site), the token will automatically persist via the 
+ArcGIS Server Resource (on the same ArcGIS Site), the token will automatically persist via the
 IdentityManager().
 
 There are 3 ways to authticate:
@@ -769,8 +790,8 @@ restapi also contains an administrative subpackage (warning: most functionality 
 from restapi import admin
 ```
 
-
 ### Connecting to a Portal
+
 ```py
 url = 'https://domain.gis.com/portal/home'
 portal = admin.Portal(url, 'username', 'password')
@@ -817,6 +838,7 @@ print('\n' * 3)
 for service in arcserver.iter_services():
     print(service.serviceName, service.configuredState)
 ```
+
 Security
 --------
 
@@ -856,7 +878,7 @@ arcserver.startServices(folderName='SomeFolder') # this can take a few minutes
 # look thru folder, services should be started
 for service in arcserver.folder('SomeFolder').iter_services():
     print(service.serviceName, service.configuredState)
-    
+  
 # to do this from a folder, simply get a folder object back
 folder = arcserver.folder('SomeFolder')
 folder.stopServices()
@@ -1018,7 +1040,7 @@ print(len(us)
 # iterate through first 10 users
 for user in us.searchUsers(maxCount=10):
     print(user)
-    
+  
 # add new user
 us.addUser('your-domain\\someuser', 'password')
 
@@ -1065,7 +1087,6 @@ The printing of these messages can be shut off by changing the global "VERBOSE" 
 admin.VERBOSE = False 
 ```
 
-
 ## Advanced Usage
 
 ### RequestClient
@@ -1106,3 +1127,22 @@ restapi.requestClient.headers['Another-Header'] = 'Header is here'
 ```
 
 Any session objects which extend `requests.Session()` should be supported, for example, [pypac.PACSession()](https://pypi.org/project/pypac/).
+
+## Exceptions
+
+The module `restapi.exceptions` contains the following custom exceptions, which correspond to the ESRI REST error returns codes specified in the [ESRI documentation](https://developers.arcgis.com/net/reference/platform-error-codes/#http-network-and-rest-errors). Other, previously unknown returns codes will raise the generic `RestAPIException`:
+
+
+
+| code | Exception Class | 
+| ------ | ------ |
+| 400 | RestAPIUnableToCompleteOperationException |
+| 401 | RestAPIAuthorizationRequiredException |
+| 403 | RestAPITokenValidAccessDeniedException |
+| 404 | RestAPINotFoundException |
+| 413 | RestAPITooLargeException |
+| 498 | RestAPIInvalidTokenException |
+| 499 | RestAPITokenRequiredException |
+| 500 | RestAPIErrorPerforningOperationException |
+| 501 | RestAPINotImplementedException |
+| 504 | RestAPIGatewayTimeoutException |
