@@ -7,7 +7,8 @@ import fnmatch
 import datetime
 import json
 from collections import namedtuple
-from ..rest_utils import Token, mil_to_date, date_to_mil, RequestError, IdentityManager, JsonGetter, \
+from ..exceptions import RequestError
+from ..rest_utils import Token, mil_to_date, date_to_mil, IdentityManager, JsonGetter, \
     generate_token, ID_MANAGER, do_request, SpatialReferenceMixin, parse_url, get_portal_base, requestClient, \
     get_request_method, get_request_client, TokenExpired
 from ..decorator import decorator
