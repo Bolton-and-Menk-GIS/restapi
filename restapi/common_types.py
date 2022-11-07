@@ -2109,7 +2109,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                         doesExceed = True
                         out_fc = r'in_memory\restapi_chunk_{}'.format(os.path.splitext(os.path.basename(orig))[0])
                 for fs in self.query_in_chunks(where, fields, f=DEFAULT_REQUEST_FORMAT, **kwargs):
-                    exportFeatureSet(fs, out_fc, include_domains=False)
+                    exportFeatureSet(fs, out_fc, include_domains=False, qualified_fieldnames=qualified_fieldnames)
 
                 if not fs:
                     print('No records to fetch')
@@ -2140,7 +2140,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     if field:
                         field.domain = f_dict[field.name].get(DOMAIN)
 
-                return exportFeatureSet(fs, out_fc, include_domains)
+                return exportFeatureSet(fs, out_fc, include_domains, qualified_fieldnames=qualified_fieldnames)
 
 ##            if has_arcpy and all([include_attachments, self.hasAttachments, fs.OIDFieldName])::
 ##                export_attachments()

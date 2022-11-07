@@ -1276,7 +1276,9 @@ class FeatureSet(FeatureSetBase):
             raise ValueError('Not a valid Feature Set!')
 
         if self.features:
+            self.fixFieldCase()
             self.fixGUID()
+
 
     def extend(self, other):
         """Combines features from another FeatureSet with this one.
@@ -1311,6 +1313,19 @@ class FeatureSet(FeatureSetBase):
         return FeatureSet(fsd)
 
 
+    def fixFieldCase(self):
+        """some servers can return field names in different case
+        in the service definition and the query response. need to handle
+        those fields here.
+        possibley related to https://support.esri.com/en/bugs/nimbus/QlVHLTAwMDA5OTgyOQ==
+        example layer: https://utility.arcgis.com/usrsvcs/servers/94ae6a63554048f1a0ae99174eaab529/rest/services/Minnetonka/MI_City_Zoning/MapServer/5
+        """
+        fieldmatch = {k.name.lower(): k.name for k in self.fields}
+        for feat in self.features:
+            for field in list(feat.attributes.keys()):
+                feat.attributes[fieldmatch[field.lower()]] = feat.attributes.pop(field)
+
+
     def fixGUID(self):
         """Adds curly braces to GlobalID&GUID Values"""
         fix_fields = [fld.name for fld in self.fields if fld.type in [GUID_FIELD, GLOBALID]]
@@ -1319,15 +1334,21 @@ class FeatureSet(FeatureSetBase):
         for feat in self.features:
             for field in fix_fields:
                 try:
-                    globalid = feat[ATTRIBUTES][field]
+                    globalid = feat[ATTRIBUTES].get(field)
                     if not globalid:
+                        warnings.warn('Invalid GUID value in field {}: {} (OID:{}) )'.format(
+                        field,
+                        feat[ATTRIBUTES].get(field),
+                        feat[ATTRIBUTES].get(self.OIDFieldName)
+                    ))
+                        print(feat)
                         continue
                     globalid = UUID(feat[ATTRIBUTES][field])
                     feat[ATTRIBUTES][field] = '{{{}}}'.format(globalid)
                 except:
                     warnings.warn('Invalid GUID value in field {}: {} (OID:{}) )'.format(
                         field,
-                        feat[ATTRIBUTES][field],
+                        feat[ATTRIBUTES].get(field),
                         feat[ATTRIBUTES].get(self.OIDFieldName)
                     ))
 
