@@ -2150,7 +2150,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             print('Layer: "{}" is not a Feature Layer!'.format(self.name))
 
 
-    def clip(self, poly, output, fields='*', outSR=None, where='', envelope=False, exceed_limit=True, **kwargs):
+    def clip(self, poly, output, fields='*', outSR=None, where='', envelope=False, 
+             include_domains=False, qualified_fieldnames=False, **kwargs):
         """Method for spatial Query, exports geometry that intersect polygon or
                 envelope features.
 
@@ -2166,6 +2167,14 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 box will be used. This option can be used if the feature has
                 many vertices or to check against the full extent of the feature
                 class. Defaults to False.
+            include_domains: Optional boolean, if True, will manually create the
+                feature class and add domains to GDB if output is in a geodatabase.
+                Defaults to False.
+            qualified_fieldnames: Optional boolean, default is False, in situations
+                where there are table joins, there are qualified table names such as
+                ["table1.Field_from_tab1", "table2.Field_from_tab2"]. By setting
+                this to False, exported fields would be:
+                ["Field_from_tab1", "Field_from_tab2"].
         """
 
         in_geom = Geometry(poly)
@@ -2467,7 +2476,9 @@ class MapService(BaseService):
         lyr = self.layer(layer_name)
         lyr.export_kmz(fields=fields, where=where, kmz=out_kmz, **kwargs)
 
-    def clip(self, layer_name, poly, output, fields='*', outSR='', where='', envelope=False):
+
+    def clip(self, layer_name, poly, output, fields='*', outSR='', where='', envelope=False, 
+             include_domains=False, qualified_fieldnames=False, **kwargs):
         """Method for spatial Query, exports geometry that intersect polygon or
                 envelope features.
 
@@ -2484,13 +2495,21 @@ class MapService(BaseService):
                 box will be used.  This option can be used if the feature has
                 many vertices or to check against the full extent of the feature
                 class.
-
+            include_domains: Optional boolean, if True, will manually create the
+                feature class and add domains to GDB if output is in a geodatabase.
+                Defaults to False.
+            qualified_fieldnames: Optional boolean, default is False, in situations
+                where there are table joins, there are qualified table names such as
+                ["table1.Field_from_tab1", "table2.Field_from_tab2"]. By setting
+                this to False, exported fields would be:
+                ["Field_from_tab1", "Field_from_tab2"].
         Returns:
             A clip of the layer.
         """
 
         lyr = self.layer(layer_name)
-        return lyr.clip(poly, output, fields, outSR, where, envelope)
+        return lyr.clip(poly, output, fields, outSR, where, envelope, include_domains=include_domains, 
+                        qualified_fieldnames=qualified_fieldnames, **kwargs)
 
     def __iter__(self):
         for lyr in self.layers:
