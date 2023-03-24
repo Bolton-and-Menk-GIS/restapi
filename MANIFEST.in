@@ -3,4 +3,4 @@ include restapi/shapefile/*.json
 include restapi/test/testData/*
 include restapi/admin/samples/*.py
 include restapi/projections/bin/*
-include restapi/geometry-helper/*
+recursive-include include restapi/geometry-helper/ *
