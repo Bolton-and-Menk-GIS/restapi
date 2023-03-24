@@ -14,7 +14,7 @@
 importScripts("https://storage.googleapis.com/workbox-cdn/releases/4.3.1/workbox-sw.js");
 
 importScripts(
-  "precache-manifest.aa24377ed2df2d99e76927b614ef8dee.js"
+  "precache-manifest.b62ded22fc8a9700861c815d7e20acbd.js"
 );
 
 workbox.core.setCacheNameDetails({prefix: "geometry-helper"});
