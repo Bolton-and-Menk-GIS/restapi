@@ -1,7 +1,9 @@
 import Vue from 'vue'
 import App from './App.vue'
 import './registerServiceWorker'
+//@ts-ignore
 import hljs from 'highlight.js/lib/core'
+//@ts-ignore
 import json from 'highlight.js/lib/languages/json'
 import { loadScript, loadCss } from 'esri-loader'
 import VueClipboard from 'vue-clipboard2'

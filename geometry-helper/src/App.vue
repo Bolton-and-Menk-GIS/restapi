@@ -6,7 +6,7 @@
 
 <script lang="ts">
 import { Component, Vue } from 'vue-property-decorator'
-import MapView from '@/views/MapView'
+import MapView from '@/views/MapView.vue'
 
 @Component({
   components: {

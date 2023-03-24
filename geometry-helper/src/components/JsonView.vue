@@ -16,8 +16,10 @@
           :aria-describedby="ariaDescribedby"
           name="radio-options"
         ></b-form-radio-group>
-    </b-form-group>
+
+     </b-form-group>
     </div>
+
     <b-tabs class="json-container" v-model="tabIndex">
       <b-tab title="esri-json" active>
         <highlightjs v-if="geometry" language="json" :code="jsonify(geom)" style="height: 575px;"></highlightjs>
@@ -27,12 +29,12 @@
         <highlightjs v-if="geometry" language="json" :code="jsonify(geojson)" style="height: 575px;"></highlightjs>
       </b-tab>
     </b-tabs>
-    </div>
   </div>
 </template>
 
 <script lang="ts">
   import { Component, Prop, Emit, Vue } from 'vue-property-decorator'
+  //@ts-ignore
   import { arcgisToGeoJSON } from '@esri/arcgis-to-geojson-utils'
   import 'highlight.js/styles/monokai-sublime.css'
 

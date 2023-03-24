@@ -36,6 +36,7 @@
     webMercatorUtils!: __esri.webMercatorUtils
 
     async mounted(){
+      //@ts-ignore
       window.mp = this
       // load modules
       const [ Map, MapView, Sketch, Expand, Search, BasemapToggle, GraphicsLayer, webMercatorUtils ] = await loadModules([
