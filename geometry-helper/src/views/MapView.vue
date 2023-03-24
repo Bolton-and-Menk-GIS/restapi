@@ -6,6 +6,7 @@
       <json-view 
         v-if="geometryAsJson"
         :geometry="geometryAsJson"
+        :geometryWGS84="geometryWGS84"
         :geometryType="geometryType"
       ></json-view>
     </div>
@@ -30,20 +31,25 @@
     sketch?: __esri.Sketch = undefined
     expand?: __esri.Expand = undefined
     geometryAsJson: string = ''
+    geometryWGS84: string = ''
     geometryType: GeometryTypes | undefined
+    webMercatorUtils!: __esri.webMercatorUtils
 
     async mounted(){
       window.mp = this
       // load modules
-      const [ Map, MapView, Sketch, Expand, Search, BasemapToggle, GraphicsLayer ] = await loadModules([
+      const [ Map, MapView, Sketch, Expand, Search, BasemapToggle, GraphicsLayer, webMercatorUtils ] = await loadModules([
         "esri/Map",
         "esri/views/MapView",
         "esri/widgets/Sketch",
         "esri/widgets/Expand",
         "esri/widgets/Search",
         "esri/widgets/BasemapToggle",
-        "esri/layers/GraphicsLayer"
+        "esri/layers/GraphicsLayer",
+        "esri/geometry/support/webMercatorUtils"
       ])
+
+      this.webMercatorUtils = webMercatorUtils
 
       const layer = new GraphicsLayer()
 
@@ -142,8 +148,10 @@
       console.log('graphic is? ', graphic)
       if (graphic){
         this.geometryAsJson = graphic.geometry.toJSON()
+        this.geometryWGS84 = this.webMercatorUtils.webMercatorToGeographic(graphic.geometry).toJSON()
         this.geometryType = graphic.geometry.type
       }
+    
       this.expand!.expand()
     }
 

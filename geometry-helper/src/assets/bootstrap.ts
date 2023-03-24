@@ -5,13 +5,17 @@ import Vue from 'vue'
 import { 
   PopoverPlugin,
   TabsPlugin,
-  ToastPlugin 
+  ToastPlugin,
+  FormGroupPlugin,
+  FormRadioPlugin 
 } from 'bootstrap-vue'
 
 const plugins = [
   PopoverPlugin,
   TabsPlugin,
-  ToastPlugin
+  ToastPlugin,
+  FormGroupPlugin,
+  FormRadioPlugin
 ]
 
 for (const plugin of plugins){

@@ -6,9 +6,21 @@
         <font-awesome-icon :icon="['fas', 'clipboard-check']"></font-awesome-icon>
       </div>
     </div>
+    <hr>
+    <div class="geometry-projection">
+      <b-form-group v-slot="{ ariaDescribedby }">
+        <b-form-radio-group
+          id="radio-group-1"
+          v-model="projection"
+          :options="projectionOptions"
+          :aria-describedby="ariaDescribedby"
+          name="radio-options"
+        ></b-form-radio-group>
+    </b-form-group>
+    </div>
     <b-tabs class="json-container" v-model="tabIndex">
       <b-tab title="esri-json" active>
-        <highlightjs v-if="geometry" language="json" :code="jsonify(geometry)" style="height: 575px;"></highlightjs>
+        <highlightjs v-if="geometry" language="json" :code="jsonify(geom)" style="height: 575px;"></highlightjs>
       </b-tab>
 
       <b-tab title="geojson">
@@ -32,20 +44,30 @@
   export default class JsonView extends Vue {
 
     @Prop({ required: true }) geometry: any
-    @Prop({ required: true }) geometryType: GeometryTypes
-
+    @Prop({ required: true }) geometryWGS84: any
+    @Prop({ required: true }) geometryType!: GeometryTypes
+    
     tabIndex = 0
+    projection = 'wgs-1984'
+    projectionOptions = [
+      { text: 'WGS 1984', value: 'wgs-1984' },
+      { text: 'Web Mercator', value: 'web-mercator' }
+    ]
 
     get jsonFormat(){
       return this.tabIndex === 0 ? 'esri-json': 'geojson'
     }
 
+   get geom(){
+    return this.projection === 'wgs-1984' ? this.geometryWGS84 : this.geometry
+   }
+
     get geojson(){
-      return this.geometry ? arcgisToGeoJSON(this.geometry): {}
+      return this.geom ? arcgisToGeoJSON(this.geom): {}
     }
 
     copyJson(){
-      const text = JSON.stringify(this.jsonFormat === 'esri-json' ? this.geometry: this.geojson, null, 2)
+      const text = JSON.stringify(this.jsonFormat === 'esri-json' ? this.geom: this.geojson, null, 2)
       this.$copyText(text).then(()=> {
         this.$bvToast.toast(`Copied Geometry in "${this.jsonFormat}" format to Clipboard!`, {
           variant: 'success',
