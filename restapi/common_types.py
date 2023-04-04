@@ -687,7 +687,7 @@ class InsertCursor(object):
         except ValueError:
             try:
                 self.geometry_index = self.fields.index(layer.shapeFieldName)
-            except ValueError:
+            except (ValueError, AttributeError):
                 self.geometry_index = None
 
     def getEditableTemplate(self, template_name=None):
