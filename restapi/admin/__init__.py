@@ -6,6 +6,7 @@ import os
 import fnmatch
 import datetime
 import json
+import time
 from collections import namedtuple
 from ..exceptions import RequestError
 from ..rest_utils import Token, mil_to_date, date_to_mil, IdentityManager, JsonGetter, \
@@ -25,6 +26,7 @@ from six.moves import urllib
 BASE_PATTERN = '*:*/arcgis/*admin*'
 AGOL_ADMIN_BASE_PATTERN = 'http*://*/rest/admin/services*'
 VERBOSE = True
+ASYNC_TIMEOUT = 300
 
 # VERBOSE is set to true by default, this will echo the status of all operations
 #  i.e. reporting an administrative change was successful.  To turn this off, simply
@@ -3233,8 +3235,32 @@ class AGOLFeatureService(AGOLAdminInitializer):
             in_json[EDITING_INFO][LAST_EDIT_DATE] = ''
         return in_json
 
+    def waitForAsync(self, jobUrl):
+        """helper to wait for an async operation to complete.
+
+        Args:
+            jobUrl (str): the job status URL returned by the async request
+
+        Raises:
+            RequestError: error response from job status endpoint
+            RequestError: Async operation took too long
+
+        """
+        count = 0
+        response = self.request(jobUrl)
+        while response.status != 'Completed':
+            response = self.request(jobUrl)
+            if response.status == 'Failed':
+                raise RequestError({'error': response})
+            if count >= ASYNC_TIMEOUT:
+                raise RequestError({'error': 'Async operation took too long'})
+            count += 1
+            time.sleep(1)
+        return response
+
+
     @passthrough
-    def addToDefinition(self, addToDefinition, runAsync=FALSE):
+    def addToDefinition(self, addToDefinition, runAsync=FALSE, wait=True):
         """Adds a definition property in a feature layer.
 
         Args:
@@ -3242,6 +3268,8 @@ class AGOLFeatureService(AGOLAdminInitializer):
                 for a feature service layer.
             runAsync: Optional boolean to run this process asynchronously.
                 Default is FALSE.
+            wait: Optional boolean, honored only when runAsync=true. Determines whether to initiate the
+                async process and wait for it to finish, or return immediately.
         """
 
         self.clearLastEditedDate(addToDefinition)
@@ -3250,16 +3278,18 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             ADD_TO_DEFINITION: addToDefinition,
-            # ASYNC: runAsync
+            ASYNC: runAsync
         }
 
         result = self.request(url, params, method='post')
+        if runAsync and wait:
+            result = self.waitForAsync(result.statusURL)
         self.refresh()
         self.reload()
         return result
 
     @passthrough
-    def deleteFromDefinition(self, deleteFromDefinition, runAsync=FALSE):
+    def deleteFromDefinition(self, deleteFromDefinition, runAsync=FALSE, wait=True):
         """Deletes a definition property in a feature layer.
 
         Args:
@@ -3267,6 +3297,8 @@ class AGOLFeatureService(AGOLAdminInitializer):
                 for a feature service layer.
             runAsync: Optional boolean to run this process asynchronously.
                 Defaults to FALSE.
+            wait: Optional boolean, honored only when runAsync=true. Determines whether to initiate the
+                async process and wait for it to finish, or return immediately.
         """
 
         self.clearLastEditedDate(deleteFromDefinition)
@@ -3274,16 +3306,17 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             DELETE_FROM_DEFINITION: deleteFromDefinition,
-            # ASYNC: runAsync
+            ASYNC: runAsync
         }
-
         result = self.request(url, params, method='post')
+        if runAsync and wait:
+            result = self.waitForAsync(result.statusURL)
         self.refresh()
         self.reload()
         return result
 
     @passthrough
-    def updateDefinition(self, updateDefinition, runAsync=FALSE):
+    def updateDefinition(self, updateDefinition, runAsync=FALSE, wait=True):
         """Updates a definition property in a feature layer.
 
         Args:
@@ -3291,6 +3324,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
                 for a feature service layer.
             runAsync: Optional boolean to run this process asynchronously.
                 Default is FALSE.
+
         """
 
         self.clearLastEditedDate(updateDefinition)
@@ -3298,10 +3332,12 @@ class AGOLFeatureService(AGOLAdminInitializer):
         params = {
             F: JSON,
             UPDATE_DEFINITION: updateDefinition,
-            # ASYNC: runAsync
+            ASYNC: runAsync
         }
 
         result = self.request(url, params, method='post')
+        if runAsync and wait:
+            result = self.waitForAsync(result.statusURL)
         self.refresh()
         self.reload()
         return result
@@ -3472,7 +3508,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
         self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias or name, **kwargs)]})
 
     @passthrough
-    def truncate(self, attachmentOnly=TRUE, runAsync=FALSE):
+    def truncate(self, attachmentOnly=TRUE, runAsync=FALSE, wait=True):
         """Truncates the feature layer by removing all features.
 
         Args:
@@ -3480,6 +3516,8 @@ class AGOLFeatureLayer(AGOLFeatureService):
                 Defaults to TRUE.
             runAsync: Optional boolean to run this process asynchronously.
                 Defaults to FALSE.
+            wait: Optional boolean, honored only when runAsync=true. Determines whether to initiate the
+                async process and wait for it to finish, or return immediately.
         """
 
         if not self.json.get(SUPPORTS_TRUNCATE, False):
@@ -3491,7 +3529,11 @@ class AGOLFeatureLayer(AGOLFeatureService):
             ASYNC: runAsync
         }
 
-        return self.request(url, params, method=POST)
+        result = self.request(url, params, method=POST)
+        if runAsync and wait:
+            return self.waitForAsync(result.statusURL)
+        return result
+
 
     def __repr__(self):
         return '<{}: "{}">'.format(self.__class__.__name__, self.name)
