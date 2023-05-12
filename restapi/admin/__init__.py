@@ -3534,6 +3534,13 @@ class AGOLFeatureLayer(AGOLFeatureService):
             return self.waitForAsync(result.statusURL)
         return result
 
+    @passthrough
+    def enableAttachments(self):
+        """Enable attachment support for feature layer.
+
+        """
+        return self.updateDefinition({"hasAttachments":True})
+
 
     def __repr__(self):
         return '<{}: "{}">'.format(self.__class__.__name__, self.name)
