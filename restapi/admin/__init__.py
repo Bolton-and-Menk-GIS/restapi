@@ -3260,7 +3260,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
 
 
     @passthrough
-    def addToDefinition(self, addToDefinition, runAsync=FALSE, wait=True):
+    def addToDefinition(self, addToDefinition, runAsync=False, wait=True):
         """Adds a definition property in a feature layer.
 
         Args:
@@ -3289,7 +3289,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         return result
 
     @passthrough
-    def deleteFromDefinition(self, deleteFromDefinition, runAsync=FALSE, wait=True):
+    def deleteFromDefinition(self, deleteFromDefinition, runAsync=False, wait=True):
         """Deletes a definition property in a feature layer.
 
         Args:
@@ -3316,7 +3316,7 @@ class AGOLFeatureService(AGOLAdminInitializer):
         return result
 
     @passthrough
-    def updateDefinition(self, updateDefinition, runAsync=FALSE, wait=True):
+    def updateDefinition(self, updateDefinition, runAsync=False, wait=True):
         """Updates a definition property in a feature layer.
 
         Args:
@@ -3508,7 +3508,7 @@ class AGOLFeatureLayer(AGOLFeatureService):
         self.addToDefinition({FIELDS: [self.createNewFieldDefinition(name, field_type, alias or name, **kwargs)]})
 
     @passthrough
-    def truncate(self, attachmentOnly=TRUE, runAsync=FALSE, wait=True):
+    def truncate(self, attachmentOnly=TRUE, runAsync=False, wait=True):
         """Truncates the feature layer by removing all features.
 
         Args:
