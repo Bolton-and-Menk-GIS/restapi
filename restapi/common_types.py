@@ -1779,13 +1779,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         params = self._validate_params(where=where, fields=fields, **kwargs).copy()
         if self.json.get(ADVANCED_QUERY_CAPABILITIES, {}).get(SUPPORTS_PAGINATION):
             max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
-            params[RESULTOFFSET] = 0
-            params[RESULT_RECORD_COUNT] = max_recs
             params[ORDER_BY_FIELDS] = '{} ASC'.format(self.OIDFieldName)
             more = True
             while more:
                 next_resp = self.request(query_url, params)
-                params[RESULTOFFSET] = params[RESULTOFFSET] + max_recs
+                params[RESULTOFFSET] = params.get(RESULTOFFSET, max_recs) + max_recs
+                params[RESULT_RECORD_COUNT] = max_recs
                 more = next_resp.get(EXCEED_TRANSFER_LIMIT)
                 yield next_resp
         else:    
