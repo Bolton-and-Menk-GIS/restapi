@@ -605,12 +605,12 @@ def generate_token(url, user, pw, expiration=60, client=None, **kwargs):
     ID_MANAGER.flush()
     suffix = '/rest/info'
     isAdmin = False
-    if '/admin/' in url:
+    if '/admin' in url:
         isAdmin = True
-        if '/rest/admin/' in url:
+        if '/rest/admin' in url:
             infoUrl = url.split('/rest/')[0] + suffix
         else:
-            infoUrl = url.split('/admin/')[0] + suffix
+            infoUrl = url.split('/admin')[0] + suffix
     else:
         infoUrl =  url.split('/rest')[0] + suffix
     # print('infoUrl is: "{}"'.format(infoUrl))
@@ -909,7 +909,7 @@ class RESTEndpoint(JsonGetter):
             self.url = 'http://' + url.rstrip('/') if not url.startswith('http') else url.rstrip('/')
         if not fnmatch.fnmatch(self.url, BASE_PATTERN):
             if not fnmatch.fnmatch(self.url, PORTAL_BASE_PATTERN):
-                _plus_services = self.url + '/arcgis/rest/services'
+                _plus_services = self.url + '/rest/services'
                 if fnmatch.fnmatch(_plus_services, BASE_PATTERN):
                     self.url = _plus_services
                 else:
