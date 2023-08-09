@@ -99,7 +99,7 @@ class AdminRESTEndpoint(JsonGetter):
                 self.check_for_token(tokUrl, usr, pw, token)
 
         elif not fnmatch.fnmatch(self.url, BASE_PATTERN):
-            _fixer = self.url.split('/arcgis')[0] + '/arcgis/admin'
+            _fixer = self.url.replace('/arcgis/rest', '/arcgis/admin')
             if fnmatch.fnmatch(_fixer, BASE_PATTERN):
                 self.url = _fixer.lower()
             else:
