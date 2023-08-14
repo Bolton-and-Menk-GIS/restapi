@@ -1755,7 +1755,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     params[RESULT_RECORD_COUNT] = records
 
                 server_response = self.request(query_url, params)
-
             return self._format_server_response(server_response, records)
 
     def query_in_chunks(self, where='1=1', fields='*', records=None, **kwargs):
@@ -1783,7 +1782,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             more = True
             while more:
                 next_resp = self.request(query_url, params)
-                params[RESULTOFFSET] = params.get(RESULTOFFSET, max_recs) + max_recs
+                params[RESULTOFFSET] = params.get(RESULTOFFSET, 0) + max_recs
                 params[RESULT_RECORD_COUNT] = max_recs
                 more = next_resp.get(EXCEED_TRANSFER_LIMIT)
                 yield next_resp
