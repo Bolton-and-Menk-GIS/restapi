@@ -1747,6 +1747,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         else:
             server_response = {}
+            max_recs = chunk_size or self.json.get(MAX_RECORD_COUNT, 1000)
+            if isinstance(records, int) and records > max_recs:
+                exceed_limit = True
             if exceed_limit:
                 for i, result in enumerate(self.query_in_chunks(records=records, **params)):
                     if i < 1:
@@ -1784,17 +1787,17 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         params = self._validate_params(where=where, fields=fields, **kwargs).copy()
         if self.json.get(ADVANCED_QUERY_CAPABILITIES, {}).get(SUPPORTS_PAGINATION):
-            max_recs = chunk_size or self.json.get(MAX_RECORD_COUNT, 1000)
             params[ORDER_BY_FIELDS] = '{} ASC'.format(self.OIDFieldName)
+            max_recs = chunk_size or self.json.get(MAX_RECORD_COUNT, 1000)
+            params[RESULT_RECORD_COUNT] = max_recs
             more = True
             while more:
                 next_resp = self.request(query_url, params)
                 params[RESULTOFFSET] = params.get(RESULTOFFSET, 0) + max_recs
-                params[RESULT_RECORD_COUNT] = max_recs
                 more = next_resp.get(EXCEED_TRANSFER_LIMIT)
                 yield next_resp
         else:    
-            for where2 in self.iter_queries(max_recs=records, **params):
+            for where2 in self.iter_queries(max_recs=records, chunk_size=chunk_size, **params):
                 sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2]))
                 params[WHERE] = sql
                 yield self._format_server_response(self.request(query_url, params))
@@ -2115,7 +2118,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                     if self.query(returnCountOnly=True).count > self.maxRecordCount:
                         doesExceed = True
                         out_fc = r'in_memory\restapi_chunk_{}'.format(os.path.splitext(os.path.basename(orig))[0])
-                for fs in self.query_in_chunks(where, fields, f=DEFAULT_REQUEST_FORMAT, **kwargs):
+                for fs in self.query_in_chunks(where, fields, f=DEFAULT_REQUEST_FORMAT, chunk_size=chunk_size, **kwargs):
                     exportFeatureSet(fs, out_fc, include_domains=False, qualified_fieldnames=qualified_fieldnames)
 
                 if not fs:
