@@ -1657,8 +1657,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             where: Optional where clause for OID selection.
             max_recs: Optional maximum amount of records returned for all
                 queries for OID fetch. Defaults to None.
-            chunk_size: Optional size of chunks for each iteration of query
-                iterator. Defaults to None.
+            chunk_size: Optional. Can be used to override the default chunk size. Some servers mistakenly
+                advertise very large maximim record counts, but cannot deliver that may records. They will
+                then return a 500 error. Reducing the number of records (chunk size) per request can fix this issue.
         """
 
         kwargs[RETURN_IDS_ONLY] = TRUE
@@ -1694,7 +1695,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 yield '{0} >= {1} and {0} <= {2}'.format(oid_name, _min, _max)
 
 
-    def query(self, where='1=1', fields='*', records=None, exceed_limit=False, fetch_in_chunks=False, f=DEFAULT_REQUEST_FORMAT, kmz=None, **kwargs):
+    def query(self, where='1=1', fields='*', records=None, exceed_limit=False, fetch_in_chunks=False, f=DEFAULT_REQUEST_FORMAT, kmz=None, chunk_size=None, **kwargs):
         """Queries layer and gets response as JSON.
 
         Args:
@@ -1712,6 +1713,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             f: Return format, default is JSON.  (html|json|kmz)
             kmz: Optional full path to output kmz file.  Only used if output
                 format is "kmz". Defaults to ''.
+            chunk_size: Optional. Can be used to override the default chunk size. Some servers mistakenly
+                advertise very large maximim record counts, but cannot deliver that may records. They will
+                then return a 500 error. Reducing the number of records (chunk size) per request can fix this issue.
             kwargs: Optional extra parameters to add to query string passed as key word arguments
 
         # default params for all queries
@@ -1757,7 +1761,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 server_response = self.request(query_url, params)
             return self._format_server_response(server_response, records)
 
-    def query_in_chunks(self, where='1=1', fields='*', records=None, **kwargs):
+    def query_in_chunks(self, where='1=1', fields='*', records=None, chunk_size=None, **kwargs):
         """Queries a layer in chunks and returns a generator.
 
         Args:
@@ -1766,6 +1770,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             records: Optional number of records to return.  Default is None to
                 return all. Records within bounds of max record count unless
                 exceed_limit is True.
+            chunk_size: Optional. Can be used to override the default chunk size. Some servers mistakenly
+                advertise very large maximim record counts, but cannot deliver that may records. They will
+                then return a 500 error. Reducing the number of records (chunk size) per request can fix this issue.
             kwargs: Optional extra parameters to add to query string passed as keyword arguments.
 
         # default params for all queries
@@ -1777,7 +1784,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         params = self._validate_params(where=where, fields=fields, **kwargs).copy()
         if self.json.get(ADVANCED_QUERY_CAPABILITIES, {}).get(SUPPORTS_PAGINATION):
-            max_recs = self.json.get(MAX_RECORD_COUNT, 1000)
+            max_recs = chunk_size or self.json.get(MAX_RECORD_COUNT, 1000)
             params[ORDER_BY_FIELDS] = '{} ASC'.format(self.OIDFieldName)
             more = True
             while more:
@@ -1788,9 +1795,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 yield next_resp
         else:    
             for where2 in self.iter_queries(max_recs=records, **params):
-                sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2])) #remove default
+                sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2]))
                 params[WHERE] = sql
-                # print('FIELDS: ', params.get('fields'))
                 yield self._format_server_response(self.request(query_url, params))
 
 
@@ -2061,7 +2067,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         return SearchCursor(self, fields, where, records, exceed_limit, **kwargs)
 
     def export_layer(self, out_fc, fields='*', where='1=1', records=None, exceed_limit=False, sr=None,
-                     include_domains=True, include_attachments=False, qualified_fieldnames=False, **kwargs):
+                     include_domains=True, include_attachments=False, qualified_fieldnames=False, chunk_size=None, **kwargs):
         """Method to export a feature class or shapefile from a service layer.
 
         Args:
@@ -2085,6 +2091,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 "fields" param or if there is no access to arcpy. Defaults to False.
             qualified_fieldnames: Optional boolean to keep qualified field names,
                 default is False.
+            chunk_size: Optional. Can be used to override the default chunk size. Some servers mistakenly
+                advertise very large maximim record counts, but cannot deliver that may records. They will
+                then return a 500 error. Reducing the number of records (chunk size) per request can fix this issue.
 
         Returns:
             A feature class or shapefile.
