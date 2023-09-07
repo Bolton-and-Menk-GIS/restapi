@@ -18,8 +18,6 @@ import munch
 from collections import namedtuple, OrderedDict
 from ._strings import *
 from .exceptions import RequestError
-from urllib3.exceptions import InsecureRequestWarning, InsecurePlatformWarning, SNIMissingWarning
-from urllib3 import disable_warnings
 from . import projections
 from . import enums
 from .globals import RequestClient, DefaultRequestClient
@@ -29,10 +27,6 @@ import warnings
 import six
 from six.moves import urllib
 from six.moves.urllib_parse import urlencode
-
-# disable ssl warnings
-for warning in [SNIMissingWarning, InsecurePlatformWarning, InsecureRequestWarning]:
-    disable_warnings(warning)
 
 # GLOBAL CLIENT
 requestClient = None
@@ -45,7 +39,7 @@ STANDARD_HEADERS = {
 
 def set_request_client(client=None, *args, **kwargs):
     if not isinstance(client, RequestClient):
-        warning('no request client has been set, using default client')
+        warnings.warn('no request client has been set, using default client')
         client = DefaultRequestClient(*args, **kwargs)
         client.session.verify = False if os.getenv('RESTAPI_VERIFY_CERT') == 'FALSE' else True
     client = add_standard_headers(client)
