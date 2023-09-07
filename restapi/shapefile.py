@@ -398,8 +398,12 @@ class _Record(list):
         :return: None
         :raises: AttributeError, if key is not a field of the shapefile
         """
-        if key.startswith(b'_'):  # Prevent infinite loop when setting mangled attribute
-            return list.__setattr__(self, key, value)
+        try:
+            if key.startswith(b'_'):  # Prevent infinite loop when setting mangled attribute
+                return list.__setattr__(self, key, value)
+        except TypeError:
+            if key.startswith('_'):  # Prevent infinite loop when setting mangled attribute
+                return list.__setattr__(self, key, value)
         try:
             index = self.__field_positions[key]
             return list.__setitem__(self, index, value)
