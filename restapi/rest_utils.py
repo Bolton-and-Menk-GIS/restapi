@@ -1254,7 +1254,6 @@ class FeatureSet(FeatureSetBase):
         Raises:
             ValueError: 'Not a valid Feature Set!'
         """
-
         if isinstance(in_json, six.string_types):
             if not in_json.startswith('{') and os.path.isfile(in_json):
                 with open(in_json, 'r') as f:

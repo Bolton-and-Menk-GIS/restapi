@@ -1568,12 +1568,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         if PROPERTIES in server_response:
              return FeatureCollection(server_response)
-
         flds = self.fieldLookup
         if FIELDS in server_response:
             for i,fld in enumerate(server_response.fields):
-                server_response.fields[i] = flds.get(fld.name.lower())
-
+                if fld.name.lower() in flds:
+                    server_response.fields[i] = flds.get(fld.name.lower())
         if self.type == FEATURE_LAYER:
             for key in (FIELDS, GEOMETRY_TYPE, SPATIAL_REFERENCE):
                 if key not in server_response:
