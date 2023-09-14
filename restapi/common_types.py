@@ -3291,7 +3291,7 @@ class FeatureLayer(MapServiceLayer):
                 params[GDB_VERSION] = gdbVersion
             for k,v in six.iteritems(kwargs):
                 params[k] = v
-            return self.__edit_handler(self.request(att_url, params, cookies=self._cookie, method=POST).json(), oid)
+            return self.__edit_handler(self.request(att_url, params, cookies=self._cookie, method=POST), oid)
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
