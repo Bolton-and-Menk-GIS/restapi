@@ -1,4 +1,4 @@
-# look for arcpy access, otherwise use open source version
+'# look for arcpy access, otherwise use open source version
 from __future__ import print_function
 
 import sqlite3
@@ -4026,3 +4026,4 @@ class GPTask(BaseService):
         res['elapsed'] = gp_elapsed
         print('GP Task "{}" completed successfully. (Elapsed time {})'.format(self.name, gp_elapsed))
         return GPTaskResponse(res)
+'
