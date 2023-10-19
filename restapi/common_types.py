@@ -1425,7 +1425,7 @@ class ArcServer(RESTEndpoint):
             self.service_cache.append(full_service_url)
         yield (None, services)
 
-        for f in self.folders:
+        for f in getattr(self, 'folders', []):
             new = '/'.join([self.url, f])
             try:
                 endpt = self.request(new)

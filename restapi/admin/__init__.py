@@ -1506,7 +1506,7 @@ class ArcServerAdmin(AdminRESTEndpoint):
                     '.'.join([serv['serviceName'], serv['type']])])
                     for serv in self.response['services']]
 
-        for f in self.folders:
+        for f in getattr(self, 'folders', []):
             folder = Folder(self._servicesURL + '/{}'.format(f))
             for service in folder.list_services():
                 services.append('/'.join(map(str, [self._servicesURL, folder, service])))
