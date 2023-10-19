@@ -1728,6 +1728,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         params = self._validate_params(where=where, fields=fields, f=f, **kwargs)
 
+        if kwargs.get('returnIdsOnly'):
+            exceed_limit = False
+
         # create kmz file if requested (does not support exceed_limit parameter)
         if f == 'kmz':
             r = self.request(query_url, params)
