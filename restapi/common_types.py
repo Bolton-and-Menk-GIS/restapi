@@ -1489,7 +1489,7 @@ class Portal(RESTEndpoint):
     @property
     def servers(self):
         servers_url = get_portal_base(self.url).split('/sharing')[0] + '/portaladmin/federation/servers'
-        serversResp = self.request(servers_url, {TOKEN: self.token.token, F: JSON}).json()
+        serversResp = self.request(servers_url, {TOKEN: self.token.token, F: JSON})
         return [ArcServer(s.get('url') + '/rest/services', token=self.token) for s in serversResp.get('servers', [])]
 
 
@@ -3336,7 +3336,7 @@ class FeatureLayer(MapServiceLayer):
                 params[TOKEN] = str(self.token)
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST).json(), oid)
+            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
