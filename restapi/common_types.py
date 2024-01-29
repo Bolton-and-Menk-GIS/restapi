@@ -6,7 +6,7 @@ import base64
 import shutil
 import contextlib
 from .rest_utils import *
-from .exceptions import AuthExceptionCodes
+from .exceptions import AuthExceptionCodes, RestAPIException
 from .decorator import decorator
 import sys
 import warnings
@@ -1520,6 +1520,12 @@ class Portal(RESTEndpoint):
 class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
     """Class to handle advanced layer properties."""
 
+    @property
+    def parent_service(self):
+        parent_class = FeatureService if self.__class__ == FeatureLayer else MapService
+        return parent_class(self.url[:self.url.rfind('/')])
+
+
     def _fix_fields(self, fields):
         """Fixes input fields, accepts esri field tokens too ("SHAPE@", "OID@"), internal
                 method used for cursors.
@@ -1742,8 +1748,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 kmz = validate_name(os.path.join(os.path.expanduser('~'), 'Desktop', '{}.kmz'.format(self.name)))
             with codecs.open(kmz, 'wb') as f:
                 f.write(r.content)
-##            with open(kmz, 'wb') as f:
-##                shutil.copyfileobj(r.raw, f)
             print('Created: "{0}"'.format(kmz))
             return kmz
 
@@ -2800,6 +2804,67 @@ class FeatureService(MapService):
         params = {REPLICA_ID: replicaID}
         return self.request(query_url, params)
 
+
+    def delete_registered_upload(self, upload_id):
+        """Deletes registyered item from the server. If the item was added as an attachment to 
+        a service already, deleting this item does not delete the attachment.
+
+        https://developers.arcgis.com/rest/services-reference/enterprise/delete-upload.htm
+
+        Args:
+            upload_id (str): the upload ID of the uploaded item.
+
+        """
+        delete_url = self.url + '/uploads/{}/delete'.format(upload_id)
+        return self.request(delete_url, method='POST')
+
+
+    def register_and_upload_file(self, file_path):
+        """Registers an upload on the server and uploads the file_path as multipart
+        uploads in chunks. Useful for adding attachments over the 10MB size limit.
+        After using this method and adding the file as an attachment, the user
+        needs to call the delete_registered_upload to delete the registered item from
+        the server. Deleting this item does not delete the attachment from the service.
+        https://developers.arcgis.com/rest/services-reference/enterprise/register.htm
+        https://developers.arcgis.com/rest/services-reference/enterprise/upload.htm
+        https://community.esri.com/t5/python-questions/add-attachment-larger-than-10-mbs/td-p/491271
+
+        Args:
+            file_path (str): The file path to upload
+
+        Returns: 
+            upload_id (str): the upload ID of the uploaded item. This is used to add the item as
+                an attachment and to delete the registred upload afterwards.
+
+        Raises:
+            RestAPIException
+        """
+
+        item_name = os.path.basename(file_path)
+        registered_item = self.request(self.url + '/uploads/register', method='POST', params={'itemName': item_name})
+        if not registered_item.get('success'):
+            raise RestAPIException(json.dumps(registered_item))
+        upload_id = registered_item.item.itemID
+        item_url = self.url + '/uploads/{}'.format(upload_id) + '/{}'
+        with open(file_path, 'rb') as f:
+            for part_num, chunk in enumerate(read_in_chunks(f), start=1):
+                params = {"f": "json", "partId":str(part_num)}
+                fileObj = {"file": chunk}
+                chunk_response = self.request(item_url.format('uploadPart'), method='POST', params=params, files=fileObj)
+                if not chunk_response.get('success'):
+                    self.delete_registered_upload(upload_id)
+                    raise RestAPIException(json.dumps(chunk_response))
+        parts = self.request(item_url.format('parts'))
+        commit_response = self.request(item_url.format('commit'), method='POST', params={'parts': ','.join(parts.parts)})
+        if not commit_response.get('success'):
+            self.delete_registered_upload(upload_id)
+            raise RestAPIException(json.dumps(commit_response))
+        
+        return upload_id
+
+
+
+
 class FeatureLayer(MapServiceLayer):
     """Class to handle Feature Service Layer."""
     def __init__(self, url='', usr='', pw='', token='', proxy=None, referer=None, client=None):
@@ -2896,6 +2961,17 @@ class FeatureLayer(MapServiceLayer):
                 self.compatible_with_version(10.4),
                 hasattr(self, HAS_ATTACHMENTS),
                 getattr(self, HAS_ATTACHMENTS)
+            ])
+        except AttributeError:
+            return False
+
+    @property
+    def supportsLargeAttachmentUploads(self):
+        try:
+            return all([
+                self.compatible_with_version(10.4),
+                hasattr(self, SUPPORTS_ATTACHMENTS_BY_UPLOAD_ID),
+                getattr(self, SUPPORTS_ATTACHMENTS_BY_UPLOAD_ID)
             ])
         except AttributeError:
             return False
@@ -3055,57 +3131,6 @@ class FeatureLayer(MapServiceLayer):
     def _create_globalId():
         return str(uuid.uuid4())
 
-    @classmethod
-    def _prepare_attachment(cls, parentGlobalId, data=None, globalId=None, name=None, contentType=None, uploadId=None):
-        """prepares
-
-        Args:
-            parentGlobalId (str): the globalId of the parent feature
-            data (str, optional): the data to attach. This can be the full path to a file on disk, StringIO/BytesIO, file like object, or a base64 encoded string.  This is not required if the "uploadId" argument is used. Defaults to None.
-            globalId (str, optional): the globalId for the attachment. If none is provided, one will be automatically generated. Defaults to None.
-            name (str, optional): The file name, not required if the full path to a file was provided in the "data" argument. Defaults to None.
-            contentType (str, optional): the file's content type, not required if the full path to a file was provided in the "data" argument. Defaults to None.
-            uploadId (str, optional): the globalid for an uploaded Item. Defaults to None.
-
-        Raises:
-            TypeError: [description]
-
-        Returns:
-            [type]: [description]
-        """
-        attInfo = {
-            PARENT_GLOBALID: parentGlobalId,
-            GLOBALID_CAMEL: globalId or cls._create_globalId(),
-            CONTENT_TYPE: contentType,
-            NAME: name
-        }
-
-        if uploadId:
-            attInfo[UPLOAD_ID] = uploadId
-
-        elif data:
-
-            if os.path.isfile(data):
-                if not mime_type:
-                    attInfo[CONTENT_TYPE] = cls.guess_content_type(data)
-
-                if not name:
-                    attInfo[NAME] = os.path.basename(data)
-
-                with open(data, 'rb') as f:
-                    attInfo[DATA] = base64.b64encode(f.read()).decode('utf-8')
-
-            elif hasattr(data, 'read'):
-                attInfo[DATA] = data.read()
-
-            else:
-                attInfo[DATA] = data
-
-        if not attInfo.get(DATA):
-            raise TypeError('missing "{}" parameter'.format(DATA))
-
-        return attInfo
-
 
     def applyEdits(self, adds=None, updates=None, deletes=None, attachments=None, gdbVersion=None, rollbackOnFailure=TRUE, useGlobalIds=FALSE, **kwargs):
         """Applies edits on a feature service layer.
@@ -3229,6 +3254,7 @@ class FeatureLayer(MapServiceLayer):
             kwargs[k] = v
         return self.__edit_handler(self.request(edits_url, params, method=POST))
 
+
     def addAttachment(self, oid, attachment, content_type='', gdbVersion=''):
         """Adds an attachment to a feature service layer.
 
@@ -3247,18 +3273,28 @@ class FeatureLayer(MapServiceLayer):
             http://en.wikipedia.org/wiki/Internet_media_type
         """
         if self.hasAttachments:
-
-            content_type = self.guess_content_type(attachment, content_type)
-
-            # make post request
             att_url = '{}/{}/addAttachment'.format(self.url, oid)
-            files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
             params = {F: JSON}
             if isinstance(self.token, Token) and self.token.isAGOL:
                 params[TOKEN] = str(self.token)
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
+            if os.path.getsize(attachment) < 10e6:
+                if not content_type:
+                    content_type = self.guess_content_type(attachment, content_type)
+                files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
+                return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
+            else:
+                # need to use multipart upload to work around 10MB limit
+                parent_service = self.parent_service
+                upload_id = parent_service.register_and_upload_file(attachment)
+                params['uploadId'] = upload_id
+                try:
+                    attachment_result = self.__edit_handler(self.request(att_url, params, cookies=self._cookie, method=POST), oid)
+                except:
+                    raise
+                finally:
+                    parent_service.delete_registered_upload(upload_id)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
@@ -3323,23 +3359,35 @@ class FeatureLayer(MapServiceLayer):
             http://en.wikipedia.org/wiki/Internet_media_type
         """
         if self.hasAttachments:
-            content_type = self.guess_content_type(attachment, content_type)
-
-            # make post request
-            att_url = '{}/{}/updateAttachment'.format(self.url, oid)
             if validate:
                 if attachmentId not in [getattr(att, ID) for att in self.attachments(oid)]:
                     raise ValueError('Attachment with ID "{}" not found in Feature with OID "{}"'.format(oid, attachmentId))
-            files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
+            att_url = '{}/{}/updateAttachment'.format(self.url, oid)
             params = {F: JSON, ATTACHMENT_ID: attachmentId}
             if isinstance(self.token, Token) and self.token.isAGOL:
                 params[TOKEN] = str(self.token)
             if gdbVersion:
                 params[GDB_VERSION] = gdbVersion
-            return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
+            if os.path.getsize(attachment) < 10e6:
+                if not content_type:
+                    content_type = self.guess_content_type(attachment, content_type)
+                files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
+                return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
+            else:
+                # need to use multipart upload to work around 10MB limit
+                parent_service = self.parent_service
+                upload_id = parent_service.register_and_upload_file(attachment)
+                params['uploadId'] = upload_id
+                try:
+                    attachment_result = self.__edit_handler(self.request(att_url, params, cookies=self._cookie, method=POST), oid)
+                except:
+                    raise
+                finally:
+                    parent_service.delete_registered_upload(upload_id)
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
+
 
     def calculate(self, exp, where='1=1', sqlFormat='standard'):
         """Calculates a field in a Feature Layer.

@@ -2000,3 +2000,20 @@ class GeocodeService(RESTEndpoint):
     def __repr__(self):
         """String representation with service name."""
         return '<GeocodeService: {}>'.format('/'.join(self.url.split('/services/')[-1].split('/')[:-1]))
+
+
+def read_in_chunks(file_object, chunk_size=3e6):
+    """Generates file chunks for multipart upload
+    see https://community.esri.com/t5/python-questions/add-attachment-larger-than-10-mbs/td-p/491271
+
+    Args:
+        file_object (file-like object): open file like object
+        chunk_size (int|float, optional): chunk size. Defaults to 3MB.
+
+    """
+    while True:
+        data = file_object.read(int(chunk_size))
+        if not data:
+            break
+        yield data
+
