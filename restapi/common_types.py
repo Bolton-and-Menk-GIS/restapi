@@ -3291,11 +3291,11 @@ class FeatureLayer(MapServiceLayer):
                 params['uploadId'] = upload_id
                 try:
                     attachment_result = self.__edit_handler(self.request(att_url, params, cookies=self._cookie, method=POST), oid)
-                except:
-                    raise
-                finally:
                     parent_service.delete_registered_upload(upload_id)
-
+                    return attachment_result
+                except:
+                    parent_service.delete_registered_upload(upload_id)
+                    raise              
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
 
@@ -3380,10 +3380,11 @@ class FeatureLayer(MapServiceLayer):
                 params['uploadId'] = upload_id
                 try:
                     attachment_result = self.__edit_handler(self.request(att_url, params, cookies=self._cookie, method=POST), oid)
-                except:
-                    raise
-                finally:
                     parent_service.delete_registered_upload(upload_id)
+                    return attachment_result
+                except:
+                    parent_service.delete_registered_upload(upload_id)
+                    raise 
 
         else:
             raise NotImplementedError('FeatureLayer "{}" does not support attachments!'.format(self.name))
