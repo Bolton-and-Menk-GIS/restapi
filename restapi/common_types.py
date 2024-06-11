@@ -3283,7 +3283,12 @@ class FeatureLayer(MapServiceLayer):
                 if not content_type:
                     content_type = self.guess_content_type(attachment, content_type)
                 files = {ATTACHMENT: (os.path.basename(attachment), open(attachment, 'rb'), content_type)}
-                return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
+                if 'utility.arcgis.com' in self.url.lower() and params[TOKEN]:
+                    token = params[TOKEN]
+                    del params[TOKEN]
+                    return self.__edit_handler(self.client.session.post(att_url, data=params, files=files, cookies=self._cookie, params={TOKEN: token}).json(), oid)
+                else:
+                    return self.__edit_handler(self.request(att_url, params, files=files, cookies=self._cookie, method=POST), oid)
             else:
                 # need to use multipart upload to work around 10MB limit
                 parent_service = self.parent_service
