@@ -1757,7 +1757,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             if isinstance(records, int) and records > max_recs:
                 exceed_limit = True
             if exceed_limit:
-                for i, result in enumerate(self.query_in_chunks(records=records, **params)):
+                # for i, result in enumerate(self.query_in_chunks(records=records, **params)):
+                for i, result in enumerate(self.query_in_chunks(records=records, where=where,
+                                                                fields=fields, f=f, **kwargs)):
                     if i < 1:
                         server_response = result
                     else:
