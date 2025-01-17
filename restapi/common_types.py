@@ -2214,6 +2214,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             OUT_SR: outSR,
             SPATIAL_REL: kwargs.get(SPATIAL_REL) or ESRI_INTERSECT
         }
+        if 'chunk_size' in kwargs:
+            params['chunk_size'] = kwargs['chunk_size']
         return self.export_layer(output, fields, where, exceed_limit=True, **params)
 
     def __repr__(self):
