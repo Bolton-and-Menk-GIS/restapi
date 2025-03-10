@@ -1616,7 +1616,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         params = {'returnGeometry' : 'true', 'outFields' : fields,
                   'where': where, 'f' : 'json'}
         """
-
+    
         # default params
         params = {
             RETURN_GEOMETRY : TRUE,
@@ -1638,6 +1638,9 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         # geometry validation
         if self.type == FEATURE_LAYER and GEOMETRY in params:
+            query_parts = params[WHERE].split('=')
+            if len(query_parts) == 2 and query_parts[0] == query_parts[1]:
+                del params[WHERE]
             geom = Geometry(params.get(GEOMETRY))
             if SPATIAL_REL not in params:
                 params[SPATIAL_REL] = ESRI_INTERSECT
@@ -1791,7 +1794,6 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         """
 
         query_url = self.url + '/query'
-
         params = self._validate_params(where=where, fields=fields, **kwargs).copy()
         if self.json.get(ADVANCED_QUERY_CAPABILITIES, {}).get(SUPPORTS_PAGINATION):
             params[ORDER_BY_FIELDS] = '{} ASC'.format(self.OIDFieldName)
