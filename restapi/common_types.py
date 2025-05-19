@@ -423,7 +423,7 @@ class Attachment(JsonGetter):
             out_file = assign_unique_name(os.path.join(out_path, self.name))
         else:
             ext = os.path.splitext(self.name)[-1]
-            out_file = os.path.join(out_path, name.split('.')[0] + ext)
+            out_file = os.path.join(out_path, name)
 
         resp = self.request(getattr(self, URL_WITH_TOKEN), stream=True)
         with open(out_file, 'wb') as f:
