@@ -1353,6 +1353,7 @@ class ArcServer(RESTEndpoint):
             except Exception as e:
                 if getattr(e, 'code', None) in AuthExceptionCodes and ignore_folder_auth:
                     warnings.warn('Authentation Error for folder {}: {}{}'.format(s, os.linesep,  e))
+                    continue
                 else:
                     raise
             for serv in resp[SERVICES]:
@@ -1432,6 +1433,7 @@ class ArcServer(RESTEndpoint):
             except Exception as e:
                 if getattr(e, 'code', None) in AuthExceptionCodes and ignore_folder_auth:
                     warnings.warn('Authentation Error for folder {}: {}{}'.format(f, os.linesep,  e))
+                    continue
                 else:
                     raise
             services = []
