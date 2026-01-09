@@ -2132,7 +2132,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 for fs in self.query_in_chunks(where, fields, f=DEFAULT_REQUEST_FORMAT, chunk_size=chunk_size, **kwargs):
                     exportFeatureSet(fs, out_fc, include_domains=False, qualified_fieldnames=qualified_fieldnames)
 
-                if not fs:
+                if not len(fs):
                     print('No records to fetch')
                     return
 
@@ -2220,7 +2220,8 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         }
         if 'chunk_size' in kwargs:
             params['chunk_size'] = kwargs['chunk_size']
-        return self.export_layer(output, fields, where, exceed_limit=True, **params)
+        return self.export_layer(output, fields, where, exceed_limit=True, include_domains=include_domains, 
+                                 qualified_fieldnames=qualified_fieldnames, **params)
 
     def __repr__(self):
         """String representation with service name."""
