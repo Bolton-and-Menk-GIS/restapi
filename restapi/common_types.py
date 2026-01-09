@@ -2132,7 +2132,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 for fs in self.query_in_chunks(where, fields, f=DEFAULT_REQUEST_FORMAT, chunk_size=chunk_size, **kwargs):
                     exportFeatureSet(fs, out_fc, include_domains=False, qualified_fieldnames=qualified_fieldnames)
 
-                if not len(fs):
+                if not fs or (hasattr(fs, '__len__') and not len(fs)):
                     print('No records to fetch')
                     return
 
