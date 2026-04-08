@@ -1,29 +1,24 @@
 # WARNING: much of this module is untested, this module makes permanent server configurations.
 # Use with caution!
 from __future__ import print_function
-import sys
 import os
 import fnmatch
 import datetime
 import json
 import time
-from collections import namedtuple
 from ..exceptions import RequestError
-from ..rest_utils import Token, mil_to_date, date_to_mil, IdentityManager, JsonGetter, \
-    generate_token, ID_MANAGER, do_request, SpatialReferenceMixin, parse_url, get_portal_base, requestClient, \
+from ..rest_utils import Token, mil_to_date, date_to_mil, JsonGetter, \
+    generate_token, ID_MANAGER, do_request, parse_url, get_portal_base, \
     get_request_method, get_request_client, TokenExpired
 from ..decorator import decorator
 import munch
 from .._strings import *
-import requests
 from .. import enums
 
 import six
-from six.moves import reload_module
-from six.moves import urllib
 
 # Globals
-BASE_PATTERN = '*:*/arcgis/*admin*'
+BASE_PATTERN = '*:*/*admin*'
 AGOL_ADMIN_BASE_PATTERN = 'http*://*/rest/admin/services*'
 VERBOSE = True
 ASYNC_TIMEOUT = 300
@@ -100,6 +95,9 @@ class AdminRESTEndpoint(JsonGetter):
 
         elif not fnmatch.fnmatch(self.url, BASE_PATTERN):
             _fixer = self.url.replace('/arcgis/rest', '/arcgis/admin')
+            if not fnmatch.fnmatch(_fixer, BASE_PATTERN) and '/rest' in self.url:
+                # handle non-arcgis context roots (e.g. /devgis/rest -> /devgis/admin)
+                _fixer = '/admin'.join(self.url.rsplit('/rest', 1))
             if fnmatch.fnmatch(_fixer, BASE_PATTERN):
                 self.url = _fixer.lower()
             else:
@@ -1415,7 +1413,6 @@ class Service(BaseDirectory, EditableResource):
             return '<Service: {}>'.format(self.url.split('/')[-1])
 
 
-
 class ArcServerAdmin(AdminRESTEndpoint):
     """Class to handle internal ArcGIS Server instance.
 
@@ -1437,12 +1434,18 @@ class ArcServerAdmin(AdminRESTEndpoint):
             token: Token for URL/login.
         """
 
-        #possibly redundant validation...
-        if not 'arcgis' in url.lower():
-            url += '/arcgis'
-        url = url.split('/arcgis')[0] + '/arcgis/admin/services'
+        url = url.rstrip('/')
+        url_lower = url.lower()
+        if '/admin' in url_lower:
+            # URL already contains /admin - derive server root from it
+            url = url[:url_lower.index('/admin')] + '/admin/services'
+        elif 'arcgis' in url_lower:
+            url = url.split('/arcgis')[0] + '/arcgis/admin/services'
+        else:
+            # no arcgis or /admin in url, treat url as the context root
+            url = url + '/admin/services'
         super(ArcServerAdmin, self).__init__(url, usr, pw, token)
-        self._serverRoot = self.url.split('/arcgis')[0] + '/arcgis'
+        self._serverRoot = self.url[:self.url.lower().index('/admin')]
         self._adminURL = self._serverRoot + '/admin'
         self._clusterURL = self._adminURL + '/clusters'
         self._dataURL = self._adminURL + '/data'
