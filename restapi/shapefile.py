@@ -266,7 +266,7 @@ class Shape(object):
         # create empty shape
         shape = Shape()
         # set shapeType
-        geojType = geoj["type"] if geoj else "Null"
+        geojType = geoj.get("type", "Null") if geoj else "Null"
         if geojType == "Null":
             shapeType = NULL
         elif geojType == "Point":
