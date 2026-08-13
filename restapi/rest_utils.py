@@ -20,7 +20,7 @@ from ._strings import *
 from .exceptions import RequestError
 from . import projections
 from . import enums
-from .globals import RequestClient, DefaultRequestClient
+from .globals import RequestClient, DefaultRequestClient, LegacySSLAdapter, mount_legacy_ssl_adapter
 from uuid import UUID
 import warnings
 
@@ -373,12 +373,28 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
         r = do_proxy_request(proxy, service, params, referer, client=client)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
-        request_method = get_request_method(service, params, client=client, method=method)
-        if request_method.__name__ == 'get':
-            # must use kwargs after url in GET
-            r = request_method(service, params=params, **kwargs)
-        else:
-            r = request_method(service, params, **kwargs)
+        def _send():
+            request_method = get_request_method(service, params, client=client, method=method)
+            if request_method.__name__ == 'get':
+                # must use kwargs after url in GET
+                return request_method(service, params=params, **kwargs)
+            return request_method(service, params, **kwargs)
+
+        try:
+            r = _send()
+        except requests.exceptions.SSLError as ssl_error:
+            if 'UNSAFE_LEGACY_RENEGOTIATION_DISABLED' not in str(ssl_error):
+                raise
+            # server does not support secure renegotiation (RFC 5746), which
+            # OpenSSL 3+ refuses by default. Retry with legacy renegotiation
+            # allowed for this server only (see restapi.LegacySSLAdapter).
+            warnings.warn(
+                'The server "{}" does not support secure TLS renegotiation, '
+                'retrying with unsafe legacy renegotiation enabled for this '
+                'server.'.format(service)
+            )
+            mount_legacy_ssl_adapter(get_request_client(client).session, service)
+            r = _send()
 
     # make sure return
     if r.status_code != 200:

@@ -924,3 +924,18 @@ restapi.requestClient.headers['Another-Header'] = 'Header is here'
 ```
 
 Any session objects which extend `requests.Session()` should be supported, for example, [pypac.PACSession()](https://pypi.org/project/pypac/).
+
+### Legacy TLS renegotiation
+
+Some older ArcGIS Server deployments run behind SSL configurations that do not support secure renegotiation (RFC 5746). OpenSSL 3+ (used by modern Python builds) refuses to connect to these servers, raising `SSLError: [SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED] unsafe legacy renegotiation disabled`, even though browsers connect without issues.
+
+When `restapi` encounters this error, it will automatically retry the request with unsafe legacy renegotiation enabled *for that server only* and issue a warning. Certificate verification is unaffected. If you want to enable this behavior up front on a custom session (e.g. to avoid the warning), mount the adapter yourself:
+
+```py
+custom_session = requests.Session()
+# scoped to a single server (recommended)
+restapi.mount_legacy_ssl_adapter(custom_session, 'https://some.legacy.server/arcgis/rest/services')
+# or for all https traffic on this session
+restapi.mount_legacy_ssl_adapter(custom_session)
+restapi.set_request_client(restapi.RequestClient(custom_session))
+```
