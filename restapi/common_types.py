@@ -1757,7 +1757,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
             return kmz
 
         else:
-            server_response = {}
+            server_response = munchify({FEATURES: []})
             max_recs = chunk_size or self.json.get(MAX_RECORD_COUNT, 1000)
             if isinstance(records, int) and records > max_recs:
                 exceed_limit = True
@@ -1806,7 +1806,12 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 next_resp = self.request(query_url, params)
                 params[RESULTOFFSET] = params.get(RESULTOFFSET, 0) + max_recs
                 more = next_resp.get(EXCEED_TRANSFER_LIMIT)
-                yield next_resp
+                if not next_resp.get(FEATURES):
+                    # nothing (more) to fetch. ArcGIS Enterprise 11.x omits the
+                    # "fields" key from an empty query response, which FeatureSet()
+                    # rejects as invalid, so stop here instead of yielding it.
+                    break
+                yield self._format_server_response(next_resp)
         else:    
             for where2 in self.iter_queries(max_recs=records, chunk_size=chunk_size, **params):
                 sql = ' and '.join(filter(None, [where.replace('1=1', ''), where2]))
