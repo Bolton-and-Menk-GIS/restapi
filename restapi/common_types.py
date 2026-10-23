@@ -1573,6 +1573,11 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
         # set fields to full field definition of the layer
         if isinstance(server_response, requests.Response):
             server_response = munchify(server_response.json())
+        elif isinstance(server_response, FeatureSetBase):
+            # already formatted (e.g. combined chunks from query_in_chunks). FeatureSetBase has no
+            # __contains__, so key checks below would always miss and overwrite the response's
+            # spatialReference/fields with the layer defaults; check against the raw json instead
+            server_response = server_response.json
 
         if PROPERTIES in server_response:
              return FeatureCollection(server_response)
