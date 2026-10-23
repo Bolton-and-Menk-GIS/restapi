@@ -1017,9 +1017,11 @@ class RESTEndpoint(JsonGetter):
                     # we want an exception here if it does not match the format
                     whole, dec = ver.split('.')
                     ver = float('.'.join([whole, ''.join([i for i in dec if i.isdigit()])]))
+                return ver
         try:
             return validate_version(self.currentVersion) >= validate_version(version)
-        except AttributeError:
+        except (AttributeError, TypeError):
+            # TypeError: currentVersion missing (None) or not a number/string
             return False
 
     def request(self, *args, **kwargs):

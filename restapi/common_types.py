@@ -1633,7 +1633,7 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
 
         params.update(kwargs)
 
-        if RESULT_RECORD_COUNT in params and self.compatible_with_version('10.3'):
+        if RESULT_RECORD_COUNT in params and self.compatible_with_version('10.3') and self.get(MAX_RECORD_COUNT):
             params[RESULT_RECORD_COUNT] = min([int(params[RESULT_RECORD_COUNT]), self.get(MAX_RECORD_COUNT)])
 
         # check for tokens (only shape and oid)
@@ -1768,14 +1768,15 @@ class MapServiceLayer(RESTEndpoint, SpatialReferenceMixin, FieldsMixin):
                 exceed_limit = True
             if exceed_limit:
                 for i, result in enumerate(self.query_in_chunks(records=records, where=where,
-                                                                fields=fields, f=f, **kwargs)):
+                                                                fields=fields, chunk_size=chunk_size,
+                                                                f=f, **kwargs)):
                     if i < 1:
                         server_response = result
                     else:
                         server_response[FEATURES].extend(result[FEATURES])
 
             else:
-                if isinstance(records, int) and str(self.currentVersion) >= '10.3':
+                if isinstance(records, int) and self.compatible_with_version('10.3'):
                     params[RESULT_RECORD_COUNT] = records
 
                 server_response = self.request(query_url, params)
