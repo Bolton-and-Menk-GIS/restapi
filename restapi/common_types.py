@@ -2430,11 +2430,13 @@ class MapService(BaseService):
 
         if isinstance(name_or_id, int):
             # reference by id directly
-            return MapServiceLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
+            return MapServiceLayer('/'.join([self.url, str(name_or_id)]), token=self.token,
+                proxy=self._proxy, referer=self._referer, client=self.client)
 
         layer_path = self.get_layer_url(name_or_id, self.token, **kwargs)
         if layer_path:
-            return MapServiceLayer(layer_path, token=self.token, **kwargs)
+            return MapServiceLayer(layer_path, token=self.token,
+                proxy=self._proxy, referer=self._referer, client=self.client, **kwargs)
         else:
             print('Layer "{0}" not found!'.format(name_or_id))
 
@@ -2446,11 +2448,13 @@ class MapService(BaseService):
         """
         if isinstance(name_or_id, int):
             # reference by id directly
-            return MapServiceTable('/'.join([self.url, str(name_or_id)]), token=self.token)
+            return MapServiceTable('/'.join([self.url, str(name_or_id)]), token=self.token,
+                proxy=self._proxy, referer=self._referer, client=self.client)
 
         layer_path = self.get_layer_url(name_or_id, self.token)
         if layer_path:
-            return MapServiceTable(layer_path, token=self.token)
+            return MapServiceTable(layer_path, token=self.token,
+                proxy=self._proxy, referer=self._referer, client=self.client)
         else:
             print('Table "{0}" not found!'.format(name_or_id))
 
@@ -2591,11 +2595,13 @@ class FeatureService(MapService):
 
         if isinstance(name_or_id, int):
             # reference by id directly
-            return FeatureLayer('/'.join([self.url, str(name_or_id)]), token=self.token)
+            return FeatureLayer('/'.join([self.url, str(name_or_id)]), token=self.token,
+                proxy=self._proxy, referer=self._referer, client=self.client)
 
         layer_path = self.get_layer_url(name_or_id)
         if layer_path:
-            return FeatureLayer(layer_path, token=self.token)
+            return FeatureLayer(layer_path, token=self.token,
+                proxy=self._proxy, referer=self._referer, client=self.client)
         else:
             print('Layer "{0}" not found!'.format(name_or_id))
 

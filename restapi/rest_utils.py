@@ -265,7 +265,7 @@ def tmp_json_file():
         TEMP_DIR = tempfile.mkdtemp()
     return os.path.join(TEMP_DIR, 'restapi_{}.json'.format(time.strftime('%Y%m%d%H%M%S')))
 
-def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, client=None, method='get', **kwargs):
+def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None, proxy=None, referer=None, client=None, method='get', allow_redirects=True, **kwargs):
     """Post Request to REST Endpoint through query string, to post
             request with data in body, use requests.post(url, data:{k : v}).
 
@@ -283,6 +283,8 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
         referer: Option to specify a custom referer.
         client: Option to specify a custom restapi.RequestClient session object
             to perform the request.
+        allow_redirects: Optional boolean, defaults to True. If False, return HTTP
+            redirects as requests.Response objects without following them.
 
     Raises:
         NameError: '"{0}" service not found!\n{1}'
@@ -362,6 +364,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
     # mixin default kwargs for requests
     defaults = {
         "stream": stream,
+        "allow_redirects": allow_redirects,
     }
     for k,v in six.iteritems(defaults):
         if k not in kwargs:
@@ -370,7 +373,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
     if proxy:
         # IMPORTANT: this is not a regular proxy, this is the Esri Proxy
         # see: https://github.com/Esri/resource-proxy
-        r = do_proxy_request(proxy, service, params, referer, client=client)
+        r = do_proxy_request(proxy, service, params, referer, client=client, allow_redirects=allow_redirects)
         ID_MANAGER.proxies[service.split('/rest')[0].lower() + '/rest/services'] = proxy
     else:
         def _send():
@@ -396,6 +399,10 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
             mount_legacy_ssl_adapter(get_request_client(client).session, service)
             r = _send()
 
+    # return redirects for the caller to inspect when redirect handling is disabled
+    if not allow_redirects and 300 <= r.status_code < 400:
+        return r
+
     # make sure return
     if r.status_code != 200:
         raise NameError('"{0}" service not found!\n{1}'.format(service, r.raise_for_status()))
@@ -411,7 +418,7 @@ def do_request(service, params={F: JSON}, ret_json=True, token='', cookies=None,
             return r
 
 
-def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=None, method='post', request_method=None):
+def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=None, method='post', request_method=None, allow_redirects=True):
     """Makes request against ArcGIS service through a proxy.  This is designed for a
             proxy page that stores access credentials in the configuration to
             handle authentication. It is also assumed that the proxy is a standard
@@ -427,6 +434,7 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=
         ret_json: Option to return as JSON, default is true
         client: Option to specify a custom restapi.RequestClient session object
             to perform the request.
+        allow_redirects: Optional boolean to follow HTTP redirects, defaults to True.
 
     Returns:
         The HTTP request.
@@ -444,9 +452,9 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=
 
     if request_method.__name__ == 'get':
         # must use kwargs after url in GET
-        return request_method(proxied_url, params=params, headers=headers)
+        return request_method(proxied_url, params=params, headers=headers, allow_redirects=allow_redirects)
 
-    return request_method(proxied_url, params, headers=headers)
+    return request_method(proxied_url, params, headers=headers, allow_redirects=allow_redirects)
 
 
 def guess_proxy_url(domain):
