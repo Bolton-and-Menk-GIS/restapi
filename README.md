@@ -1128,6 +1128,23 @@ restapi.requestClient.headers['Another-Header'] = 'Header is here'
 
 Any session objects which extend `requests.Session()` should be supported, for example, [pypac.PACSession()](https://pypi.org/project/pypac/).
 
+Layers and tables returned by `MapService.layer()`, `FeatureService.layer()` and `table()` use the service's client, token, proxy and referer, including when looking up a layer or table by name.
+
+### HTTP redirects
+
+Requests follow HTTP redirects by default. To inspect a redirect without following it, pass `allow_redirects=False` to `restapi.do_request()` or an endpoint's `request()` method. This also applies to requests through an Esri proxy. The option is passed to the session and is not included in the ArcGIS query parameters.
+
+```py
+response = restapi.do_request(rest_url, client=custom_client, allow_redirects=False, ret_json=False)
+if 300 <= response.status_code < 400:
+    print(response.headers.get('Location'))
+
+# Use the client's session and credentials from an existing endpoint
+response = arcserver.request(rest_url, allow_redirects=False, ret_json=False)
+```
+
+When redirects are disabled, a redirect is returned as a `requests.Response` object even if `ret_json=True`. Successful responses keep the usual JSON behavior.
+
 ### Legacy TLS renegotiation
 
 Some older ArcGIS Server deployments run behind SSL configurations that do not support secure renegotiation (RFC 5746). OpenSSL 3+ (used by modern Python builds) refuses to connect to these servers, raising `SSLError: [SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED] unsafe legacy renegotiation disabled`, even though browsers connect without issues.
