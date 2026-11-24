@@ -440,7 +440,9 @@ def do_proxy_request(proxy, url, params={}, referer=None, ret_json=True, client=
         The HTTP request.
     """
     frmat = params.get(enums.params.f, enums.params.json)
-    params.pop(F, None)
+    # keep the format in the POST body too: an empty POST has no Content-Length and
+    # IIS rejects it with "411 Length Required" before the Esri proxy ever runs
+    params[F] = frmat
 
     headers = {'User-Agent': USER_AGENT}
     proxied_rquest = requests.Request('POST', url, params={F: frmat})
